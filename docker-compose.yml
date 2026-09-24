@@ -24,7 +24,8 @@ services:
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
       EB_API_KEY: ${EB_API_KEY:-}
       EB_HERMES_API_KEY: ${EB_HERMES_API_KEY:-}
-      EB_MASTER_KEY: ${EB_MASTER_KEY:-change-me-to-a-long-random-string}
+      # Encrypts connector secrets. Unset: a random key is generated once in the data volume (/data).
+      EB_MASTER_KEY: ${EB_MASTER_KEY:-}
     ports:
       - "3200:3200"
     volumes:

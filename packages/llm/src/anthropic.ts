@@ -17,6 +17,7 @@ import {
   type ToolLoopRequest,
   type ToolLoopResult,
 } from "./types.ts";
+import { toStructuredOutputSchema } from "./schema.ts";
 
 type BetaMessage = Anthropic.Beta.Messages.BetaMessage;
 type BetaCreateParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
@@ -149,7 +150,7 @@ export class AnthropicLlm implements LlmClient {
 
   async structured<T>(request: StructuredRequest): Promise<StructuredResult<T>> {
     const params = this.baseParams(request, 16000);
-    params.output_config = { ...(params.output_config ?? {}), format: { type: "json_schema", schema: request.schema } };
+    params.output_config = { ...(params.output_config ?? {}), format: { type: "json_schema", schema: toStructuredOutputSchema(request.schema) } };
     const message = await this.send(params);
     this.assertNotRefused(message);
     if (message.stop_reason === "max_tokens") {

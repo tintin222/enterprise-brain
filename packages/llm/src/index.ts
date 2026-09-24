@@ -7,6 +7,7 @@ export * from "./anthropic.ts";
 export * from "./scripted.ts";
 export * from "./embeddings.ts";
 export * from "./json.ts";
+export * from "./schema.ts";
 
 /**
  * Pick the LLM from the environment:

@@ -3,3 +3,10 @@ node_modules
 .data
 **/dist
 .git
+.env
+.env.*
+!.env.example
+**/.data
+coverage
+playwright-report
+test-results

@@ -96,7 +96,9 @@ docs/                Architecture, Agent Builder, Paperclip, API, templates, con
 
 ## Status
 
-This is a working foundation: every capability above is implemented and covered by automated tests, which run offline with a scripted LLM for the Claude paths. Two parts are not yet proven in production:
+This is a working foundation: every capability above is implemented and covered by automated tests, which run offline with a scripted LLM for the Claude paths. These parts are not yet proven in production:
 
+- The **Claude-powered paths** (analyst interview, extraction, evaluation, chat, OCR) have been exercised with a scripted model that honours the same structured-output schemas, but not yet against the live API. Run the Agent Builder scenario once with `ANTHROPIC_API_KEY` set before a customer demo.
+- **PostgreSQL server mode** (`DATABASE_URL`) and the **Docker image** have not been run yet. The test suite uses embedded PGlite (PostgreSQL 18 in WebAssembly, with pgvector) and the same migrations.
 - The enterprise connectors are **preview**: built from vendor API documentation and tested against recorded request/response contracts, but not against live tenants. Verify each one in the customer's environment.
 - The Paperclip integration follows Paperclip's source at the time of writing (plugin SDK `2026.916.1`, `hermes_gateway` contract, `agentcompanies/v1` import rules). It is covered by contract tests, including Paperclip's own YAML parser and the SDK's test harness, but has not yet run against a live Paperclip instance.

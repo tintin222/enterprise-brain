@@ -1,3 +1,4 @@
+import { structuredOutputProblems } from "./schema.ts";
 import {
   LlmUnavailableError,
   emptyUsage,
@@ -72,6 +73,9 @@ export class ScriptedLlm implements LlmClient {
 
   async structured<T>(request: StructuredRequest): Promise<StructuredResult<T>> {
     this.calls.push({ purpose: request.purpose, kind: "structured", request });
+    // Tests exercise every Claude path through here: fail on schemas the real API would reject or reinterpret.
+    const problems = structuredOutputProblems(request.schema);
+    if (problems.length) throw new Error(`ScriptedLlm: schema for "${request.purpose}" is not valid for structured outputs:\n${problems.join("\n")}`);
     const handler = this.handlerFor(request.purpose);
     if (!handler.structured) throw new Error(`ScriptedLlm: no structured() handler for "${request.purpose}"`);
     const data = (await handler.structured(request)) as T;
