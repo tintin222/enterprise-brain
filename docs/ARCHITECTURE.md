@@ -95,7 +95,7 @@ An agent is an `AgentDefinition` with these parts:
 | `extract` | File → text, pages, sheets, language, document type (OCR via Claude vision) | Text layers only |
 | `llm.extract` | Text → object following `FieldSpec[]` (structured output) | Heuristic extractor |
 | `llm.classify` | Text → category, confidence, reason | Keyword scoring |
-| `llm.evaluate` | Subject → per-criterion judgement with evidence → **deterministic** weighted score and verdict | Keyword evidence |
+| `llm.evaluate` | Subject → per-criterion judgement with evidence → **deterministic** weighted score and verdict | Keyword evidence (a criterion's `blockers` are checked first) |
 | `llm.generate` | Prompt → text | `fallback` template |
 | `knowledge.search` | Query → hits plus numbered context | Same (hybrid retrieval) |
 | `connector` | Operation on a bound system. Writes are approval-gated. | Same (sandbox by default) |
@@ -137,7 +137,8 @@ See [AGENT-BUILDER.md](AGENT-BUILDER.md). In short, it implements the *grilling*
 - **Decisions are the user's.**
 - Questions the user can't answer go to the right **stakeholder** (IT, the DPO, Legal) as a drafted email plus a public questionnaire link, and the answers flow back into the tree.
 - Nothing is generated until the user **confirms** the shared understanding.
-- Generation starts from the matching catalog template (or an archetype blueprint), applies every answer and tests the agent on the samples. The user then refines it in chat and activates it.
+- A catalog template adds its own questions and can **replace** generic ones, so nothing is asked twice.
+- Generation starts from the matching catalog template (or an archetype blueprint), applies every answer and tests the agent on the samples. The user then refines it in chat (applied as JSON Patch, so only the requested change is made) and activates it.
 
 ## 6. Knowledge & search
 
