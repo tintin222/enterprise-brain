@@ -52,10 +52,19 @@ export function renderRound(round: BuilderRound, language = "en"): string {
 export function renderFollowUp(options: {
   stillOpen: RoundQuestion[];
   unmatched: { question?: RoundQuestion; node: { title: string; options?: RoundQuestion["options"] }; said: string }[];
+  /** The reply couldn't be attributed to any question (kept as a note). */
+  unattributed?: boolean;
   language?: string;
 }): string {
   const tr = (options.language ?? "en").startsWith("tr");
   const lines: string[] = [];
+  if (options.unattributed) {
+    lines.push(
+      tr
+        ? "Not aldım, ancak hangi soruyu yanıtladığını anlayamadım. Lütfen numarayla yanıtlayın (ör. `2 …`)."
+        : "I've noted that, but I couldn't tell which question it answers. Please answer by number (e.g. `2 …`).",
+    );
+  }
   const label = (q: RoundQuestion | undefined, title: string) => (q ? `**Q${q.number} — ${q.title}**` : `**${title}**`);
   const unmatchedIds = new Set(options.unmatched.map((u) => u.question?.nodeId));
   for (const u of options.unmatched) {
@@ -227,7 +236,8 @@ export function renderSummary(options: {
     if (!isSettled(state) || state.status === "skipped" || node.answerType === "files") continue;
     if (node.section !== section) {
       section = node.section;
-      lines.push(`**${SECTION_LABELS[node.section]}**`);
+      // A blank line keeps the label out of the previous section's list in Markdown.
+      lines.push("", `**${SECTION_LABELS[node.section]}**`);
     }
     // Another team's answer is shown in their words, with who answered.
     const value =

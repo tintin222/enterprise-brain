@@ -143,7 +143,8 @@ export class ChatService {
         ? [
             "_Offline mode (no LLM configured) — here are the most relevant passages from the knowledge base:_",
             "",
-            ...hits.map((h, i) => `**[${i + 1}] ${h.title}**\n${truncate(h.content.replace(/\s+/g, " "), 500)}`),
+            // Quoted as plain text: a passage's own headings would otherwise render as headings.
+            ...hits.map((h, i) => `**[${i + 1}] ${h.title}**\n> ${truncate(h.content.replace(/^\s{0,3}#{1,6}\s+/gm, "").replace(/\s+/g, " ").trim(), 500)}`),
           ].join("\n\n")
         : "_Offline mode (no LLM configured)._ I could not find anything relevant in the knowledge base.";
       options.onText?.(answer);

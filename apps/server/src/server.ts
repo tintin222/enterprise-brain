@@ -57,10 +57,16 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
 
   const webDist = ctx.config.webDist;
   if (webDist && existsSync(join(webDist, "index.html"))) {
-    await app.register(fastifyStatic, { root: webDist, prefix: "/", wildcard: false });
+    // wildcard: files are looked up per request, so a rebuilt console is served without a restart;
+    // unknown paths fall through to the handler below (index.html for client-side routes).
+    await app.register(fastifyStatic, { root: webDist, prefix: "/", wildcard: true });
     app.setNotFoundHandler((request, reply) => {
       if (request.url.startsWith("/api/") || request.url.startsWith("/mcp")) {
         return reply.code(404).send({ error: `No route ${request.method} ${request.url}` });
+      }
+      // A missing file (e.g. an asset from an older build) is a 404, not the app: HTML would fail as a script.
+      if (/\.[a-z0-9]{1,8}$/i.test(request.url.split("?")[0]!)) {
+        return reply.code(404).type("text/plain").send("Not found");
       }
       return reply.type("text/html").sendFile("index.html");
     });

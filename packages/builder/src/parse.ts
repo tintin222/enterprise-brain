@@ -174,8 +174,12 @@ export function parseRoundReply(text: string, questions: RoundQuestion[]): Parse
     }
     return answers;
   }
-  const [first] = questions;
-  return first ? [interpret(first, trimmed)] : [];
+  // Without numbers, only attribute what is unambiguous: the one open question, or the one
+  // choice question whose options the reply names. Anything else is left for the analyst to ask about.
+  const answerable = questions.filter((q) => q.answerType !== "files");
+  if (answerable.length === 1) return [interpret(answerable[0]!, trimmed)];
+  const byOption = answerable.filter((q) => (q.answerType === "single" || q.answerType === "multi") && matchOptions(q.options ?? [], trimmed).length > 0);
+  return byOption.length === 1 ? [interpret(byOption[0]!, trimmed)] : [];
 }
 
 export type CoercedAnswer = { ok: true; value: unknown } | { ok: false };

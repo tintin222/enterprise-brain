@@ -21,6 +21,13 @@ describe("instance & catalog", () => {
     expect(dashboard.counts.knowledgeDocuments).toBeGreaterThan(5);
   });
 
+  it("answers 404 for unknown knowledge documents", async () => {
+    for (const id of ["00000000-0000-4000-8000-000000000000", "not-a-uuid"]) {
+      const res = await t.app.inject(`${base}/knowledge/documents/${id}`);
+      expect(res.statusCode, res.body).toBe(404);
+    }
+  });
+
   it("serves the catalog and installs a department", async () => {
     const catalog = (await t.app.inject("/api/catalog")).json();
     expect(catalog.departments.length).toBeGreaterThanOrEqual(10);

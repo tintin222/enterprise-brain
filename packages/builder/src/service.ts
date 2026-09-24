@@ -22,7 +22,7 @@ import type { Platform } from "@enterprise-brain/runtime";
 import { Analyst } from "./analyst.ts";
 import { generateDefinition, guessSystemCategory, requirementsDigest, type Synthesis } from "./generate.ts";
 import { buildInitialNodes } from "./nodes.ts";
-import { coerceAnswer, type ParsedAnswer } from "./parse.ts";
+import { coerceAnswer, splitNumbered, type ParsedAnswer } from "./parse.ts";
 import { describeDefinition, displayValue, renderFollowUp, renderRound, renderSummary } from "./render.ts";
 import { composeStakeholderRequest, newToken, stakeholderQuestion } from "./stakeholders.ts";
 import {
@@ -236,8 +236,19 @@ export class BuilderService {
   async reply(companyId: string, sessionId: string, input: { text?: string; answers?: StructuredAnswer[]; fileIds?: string[] }): Promise<SessionView> {
     const session = await this.session(companyId, sessionId);
     const status = session.status as BuilderStatus;
-    const text = input.text?.trim() ?? "";
-    if (input.fileIds?.length) await this.addSamples(companyId, sessionId, input.fileIds, { silent: !text && !input.answers?.length });
+    let text = input.text?.trim() ?? "";
+    if (input.fileIds?.length) {
+      await this.addSamples(companyId, sessionId, input.fileIds, { silent: !text && !input.answers?.length });
+      // "Here are the CVs" is a note about the upload, not an answer, unless it answers by number.
+      if (text && !splitNumbered(text, 20) && (session.status as BuilderStatus) === "interviewing") {
+        const fresh = await this.session(companyId, sessionId);
+        const settings = this.settings(fresh);
+        settings.notes.push(text);
+        await this.message(sessionId, "user", text);
+        await this.db.update(builderSessions).set({ settings: settings as unknown as Record<string, unknown>, updatedAt: new Date() }).where(eq(builderSessions.id, sessionId));
+        text = "";
+      }
+    }
     if (!text && !input.answers?.length) return this.get(companyId, sessionId);
 
     if (status === "confirming" && text && CONFIRM.test(text)) {
@@ -269,6 +280,7 @@ export class BuilderService {
       };
     });
     let changes: { nodeId: string; value: unknown }[] = [];
+    let unattributed = false;
     if (text) {
       const answeredIds = new Set(parsed.map((p) => p.nodeId));
       const openQuestions = questions.filter((q) => !answeredIds.has(q.nodeId) && isOpen(tree, getNode(tree, q.nodeId)!));
@@ -280,6 +292,11 @@ export class BuilderService {
         parsed.push(...interpreted.answers.filter((a) => !answeredIds.has(a.nodeId)));
         changes = interpreted.changes;
         if (interpreted.note) settings.notes.push(interpreted.note);
+        if (!interpreted.answers.length && !interpreted.changes.length) {
+          // Nothing could be attributed to a question: keep the words as a note and ask for numbers.
+          unattributed = true;
+          if (!interpreted.note) settings.notes.push(text);
+        }
       }
     }
 
@@ -326,7 +343,7 @@ export class BuilderService {
       if (round.questions.every((q) => !isOpen(tree, getNode(tree, q.nodeId)!))) round.answeredAt = nowIso();
       else if (text || unmatched.length) {
         const stillOpen = round.questions.filter((q) => isOpen(tree, getNode(tree, q.nodeId)!));
-        await this.message(sessionId, "analyst", renderFollowUp({ stillOpen, unmatched, language: session.language }), round.number);
+        await this.message(sessionId, "analyst", renderFollowUp({ stillOpen, unmatched, unattributed, language: session.language }), round.number);
       }
     }
     await this.factFinding(companyId, session, tree);
@@ -988,7 +1005,7 @@ export class BuilderService {
 
   private settings(session: SessionRow): SessionSettings {
     const raw = session.settings as Partial<SessionSettings>;
-    return { roundSize: raw.roundSize ?? 5, notes: raw.notes ?? [], knowledgeCollection: raw.knowledgeCollection, sampleObservations: raw.sampleObservations };
+    return { ...raw, roundSize: raw.roundSize ?? 5, notes: raw.notes ?? [] };
   }
 
   private template(session: SessionRow): AgentTemplate | undefined {

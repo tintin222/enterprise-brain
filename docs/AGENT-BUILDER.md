@@ -113,6 +113,8 @@ The analyst:
    - Mehmet Öztürk: 55, review → Recruiter review (required skills not evidenced in the Turkish CV)
 10. **"Activate"**: the CV screener is live at `/apps/cv-screener`. New applications to careers@ are screened automatically, and every candidate record waits for a recruiter's approval before it is written to the ATS.
 
+![A CV screener's generated screen: a form from its inputs, results from its outputs](screenshots/agent-app.png)
+
 ## Extending the analyst
 
 - **Process-specific questions** go in the template's Markdown frontmatter (`builder.questions`, `builder.matchPhrases`).

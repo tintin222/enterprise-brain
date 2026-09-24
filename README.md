@@ -22,6 +22,13 @@ Analyst:    ❓ Q5 — Where inputs come from? (pick all that apply)   ➡️ Re
             → generates the CV screener, tests it on the samples, activates it at /apps/cv-screener
 ```
 
+![Agent Builder: the analyst interviews an HR manager in rounds while the agent's blueprint builds up on the right](docs/screenshots/agent-builder.png)
+
+| | |
+|---|---|
+| ![Dashboard](docs/screenshots/dashboard.png) | ![HR department template with its processes, agents and approvals](docs/screenshots/department-template.png) |
+| ![The page the IT director opens from the request email](docs/screenshots/stakeholder-answer.png) | ![Shared mailboxes read by the agents](docs/screenshots/inbox.png) |
+
 ## Quick start
 
 Requirements: **Node.js 22.12+** and **pnpm 9**.
@@ -40,7 +47,7 @@ On first start, Enterprise Brain creates the demo company **Acme Endüstri A.Ş.
 
 **Claude:** set `ANTHROPIC_API_KEY` (default model `claude-opus-5`). Without it, everything still works in a clearly labelled **offline mode** with deterministic fallbacks. See `.env.example` for all settings (Postgres, embeddings, API keys, Paperclip).
 
-Development: `pnpm dev` runs the API with watch mode, and `pnpm dev:web` runs the console on http://localhost:5173 with the API proxied. Run the tests with `pnpm test` and the type checks with `pnpm typecheck`.
+Development: `pnpm dev` runs the API with watch mode, and `pnpm dev:web` runs the console on http://localhost:5173 with the API proxied. Stakeholder answer links are built from `EB_PUBLIC_URL`, so during development set it to `http://localhost:5173`. Run the tests with `pnpm test` and the type checks with `pnpm typecheck`.
 
 ## Try it
 

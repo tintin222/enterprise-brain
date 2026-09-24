@@ -30,7 +30,9 @@ export async function mailRoutes(app: FastifyInstance, ctx: AppContext) {
     const { id } = request.params as { id: string };
     const message = await platform.mail.get(company.id, id);
     const run = message.runId ? await platform.engine.get(company.id, message.runId).catch(() => undefined) : undefined;
-    return { message, run: run ? { ...run.run, context: undefined } : null, approvals: run?.approvals ?? [] };
+    // Same approval shape as GET /approvals (with the agent's name).
+    const agentName = run ? (await platform.agents.get(company.id, run.run.agentId).catch(() => undefined))?.row.name ?? null : null;
+    return { message, run: run ? { ...run.run, context: undefined } : null, approvals: (run?.approvals ?? []).map((a) => ({ ...a, agentName })) };
   });
 
   /** Deliver a message into a (sandbox) mailbox; matching agents start automatically. */

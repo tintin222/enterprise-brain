@@ -38,6 +38,14 @@ function inputFromMultipart(
   return input;
 }
 
+/** Events after which a live run stream ends, and the run status they leave behind. */
+const RUN_STATUS_AFTER: Record<string, string> = {
+  "run.succeeded": "succeeded",
+  "run.failed": "failed",
+  "run.cancelled": "cancelled",
+  "approval.requested": "waiting_approval",
+};
+
 export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
   const { platform } = ctx;
 
@@ -189,8 +197,10 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
       runId,
       (event) => {
         stream.send("event", event);
-        if (["run.succeeded", "run.failed", "run.cancelled", "approval.requested"].includes(event.type)) {
-          stream.send("end", { status: event.type });
+        // `end` always carries the run's status, whether the run finished live or before the client connected.
+        const status = RUN_STATUS_AFTER[event.type];
+        if (status) {
+          stream.send("end", { status });
           stream.close();
         }
       },

@@ -65,7 +65,7 @@ export async function coreRoutes(app: FastifyInstance, ctx: AppContext) {
       .from(builderSessions)
       .where(and(eq(builderSessions.companyId, company.id), sql`${builderSessions.status} not in ('deployed', 'archived')`));
     const recentRuns = await platform.engine.list(company.id, { limit: 10 });
-    const agentNames = new Map((await platform.agents.list(company.id)).map((a) => [a.row.id, a.row.name]));
+    const agentRows = new Map((await platform.agents.list(company.id)).map((a) => [a.row.id, a.row]));
     return {
       company,
       counts: {
@@ -80,7 +80,7 @@ export async function coreRoutes(app: FastifyInstance, ctx: AppContext) {
         openBuilderSessions: sessions?.n ?? 0,
       },
       costMonthUsd: Math.round((cost?.usd ?? 0) * 100) / 100,
-      recentRuns: recentRuns.map((r) => ({ ...r, agentName: agentNames.get(r.agentId) ?? "Agent", context: undefined })),
+      recentRuns: recentRuns.map((r) => ({ ...r, agentName: agentRows.get(r.agentId)?.name ?? "Agent", agentSlug: agentRows.get(r.agentId)?.slug ?? null, context: undefined })),
       recentActivity: await platform.activity.list(company.id, 15),
     };
   });
