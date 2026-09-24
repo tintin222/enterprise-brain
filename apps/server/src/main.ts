@@ -49,6 +49,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error);
+  // Setup problems an administrator must fix get a plain message instead of a stack trace.
+  if (error instanceof Error && error.name === "DatabaseSetupError") console.error(`\nCannot start Enterprise Brain: ${error.message}\n`);
+  else console.error(error);
   process.exit(1);
 });

@@ -45,6 +45,17 @@ On first start, Enterprise Brain creates the demo company **Acme Endüstri A.Ş.
 - a knowledge base of company policies in English and Turkish
 - sandbox mailboxes with job applications (PDF/DOCX CVs), supplier invoices generated from the sandbox ERP's purchase orders, customer emails and IT requests
 
+**Database:** nothing to install. Enterprise Brain runs PostgreSQL (with pgvector) *inside* the application, using [PGlite](https://pglite.dev), and keeps everything in the `.data/` folder: `db/` for the database, `files/` for uploads and `master.key` for encrypting connector secrets. Back it up by copying the folder while the server is stopped; move it with `EB_DATA_DIR`. For production, or when several servers share one database, use a PostgreSQL server (15 or later) instead:
+
+```bash
+# once, as a database superuser, in the target database:
+CREATE EXTENSION vector;
+# then point Enterprise Brain at it (tables are created and migrated on start):
+DATABASE_URL=postgres://user:password@host:5432/enterprise_brain pnpm start
+```
+
+`docker compose up` starts both, with a pgvector-enabled PostgreSQL. Managed services (Azure Database for PostgreSQL, AWS RDS, Google Cloud SQL) support pgvector.
+
 **Claude:** set `ANTHROPIC_API_KEY` (default model `claude-opus-5`). Without it, everything still works in a clearly labelled **offline mode** with deterministic fallbacks. See `.env.example` for all settings (Postgres, embeddings, API keys, Paperclip).
 
 Development: `pnpm dev` runs the API with watch mode, and `pnpm dev:web` runs the console on http://localhost:5173 with the API proxied. Stakeholder answer links are built from `EB_PUBLIC_URL`, so during development set it to `http://localhost:5173`. Run the tests with `pnpm test` and the type checks with `pnpm typecheck`.
@@ -106,6 +117,6 @@ docs/                Architecture, Agent Builder, Paperclip, API, templates, con
 This is a working foundation: every capability above is implemented and covered by automated tests, which run offline with a scripted LLM for the Claude paths. These parts are not yet proven in production:
 
 - The **Claude-powered paths** (analyst interview, extraction, evaluation, chat, OCR) have been exercised with a scripted model that honours the same structured-output schemas, but not yet against the live API. Run the Agent Builder scenario once with `ANTHROPIC_API_KEY` set before a customer demo.
-- **PostgreSQL server mode** (`DATABASE_URL`) and the **Docker image** have not been run yet. The test suite uses embedded PGlite (PostgreSQL 18 in WebAssembly, with pgvector) and the same migrations.
+- The **Docker image** has not been built yet. PostgreSQL server mode (`DATABASE_URL`) was run against PostgreSQL 16 with pgvector 0.6: demo data, knowledge search, chat, an agent run with an approval, and an Agent Builder session. The automated tests use the embedded database with the same migrations.
 - The enterprise connectors are **preview**: built from vendor API documentation and tested against recorded request/response contracts, but not against live tenants. Verify each one in the customer's environment.
 - The Paperclip integration follows Paperclip's source at the time of writing (plugin SDK `2026.916.1`, `hermes_gateway` contract, `agentcompanies/v1` import rules). It is covered by contract tests, including Paperclip's own YAML parser and the SDK's test harness, but has not yet run against a live Paperclip instance.

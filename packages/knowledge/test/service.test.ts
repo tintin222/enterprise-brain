@@ -404,3 +404,15 @@ describe("documents", () => {
     expect(Number(foreign?.n)).toBe(0);
   });
 });
+
+describe("duplicates across collections", () => {
+  it("returns a passage filed in several collections once", async () => {
+    await service.ensureCollection(companyA, { key: "handbook-dup", name: "Handbook" });
+    await service.ensureCollection(companyA, { key: "onboarding-dup", name: "Onboarding" });
+    const text = "Company cars: employees in field sales receive a company car after their probation period ends.";
+    await service.ingestText(companyA, "handbook-dup", { title: "Company car policy", text });
+    await service.ingestText(companyA, "onboarding-dup", { title: "Company car policy", text });
+    const hits = await service.search(companyA, "company car probation", { collections: ["handbook-dup", "onboarding-dup"], topK: 5 });
+    expect(hits.filter((h) => h.title === "Company car policy")).toHaveLength(1);
+  });
+});

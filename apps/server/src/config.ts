@@ -28,7 +28,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return {
     port,
     host,
-    dataDir: resolve(env.EB_DATA_DIR ?? resolve(repoRoot, ".data")),
+    // Relative paths are taken from the repository root (the server itself runs in apps/server).
+    dataDir: resolve(repoRoot, env.EB_DATA_DIR ?? ".data"),
     databaseUrl: env.DATABASE_URL || undefined,
     publicUrl: (env.EB_PUBLIC_URL ?? `http://${host === "0.0.0.0" ? "localhost" : host}:${port}`).replace(/\/$/, ""),
     apiKey: env.EB_API_KEY || undefined,

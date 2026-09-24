@@ -301,19 +301,26 @@ export class KnowledgeService {
     // Normalise so 1 means "ranked first by every retriever that evaluated the query".
     const maxScore = retrievers / (RRF_K + 1);
     const minScore = typeof options.minScore === "number" ? options.minScore : Number.NEGATIVE_INFINITY;
+    // Extra candidates so that copies of the same passage in other collections can be dropped below.
     const fused = reciprocalRankFusion([vector.candidates.map((c) => c.id), fullText.candidates.map((c) => c.id)])
       .map((result) => ({ ...result, score: result.score / maxScore }))
       .filter((result) => result.score >= minScore)
-      .slice(0, topK);
+      .slice(0, topK * 3);
     if (fused.length === 0) return [];
 
     const details = await this.chunkDetails(companyId, fused.map((result) => result.id));
     const vectorScores = new Map(vector.candidates.map((c) => [c.id, c.score]));
     const textScores = new Map(fullText.candidates.map((c) => [c.id, c.score]));
     const hits: SearchHit[] = [];
+    const seen = new Set<string>();
     for (const result of fused) {
+      if (hits.length >= topK) break;
       const row = details.get(result.id);
       if (!row) continue; // deleted in the meantime
+      // The same document filed in several collections is one source, not several.
+      const passage = `${row.title}\u0000${normalizeText(row.content)}`;
+      if (seen.has(passage)) continue;
+      seen.add(passage);
       const [vectorRank, textRank] = result.ranks;
       hits.push({
         chunkId: row.id,

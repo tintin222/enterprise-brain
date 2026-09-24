@@ -19,12 +19,31 @@ async function attempt<T>(label: string, fn: () => Promise<T>): Promise<T | unde
   }
 }
 
-function topicMatches(key: string, topic: DemoDoc["topic"]): boolean {
-  const k = key.toLowerCase();
-  if (topic === "it") return k === "it" || k.startsWith("it-") || k.includes("-it-") || k.includes("helpdesk");
-  if (topic === "customer-service") return k.includes("customer") || k.includes("support") || k.startsWith("cs-");
-  if (topic === "hr") return k === "hr" || k.startsWith("hr-") || k.includes("-hr-") || k.includes("people");
-  return k.includes(topic);
+/** Words in a collection key that mark a topic ("ap-policies" -> finance, "support-kb" -> customer service). */
+const TOPIC_WORDS: [DemoDoc["topic"], string[]][] = [
+  ["hr", ["hr", "people", "benefit", "leave", "onboarding", "recruit", "talent", "payroll"]],
+  ["finance", ["finance", "ap", "ar", "invoice", "expense", "accounting", "tax", "payment", "collection", "credit", "treasury"]],
+  ["it", ["it", "helpdesk", "security", "access", "integration", "infrastructure"]],
+  ["customer-service", ["support", "customer", "service", "product", "manual", "faq", "return", "warranty"]],
+  ["procurement", ["procurement", "purchas", "supplier", "vendor", "sourcing"]],
+  ["legal", ["legal", "contract", "nda", "compliance", "privacy"]],
+];
+const GENERAL_WORDS = ["handbook", "company", "general", "wiki", "intranet"];
+
+function keyTokens(key: string): string[] {
+  return key.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+/** Two-letter words must match whole tokens ("it", not "item"); longer ones may be prefixes ("recruit" in "recruitment"). */
+function hasWord(tokens: string[], word: string): boolean {
+  return tokens.some((token) => (word.length <= 2 ? token === word : token.startsWith(word)));
+}
+
+/** Demo topics a collection should hold: its own topics, or everything for general collections, or none. */
+function topicsFor(key: string): DemoDoc["topic"][] | "all" {
+  const tokens = keyTokens(key);
+  if (GENERAL_WORDS.some((word) => hasWord(tokens, word))) return "all";
+  return TOPIC_WORDS.filter(([, words]) => words.some((word) => hasWord(tokens, word))).map(([topic]) => topic);
 }
 
 /** Pick a record field by any of several names (the sandbox systems use snake_case). */
@@ -55,19 +74,19 @@ export async function seedDemo(platform: Platform, companyId: string): Promise<v
     if (result) log(`installed ${department}: ${result.agents.length} agents`);
   }
 
-  // Knowledge: every collection the installed agents use gets the matching policies; unmatched
-  // (general) collections get everything, so the company assistant can answer across topics.
+  // Knowledge: each collection the installed agents use gets the policies of its topic; general
+  // collections (a handbook) get everything. The company assistant searches all collections.
   for (const topic of new Set(DEMO_KNOWLEDGE.map((d) => d.topic))) {
     const existing = await platform.knowledge.listCollections(companyId);
-    if (!existing.some((c) => topicMatches(c.key, topic))) {
+    if (!existing.some((c) => { const t = topicsFor(c.key); return t !== "all" && t.includes(topic); })) {
       await platform.knowledge.ensureCollection(companyId, { key: `${topic}-policies`, name: `${humanizeKey(topic)} policies` });
     }
   }
   const collections = await platform.knowledge.listCollections(companyId);
   let ingested = 0;
   for (const collection of collections) {
-    const topics = new Set(DEMO_KNOWLEDGE.map((d) => d.topic).filter((t) => topicMatches(collection.key, t)));
-    const docs = topics.size ? DEMO_KNOWLEDGE.filter((d) => topics.has(d.topic)) : DEMO_KNOWLEDGE;
+    const topics = topicsFor(collection.key);
+    const docs = topics === "all" ? DEMO_KNOWLEDGE : DEMO_KNOWLEDGE.filter((d) => topics.includes(d.topic));
     for (const doc of docs) {
       const result = await attempt(`knowledge ${doc.title}`, () =>
         platform.knowledge.ingestText(companyId, collection.key, { title: doc.title, text: doc.text, source: "text", metadata: { demo: true, topic: doc.topic } }),

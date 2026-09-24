@@ -172,5 +172,5 @@ See [AGENT-BUILDER.md](AGENT-BUILDER.md). In short, it implements the *grilling*
 ## 10. Deployment
 
 - **Local:** `pnpm install && pnpm build && pnpm start`. This uses embedded Postgres under `.data/`.
-- **Production:** set `DATABASE_URL` to PostgreSQL with the pgvector extension available, plus `EB_PUBLIC_URL`, `EB_API_KEY`, `EB_HERMES_API_KEY`, `EB_MASTER_KEY` and `ANTHROPIC_API_KEY`. Serve over HTTPS; Paperclip requires HTTPS for remote Hermes gateways.
+- **Production:** set `DATABASE_URL` to PostgreSQL 15+ with pgvector, plus `EB_PUBLIC_URL`, `EB_API_KEY`, `EB_HERMES_API_KEY`, `EB_MASTER_KEY` and `ANTHROPIC_API_KEY`. Enabling pgvector needs a superuser, so a DBA runs `CREATE EXTENSION vector;` once; the application user then only needs to own its database. Migrations run on start. If the extension is missing, the server stops with that instruction rather than a database error. Serve over HTTPS; Paperclip requires HTTPS for remote Hermes gateways.
 - **Scaling:** the server is stateless apart from files on disk (point `EB_DATA_DIR` at shared storage) and in-process run execution. Behind a load balancer, pin runs to the instance that started them, or move execution to a queue (see the roadmap).
