@@ -16,6 +16,7 @@ import { keys } from "../../lib/queries.ts";
 import { readJson, writeJson } from "../../lib/storage.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { AgentTemplate, SessionView } from "../../types.ts";
+import { useDocumentTitle } from "../../lib/title.ts";
 
 const EXAMPLES: { label: string; text: string }[] = [
   {
@@ -83,6 +84,7 @@ function Thinking() {
 
 export default function BuilderNew() {
   const { company, path } = useCompany();
+  useDocumentTitle("New agent");
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -150,8 +152,8 @@ export default function BuilderNew() {
           </p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Describe the agent you need</h1>
           <p className="mt-2 max-w-2xl text-[15px] text-white/85">
-            Write it the way you'd explain it to a new colleague. An AI requirements analyst will ask you a few rounds of questions — each with a recommended answer — and
-            involve IT or legal only where needed. Nothing is built until you confirm.
+            Write it the way you'd explain it to a new colleague. An AI requirements analyst will ask you a few rounds of questions — each with a recommended
+            answer — and involve IT or legal only where needed. Nothing is built until you confirm.
           </p>
         </div>
       </div>
@@ -192,7 +194,12 @@ export default function BuilderNew() {
               ))}
             </div>
           </div>
-          <Field className="mt-6" label="Do you already have a form in mind?" optional hint="E.g. the fields your team fills in today, or a screen you'd like to see.">
+          <Field
+            className="mt-6"
+            label="Do you already have a form in mind?"
+            optional
+            hint="E.g. the fields your team fills in today, or a screen you'd like to see."
+          >
             {(id) => (
               <textarea
                 id={id}
@@ -211,10 +218,26 @@ export default function BuilderNew() {
           <p className="mt-0.5 text-[13px] text-muted">Used to sign the emails the analyst drafts for your colleagues (e.g. IT or data protection).</p>
           <div className="mt-4 grid gap-4 sm:grid-cols-3">
             <Field label="Your name">
-              {(id) => <input id={id} className="input" placeholder="Ayşe Demir" value={requester.name} onChange={(e) => setRequester({ ...requester, name: e.target.value })} />}
+              {(id) => (
+                <input
+                  id={id}
+                  className="input"
+                  placeholder="Ayşe Demir"
+                  value={requester.name}
+                  onChange={(e) => setRequester({ ...requester, name: e.target.value })}
+                />
+              )}
             </Field>
             <Field label="Your role">
-              {(id) => <input id={id} className="input" placeholder="HR Manager" value={requester.role} onChange={(e) => setRequester({ ...requester, role: e.target.value })} />}
+              {(id) => (
+                <input
+                  id={id}
+                  className="input"
+                  placeholder="HR Manager"
+                  value={requester.role}
+                  onChange={(e) => setRequester({ ...requester, role: e.target.value })}
+                />
+              )}
             </Field>
             <Field label="Your email">
               {(id) => (

@@ -80,11 +80,27 @@ export default function Settings() {
             >
               <p className="text-sm font-medium text-fg">Create a company</p>
               <p className="mb-3 text-xs text-muted">Each company has its own agents, knowledge, connectors and runs.</p>
-              <div className="grid gap-3 sm:grid-cols-[1fr_12rem_auto] sm:items-end">
-                <Field label="Name">{(id) => <input id={id} className="input" placeholder="Globex Holding" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />}</Field>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_12rem_auto] sm:items-end">
+                <Field label="Name">
+                  {(id) => (
+                    <input
+                      id={id}
+                      className="input"
+                      placeholder="Globex Holding"
+                      value={form.name}
+                      onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    />
+                  )}
+                </Field>
                 <Field label="Slug">
                   {(id) => (
-                    <input id={id} className="input font-mono text-xs" placeholder={slugify(form.name) || "globex"} value={form.slug} onChange={(e) => setForm({ ...form, slug: slugify(e.target.value) })} />
+                    <input
+                      id={id}
+                      className="input font-mono text-xs"
+                      placeholder={slugify(form.name) || "globex"}
+                      value={form.slug}
+                      onChange={(e) => setForm({ ...form, slug: slugify(e.target.value) })}
+                    />
                   )}
                 </Field>
                 <Button type="submit" variant="primary" loading={create.isPending} disabled={!form.name.trim()}>
@@ -101,7 +117,17 @@ export default function Settings() {
             {info.authRequired ? (
               <form onSubmit={saveKey} className="space-y-3">
                 <Field label="Console API key" hint="Stored only in this browser (localStorage) and sent as Authorization: Bearer … with every request.">
-                  {(id) => <input id={id} type="password" autoComplete="off" className="input sm:max-w-md" value={key} onChange={(e) => setKey(e.target.value)} placeholder="EB_API_KEY" />}
+                  {(id) => (
+                    <input
+                      id={id}
+                      type="password"
+                      autoComplete="off"
+                      className="input sm:max-w-md"
+                      value={key}
+                      onChange={(e) => setKey(e.target.value)}
+                      placeholder="EB_API_KEY"
+                    />
+                  )}
                 </Field>
                 <Button type="submit" variant="primary">
                   Save key
@@ -109,7 +135,8 @@ export default function Settings() {
               </form>
             ) : (
               <Callout tone="info" title="Local trusted mode">
-                This server runs without EB_API_KEY, so the console and the MCP endpoint need no key (like Paperclip's local_trusted mode). Set EB_API_KEY on the server to require one.
+                This server runs without EB_API_KEY, so the console and the MCP endpoint need no key (like Paperclip's local_trusted mode). Set EB_API_KEY on
+                the server to require one.
               </Callout>
             )}
           </div>

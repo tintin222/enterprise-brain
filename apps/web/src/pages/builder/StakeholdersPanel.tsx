@@ -99,10 +99,16 @@ function RequestCard({ request, actions, highlighted }: { request: StakeholderRe
           </ul>
         ) : (
           <>
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Recipient name">
                 {(id) => (
-                  <input id={id} className="input" placeholder="e.g. Murat Yılmaz" value={draft.recipientName} onChange={(e) => setDraft({ ...draft, recipientName: e.target.value })} />
+                  <input
+                    id={id}
+                    className="input"
+                    placeholder="e.g. Murat Yılmaz"
+                    value={draft.recipientName}
+                    onChange={(e) => setDraft({ ...draft, recipientName: e.target.value })}
+                  />
                 )}
               </Field>
               <Field label="Recipient email">
@@ -122,11 +128,25 @@ function RequestCard({ request, actions, highlighted }: { request: StakeholderRe
               {(id) => <input id={id} className="input" value={draft.subject} onChange={(e) => setDraft({ ...draft, subject: e.target.value })} />}
             </Field>
             <Field label="Email">
-              {(id) => <textarea id={id} rows={10} className="input font-[inherit] text-[13px] leading-relaxed" value={draft.body} onChange={(e) => setDraft({ ...draft, body: e.target.value })} />}
+              {(id) => (
+                <textarea
+                  id={id}
+                  rows={10}
+                  className="input font-[inherit] text-[13px] leading-relaxed"
+                  value={draft.body}
+                  onChange={(e) => setDraft({ ...draft, body: e.target.value })}
+                />
+              )}
             </Field>
             {dirty && (
               <div className="flex items-center gap-2">
-                <Button size="sm" variant="soft" icon={Save} loading={actions.updateRequest.isPending} onClick={() => void save().then(() => toast.success("Request saved"))}>
+                <Button
+                  size="sm"
+                  variant="soft"
+                  icon={Save}
+                  loading={actions.updateRequest.isPending}
+                  onClick={() => void save().then(() => toast.success("Request saved"))}
+                >
                   Save changes
                 </Button>
                 <span className="text-xs text-muted">Unsaved changes</span>
@@ -165,7 +185,11 @@ function RequestCard({ request, actions, highlighted }: { request: StakeholderRe
                 size="sm"
                 variant="ghost"
                 icon={Link2}
-                onClick={() => void copyText(answerLink(request.token)).then((ok) => ok && toast.success("Answer link copied", { description: "Anyone with the link can answer these questions." }))}
+                onClick={() =>
+                  void copyText(answerLink(request.token)).then(
+                    (ok) => ok && toast.success("Answer link copied", { description: "Anyone with the link can answer these questions." }),
+                  )
+                }
               >
                 Copy answer link
               </Button>

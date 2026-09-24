@@ -17,8 +17,9 @@ import { Page } from "../components/Layout.tsx";
 import { OutputView } from "../components/OutputView.tsx";
 import { useRunDetail } from "../components/RunViews.tsx";
 import { ErrorState, Skeleton, Spinner } from "../components/Spinner.tsx";
+import { Segmented } from "../components/Tabs.tsx";
 import { useCompany } from "../lib/company.tsx";
-import { formatBytes, formatDateTime, timeAgo } from "../lib/format.ts";
+import { formatBytes, formatDateTime, plural, timeAgo } from "../lib/format.ts";
 import { keys, useAgents, useMailboxes } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
 import type { MailMessage, MailMessageDetail, RunRow } from "../types.ts";
@@ -27,7 +28,19 @@ import type { MailMessage, MailMessageDetail, RunRow } from "../types.ts";
 // Simulate incoming email
 // ---------------------------------------------------------------------------
 
-function ComposeDialog({ open, onClose, mailboxes, initialMailbox, onDelivered }: { open: boolean; onClose: () => void; mailboxes: string[]; initialMailbox?: string; onDelivered: (m: MailMessage) => void }) {
+function ComposeDialog({
+  open,
+  onClose,
+  mailboxes,
+  initialMailbox,
+  onDelivered,
+}: {
+  open: boolean;
+  onClose: () => void;
+  mailboxes: string[];
+  initialMailbox?: string;
+  onDelivered: (m: MailMessage) => void;
+}) {
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -57,7 +70,9 @@ function ComposeDialog({ open, onClose, mailboxes, initialMailbox, onDelivered }
       void queryClient.invalidateQueries({ queryKey: keys.mail(company) });
       void queryClient.invalidateQueries({ queryKey: keys.runs(company) });
       toast.success("Email delivered", {
-        description: res.runs.length ? `${res.runs.length} agent${res.runs.length === 1 ? "" : "s"} started processing it.` : "No active agent listens to this mailbox — process it manually.",
+        description: res.runs.length
+          ? `${res.runs.length} agent${res.runs.length === 1 ? "" : "s"} started processing it.`
+          : "No active agent listens to this mailbox — process it manually.",
       });
       setForm((f) => ({ ...f, from: "", fromName: "", subject: "", body: "" }));
       setFiles([]);
@@ -83,7 +98,13 @@ function ComposeDialog({ open, onClose, mailboxes, initialMailbox, onDelivered }
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
-          <Button variant="primary" icon={Send} loading={deliver.isPending} onClick={() => deliver.mutate()} disabled={!form.mailbox || !form.from || !form.subject}>
+          <Button
+            variant="primary"
+            icon={Send}
+            loading={deliver.isPending}
+            onClick={() => deliver.mutate()}
+            disabled={!form.mailbox || !form.from || !form.subject}
+          >
             Deliver email
           </Button>
         </>
@@ -93,7 +114,14 @@ function ComposeDialog({ open, onClose, mailboxes, initialMailbox, onDelivered }
         <Field label="To mailbox" required hint="Pick a mailbox or type any address (e.g. careers@acme.com.tr).">
           {(id) => (
             <>
-              <input id={id} className="input" list="eb-mailboxes" value={form.mailbox} onChange={(e) => setForm({ ...form, mailbox: e.target.value })} placeholder="info@company.com" />
+              <input
+                id={id}
+                className="input"
+                list="eb-mailboxes"
+                value={form.mailbox}
+                onChange={(e) => setForm({ ...form, mailbox: e.target.value })}
+                placeholder="info@company.com"
+              />
               <datalist id="eb-mailboxes">
                 {mailboxes.map((m) => (
                   <option key={m} value={m} />
@@ -102,12 +130,23 @@ function ComposeDialog({ open, onClose, mailboxes, initialMailbox, onDelivered }
             </>
           )}
         </Field>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="From" required>
-            {(id) => <input id={id} type="email" className="input" placeholder="jane.doe@example.com" value={form.from} onChange={(e) => setForm({ ...form, from: e.target.value })} />}
+            {(id) => (
+              <input
+                id={id}
+                type="email"
+                className="input"
+                placeholder="jane.doe@example.com"
+                value={form.from}
+                onChange={(e) => setForm({ ...form, from: e.target.value })}
+              />
+            )}
           </Field>
           <Field label="Sender name" optional>
-            {(id) => <input id={id} className="input" placeholder="Jane Doe" value={form.fromName} onChange={(e) => setForm({ ...form, fromName: e.target.value })} />}
+            {(id) => (
+              <input id={id} className="input" placeholder="Jane Doe" value={form.fromName} onChange={(e) => setForm({ ...form, fromName: e.target.value })} />
+            )}
           </Field>
         </div>
         <Field label="Subject" required>
@@ -212,7 +251,9 @@ function MessageDetail({ id, onBack }: { id: string; onBack: () => void }) {
         </p>
         <p className="text-xs text-faint">{formatDateTime(message.receivedAt)}</p>
       </div>
-      <div className="rounded-xl border border-line bg-subtle/30 p-4 text-[13px] leading-relaxed whitespace-pre-wrap text-fg">{message.bodyText || <span className="text-muted">(empty body)</span>}</div>
+      <div className="rounded-xl border border-line bg-subtle/30 p-4 text-[13px] leading-relaxed whitespace-pre-wrap text-fg">
+        {message.bodyText || <span className="text-muted">(empty body)</span>}
+      </div>
       {message.attachments.length > 0 && (
         <div className="flex flex-wrap gap-3">
           {message.attachments.map((a) => (
@@ -272,9 +313,10 @@ export default function Inbox() {
   const mailboxes = useMailboxes();
   const agents = useAgents();
 
+  const [direction, setDirection] = useState<"inbound" | "outbound">("inbound");
   const messages = useQuery({
-    queryKey: [...keys.mail(company), "messages", { mailbox }],
-    queryFn: () => api.get<MailMessage[]>(path(`/mail/messages${qs({ mailbox: mailbox || undefined, direction: "inbound" })}`)),
+    queryKey: [...keys.mail(company), "messages", { mailbox, direction }],
+    queryFn: () => api.get<MailMessage[]>(path(`/mail/messages${qs({ mailbox: mailbox || undefined, direction })}`)),
     refetchInterval: 10_000,
   });
 
@@ -306,7 +348,7 @@ export default function Inbox() {
           </Button>
         }
       />
-      <Card className="grid overflow-hidden lg:h-[calc(100dvh-14rem)] lg:min-h-[560px] lg:grid-cols-[240px_minmax(0,380px)_minmax(0,1fr)]">
+      <Card className="grid grid-cols-1 overflow-hidden lg:h-[calc(100dvh-14rem)] lg:min-h-[560px] lg:grid-cols-[240px_minmax(0,380px)_minmax(0,1fr)]">
         {/* Mailboxes */}
         <nav className={clsx("border-b border-line lg:overflow-y-auto lg:border-r lg:border-b-0", selected && "hidden lg:block")} aria-label="Mailboxes">
           <ul className="p-2">
@@ -314,11 +356,16 @@ export default function Inbox() {
               <button
                 type="button"
                 onClick={() => set("mailbox", null)}
-                className={clsx("flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm", !mailbox ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200" : "hover:bg-subtle")}
+                className={clsx(
+                  "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm",
+                  !mailbox ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200" : "hover:bg-subtle",
+                )}
               >
                 <InboxIcon className="size-4 shrink-0" />
                 <span className="flex-1 font-medium">All mailboxes</span>
-                {totalUnprocessed > 0 && <span className="rounded-full bg-brand-600 px-1.5 text-[11px] leading-[18px] font-semibold text-white">{totalUnprocessed}</span>}
+                {totalUnprocessed > 0 && (
+                  <span className="rounded-full bg-brand-600 px-1.5 text-[11px] leading-[18px] font-semibold text-white">{totalUnprocessed}</span>
+                )}
               </button>
             </li>
             {mailboxes.isLoading && <Skeleton className="m-2 h-24" />}
@@ -331,10 +378,16 @@ export default function Inbox() {
                 >
                   <span className="flex items-center gap-2">
                     <Mail className="size-4 shrink-0 text-muted" />
-                    <span className={clsx("min-w-0 flex-1 truncate text-sm font-medium", mailbox === m.mailbox ? "text-brand-700 dark:text-brand-200" : "text-fg")}>{m.mailbox}</span>
-                    {m.unprocessed > 0 && <span className="rounded-full bg-subtle px-1.5 text-[11px] leading-[18px] font-semibold text-muted">{m.unprocessed}</span>}
+                    <span
+                      className={clsx("min-w-0 flex-1 truncate text-sm font-medium", mailbox === m.mailbox ? "text-brand-700 dark:text-brand-200" : "text-fg")}
+                    >
+                      {m.mailbox}
+                    </span>
+                    {m.unprocessed > 0 && (
+                      <span className="rounded-full bg-subtle px-1.5 text-[11px] leading-[18px] font-semibold text-muted">{m.unprocessed}</span>
+                    )}
                   </span>
-                  <span className="mt-0.5 block pl-6 text-xs text-faint">{m.total} messages</span>
+                  <span className="mt-0.5 block pl-6 text-xs text-faint">{plural(m.total, "message")}</span>
                   {m.agents.length > 0 && (
                     <span className="mt-1 flex flex-wrap gap-1 pl-6">
                       {m.agents.map((a) => (
@@ -353,6 +406,17 @@ export default function Inbox() {
 
         {/* Messages */}
         <div className={clsx("min-h-0 border-b border-line lg:overflow-y-auto lg:border-r lg:border-b-0", selected && "hidden lg:block")}>
+          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-line bg-surface/95 px-4 py-2 backdrop-blur">
+            <Segmented
+              value={direction}
+              onChange={setDirection}
+              options={[
+                { value: "inbound", label: "Received" },
+                { value: "outbound", label: "Sent" },
+              ]}
+            />
+            {messages.data && <span className="text-xs text-faint">{plural(messages.data.length, "message")}</span>}
+          </div>
           {messages.isLoading && <Skeleton className="m-4 h-40" />}
           {messages.error && <ErrorState error={messages.error} className="m-4" />}
           {messages.data && messages.data.length === 0 && (
@@ -375,10 +439,15 @@ export default function Inbox() {
                 <button
                   type="button"
                   onClick={() => set("message", m.id)}
-                  className={clsx("w-full px-4 py-3 text-left transition-colors", selected === m.id ? "bg-brand-50/70 dark:bg-brand-400/10" : "hover:bg-subtle/60")}
+                  className={clsx(
+                    "w-full px-4 py-3 text-left transition-colors",
+                    selected === m.id ? "bg-brand-50/70 dark:bg-brand-400/10" : "hover:bg-subtle/60",
+                  )}
                 >
                   <span className="flex items-center gap-2">
-                    <span className={clsx("min-w-0 flex-1 truncate text-sm", m.status === "new" ? "font-semibold text-fg" : "font-medium text-fg/90")}>{m.fromName ?? m.fromAddress}</span>
+                    <span className={clsx("min-w-0 flex-1 truncate text-sm", m.status === "new" ? "font-semibold text-fg" : "font-medium text-fg/90")}>
+                      {m.direction === "outbound" ? `To ${m.toAddresses.join(", ") || "—"}` : (m.fromName ?? m.fromAddress)}
+                    </span>
                     <span className="shrink-0 text-[11px] text-faint">{timeAgo(m.receivedAt)}</span>
                   </span>
                   <span className="mt-0.5 flex items-center gap-1.5">
@@ -401,7 +470,13 @@ export default function Inbox() {
             <MessageDetail key={selected} id={selected} onBack={() => set("message", null)} />
           ) : (
             <div className="flex h-full items-center justify-center p-8">
-              <EmptyState compact icon={Mail} title="Select a message" description="See the email, its attachments, what the agent extracted and any reply waiting for approval." className="border-0" />
+              <EmptyState
+                compact
+                icon={Mail}
+                title="Select a message"
+                description="See the email, its attachments, what the agent extracted and any reply waiting for approval."
+                className="border-0"
+              />
             </div>
           )}
         </div>

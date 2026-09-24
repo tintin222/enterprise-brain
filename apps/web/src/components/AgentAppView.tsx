@@ -8,7 +8,7 @@ import { useCompany } from "../lib/company.tsx";
 import { timeAgo } from "../lib/format.ts";
 import { archetypeIcon } from "../lib/icons.tsx";
 import { describeTrigger } from "../lib/labels.ts";
-import { keys, useRuns } from "../lib/queries.ts";
+import { keys, useMailboxes, useRuns } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
 import type { AgentDetail, Conversation, MailMessage, RunRow } from "../types.ts";
 import { StatusPill } from "./Badge.tsx";
@@ -17,8 +17,10 @@ import { Card, CardHeader } from "./Card.tsx";
 import { ChatPanel } from "./Chat.tsx";
 import { Dialog } from "./Dialog.tsx";
 import { EmptyState } from "./EmptyState.tsx";
+import { CellValue } from "./OutputView.tsx";
 import { LiveRunResult, RunForm, RunsTable } from "./RunViews.tsx";
 import { Callout, ErrorState, Skeleton } from "./Spinner.tsx";
+import { useDocumentTitle } from "../lib/title.ts";
 
 function useActivate(slug: string) {
   const { company, path } = useCompany();
@@ -96,7 +98,7 @@ function FormResults({ detail }: { detail: AgentDetail }) {
   const { definition } = detail;
   return (
     <div className="space-y-6">
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Card>
           <CardHeader title={definition.ui.title ?? "Run"} subtitle={definition.ui.description ?? "Fill in the form and run the agent."} icon={Play} />
           <div className="p-5">
@@ -109,7 +111,13 @@ function FormResults({ detail }: { detail: AgentDetail }) {
             {runId ? (
               <LiveRunResult runId={runId} outputs={definition.outputs} highlight={definition.ui.highlight} onDismiss={() => setRunId(null)} />
             ) : (
-              <EmptyState compact icon={Sparkles} title="Results appear here" description="Submit the form — you'll see the agent work step by step, then its result." className="border-0" />
+              <EmptyState
+                compact
+                icon={Sparkles}
+                title="Results appear here"
+                description="Submit the form — you'll see the agent work step by step, then its result."
+                className="border-0"
+              />
             )}
           </div>
         </Card>
@@ -168,11 +176,19 @@ function ChatLayout({ detail }: { detail: AgentDetail }) {
 
 function InboxLayout({ detail }: { detail: AgentDetail }) {
   const { company, path } = useCompany();
-  const mailboxes = detail.definition.triggers.flatMap((t) => (t.type === "mailbox" ? [t.mailbox.toLowerCase()] : []));
+  const boxes = useMailboxes();
+  const mailboxes = [
+    ...new Set([
+      ...detail.definition.triggers.flatMap((t) => (t.type === "mailbox" && t.mailbox !== "*" ? [t.mailbox.toLowerCase()] : [])),
+      ...(boxes.data ?? []).filter((b) => b.agents.some((a) => a.id === detail.agent.id)).map((b) => b.mailbox),
+    ]),
+  ];
+  const highlight = highlightKeys(detail).slice(0, 2);
+  const outputs = new Map(detail.definition.outputs.map((f) => [f.key, f]));
   const messages = useQuery({
     queryKey: [...keys.mail(company), "messages", { mailboxes }],
     queryFn: async () => {
-      const lists = await Promise.all(mailboxes.filter((m) => m !== "*").map((m) => api.get<MailMessage[]>(path(`/mail/messages${qs({ mailbox: m })}`))));
+      const lists = await Promise.all(mailboxes.map((m) => api.get<MailMessage[]>(path(`/mail/messages${qs({ mailbox: m, direction: "inbound" })}`))));
       return lists.flat().sort((a, b) => b.receivedAt.localeCompare(a.receivedAt));
     },
     enabled: mailboxes.length > 0,
@@ -194,7 +210,13 @@ function InboxLayout({ detail }: { detail: AgentDetail }) {
         {messages.isLoading && <Skeleton className="m-4 h-24" />}
         {messages.error && <ErrorState error={messages.error} className="m-4" />}
         {messages.data && messages.data.length === 0 && (
-          <EmptyState compact className="m-4" icon={Inbox} title="No email yet" description="Emails arriving in the mailbox appear here with what the agent did with them." />
+          <EmptyState
+            compact
+            className="m-4"
+            icon={Inbox}
+            title="No email yet"
+            description="Emails arriving in the mailbox appear here with what the agent did with them."
+          />
         )}
         {messages.data && messages.data.length > 0 && (
           <ul className="divide-y divide-line">
@@ -208,6 +230,13 @@ function InboxLayout({ detail }: { detail: AgentDetail }) {
                     </p>
                     <p className="truncate text-[13px] text-muted">{m.subject}</p>
                   </div>
+                  {m.classification && highlight.length > 0 && (
+                    <span className="hidden max-w-[16rem] shrink-0 items-center gap-2 md:flex">
+                      {highlight.map((k) => (
+                        <CellValue key={k} name={k} value={m.classification?.[k]} field={outputs.get(k)} />
+                      ))}
+                    </span>
+                  )}
                   <StatusPill status={m.status} size="xs" />
                   <span className="hidden w-24 shrink-0 text-right text-xs text-faint sm:block">{timeAgo(m.receivedAt)}</span>
                 </Link>
@@ -268,6 +297,7 @@ function TableLayout({ detail }: { detail: AgentDetail }) {
 export function AgentAppView({ detail, showHeader = true }: { detail: AgentDetail; showHeader?: boolean }) {
   const { definition, agent } = detail;
   const Icon = archetypeIcon(definition.archetype);
+  useDocumentTitle(definition.ui.title ?? definition.name);
   const automatic = definition.triggers.filter((t) => t.type !== "manual" && t.type !== "form" && t.type !== "chat");
   return (
     <div>
@@ -283,9 +313,7 @@ export function AgentAppView({ detail, showHeader = true }: { detail: AgentDetai
                 <StatusPill status={agent.status} />
               </div>
               <p className="mt-1 max-w-3xl text-sm text-muted">{definition.summary}</p>
-              {automatic.length > 0 && (
-                <p className="mt-1.5 text-xs text-faint">Also runs automatically: {automatic.map(describeTrigger).join(" · ")}</p>
-              )}
+              {automatic.length > 0 && <p className="mt-1.5 text-xs text-faint">Also runs automatically: {automatic.map(describeTrigger).join(" · ")}</p>}
             </div>
           </div>
           <ButtonLink to={`/agents/${agent.slug}`} variant="secondary" size="sm" icon={Settings2}>

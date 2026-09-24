@@ -86,7 +86,12 @@ function placeholderFor(field: FieldSpec): string | undefined {
     case "list":
       return field.fields?.length ? '[{ "…": "…" }]' : "One per line";
     case "object":
-      return field.fields?.length ? `{ ${field.fields.slice(0, 3).map((f) => `"${f.key}": …`).join(", ")} }` : "{ }";
+      return field.fields?.length
+        ? `{ ${field.fields
+            .slice(0, 3)
+            .map((f) => `"${f.key}": …`)
+            .join(", ")} }`
+        : "{ }";
     default:
       return undefined;
   }
@@ -111,7 +116,7 @@ function FileControl({ field, value, onChange, disabled }: { field: FieldSpec; v
           multiple={multiple}
           disabled={disabled}
           compact={list.length > 0}
-          label={multiple ? "Drop files here or click to browse" : `Drop ${fieldTitle(field).toLowerCase()} here or click to browse`}
+          label={multiple ? "Drop files here or click to browse" : `Drop the ${fieldTitle(field)} here or click to browse`}
           onFiles={(files) => onChange(multiple ? [...list, ...files] : files[0])}
         />
       )}
@@ -131,18 +136,45 @@ function FileControl({ field, value, onChange, disabled }: { field: FieldSpec; v
   );
 }
 
-function EmailComposer({ value, onChange, disabled, required }: { value: EmailDraft; onChange: (v: EmailDraft) => void; disabled?: boolean; required?: boolean }) {
+function EmailComposer({
+  value,
+  onChange,
+  disabled,
+  required,
+}: {
+  value: EmailDraft;
+  onChange: (v: EmailDraft) => void;
+  disabled?: boolean;
+  required?: boolean;
+}) {
   const set = (patch: Partial<EmailDraft>) => onChange({ ...value, ...patch });
   return (
     <div className="space-y-3 rounded-xl border border-line bg-subtle/40 p-3.5">
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="From" required={required}>
           {(id) => (
-            <input id={id} type="email" className="input" placeholder="sender@example.com" value={value.from} disabled={disabled} onChange={(e) => set({ from: e.target.value })} />
+            <input
+              id={id}
+              type="email"
+              className="input"
+              placeholder="sender@example.com"
+              value={value.from}
+              disabled={disabled}
+              onChange={(e) => set({ from: e.target.value })}
+            />
           )}
         </Field>
         <Field label="Sender name" optional>
-          {(id) => <input id={id} className="input" placeholder="Jane Doe" value={value.fromName} disabled={disabled} onChange={(e) => set({ fromName: e.target.value })} />}
+          {(id) => (
+            <input
+              id={id}
+              className="input"
+              placeholder="Jane Doe"
+              value={value.fromName}
+              disabled={disabled}
+              onChange={(e) => set({ fromName: e.target.value })}
+            />
+          )}
         </Field>
       </div>
       <Field label="Subject">
@@ -190,7 +222,9 @@ export function FieldControl({
   const placeholder = placeholderFor(field);
   switch (field.type) {
     case "text":
-      return <textarea id={id} rows={5} className="input" placeholder={placeholder} value={text} disabled={disabled} onChange={(e) => onChange(e.target.value)} />;
+      return (
+        <textarea id={id} rows={5} className="input" placeholder={placeholder} value={text} disabled={disabled} onChange={(e) => onChange(e.target.value)} />
+      );
     case "number":
     case "integer":
       return (
@@ -223,11 +257,13 @@ export function FieldControl({
       );
     case "multiselect": {
       if (!field.options?.length) {
-        return <textarea id={id} rows={3} className="input" placeholder="One per line" value={text} disabled={disabled} onChange={(e) => onChange(e.target.value)} />;
+        return (
+          <textarea id={id} rows={3} className="input" placeholder="One per line" value={text} disabled={disabled} onChange={(e) => onChange(e.target.value)} />
+        );
       }
       const selected = Array.isArray(value) ? (value as string[]) : [];
       return (
-        <div id={id} className="grid gap-2 sm:grid-cols-2">
+        <div id={id} className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {field.options.map((o) => (
             <Checkbox
               key={o.value}
@@ -261,11 +297,21 @@ export function FieldControl({
         return <EmailComposer value={isEmailDraft(value) ? value : emptyEmail()} onChange={onChange} disabled={disabled} required={field.required} />;
       }
       return (
-        <textarea id={id} rows={4} className="input font-mono text-xs" placeholder={placeholder} value={text} disabled={disabled} onChange={(e) => onChange(e.target.value)} />
+        <textarea
+          id={id}
+          rows={4}
+          className="input font-mono text-xs"
+          placeholder={placeholder}
+          value={text}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+        />
       );
     default: {
       const type = field.type === "email" ? "email" : field.type === "url" ? "url" : field.type === "phone" ? "tel" : "text";
-      return <input id={id} type={type} className="input" placeholder={placeholder} value={text} disabled={disabled} onChange={(e) => onChange(e.target.value)} />;
+      return (
+        <input id={id} type={type} className="input" placeholder={placeholder} value={text} disabled={disabled} onChange={(e) => onChange(e.target.value)} />
+      );
     }
   }
 }
@@ -280,7 +326,17 @@ function hintFor(field: FieldSpec): ReactNode {
 }
 
 /** Optional email object: collapsed by default ("set automatically when mail arrives"). */
-function CollapsibleEmail({ field, value, onChange, disabled }: { field: FieldSpec; value: FieldValue; onChange: (v: FieldValue) => void; disabled?: boolean }) {
+function CollapsibleEmail({
+  field,
+  value,
+  onChange,
+  disabled,
+}: {
+  field: FieldSpec;
+  value: FieldValue;
+  onChange: (v: FieldValue) => void;
+  disabled?: boolean;
+}) {
   const [open, setOpen] = useState(hasValue(value));
   return (
     <div className="rounded-xl border border-line">

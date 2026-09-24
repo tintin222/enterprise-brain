@@ -49,14 +49,7 @@ export interface FieldSpec {
 // Agents
 // ---------------------------------------------------------------------------
 
-export type Archetype =
-  | "document-processing"
-  | "mail-triage"
-  | "conversational"
-  | "excel-automation"
-  | "search"
-  | "process-automation"
-  | "report-generation";
+export type Archetype = "document-processing" | "mail-triage" | "conversational" | "excel-automation" | "search" | "process-automation" | "report-generation";
 
 export type TriggerSpec =
   | { type: "manual" }
@@ -730,28 +723,9 @@ export interface InstalledDepartment {
 // Agent Builder
 // ---------------------------------------------------------------------------
 
-export type RequirementSection =
-  | "purpose"
-  | "users"
-  | "inputs"
-  | "processing"
-  | "outputs"
-  | "actions"
-  | "integrations"
-  | "governance"
-  | "ui"
-  | "operations";
+export type RequirementSection = "purpose" | "users" | "inputs" | "processing" | "outputs" | "actions" | "integrations" | "governance" | "ui" | "operations";
 
-export type StakeholderRole =
-  | "requester"
-  | "it"
-  | "security"
-  | "legal"
-  | "dpo"
-  | "finance"
-  | "process-owner"
-  | "data-owner"
-  | "management";
+export type StakeholderRole = "requester" | "it" | "security" | "legal" | "dpo" | "finance" | "process-owner" | "data-owner" | "management";
 
 export type AnswerType = "single" | "multi" | "text" | "number" | "boolean" | "files" | "fields" | "criteria" | "categories";
 
@@ -822,14 +796,7 @@ export interface BuilderRound {
   answeredAt?: string;
 }
 
-export type BuilderStatus =
-  | "interviewing"
-  | "awaiting-stakeholders"
-  | "confirming"
-  | "generating"
-  | "testing"
-  | "deployed"
-  | "archived";
+export type BuilderStatus = "interviewing" | "awaiting-stakeholders" | "confirming" | "generating" | "testing" | "deployed" | "archived";
 
 export interface SampleAnalysis {
   fileId: string;

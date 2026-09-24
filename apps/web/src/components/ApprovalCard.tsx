@@ -95,7 +95,13 @@ export function ApprovalCard({ approval, showAgent = true, className }: { approv
               pending ? "bg-amber-50 text-amber-600 dark:bg-amber-400/15 dark:text-amber-300" : "bg-subtle text-muted",
             )}
           >
-            {approval.action.type === "mail.send" ? <Mail className="size-4" /> : approval.action.type === "connector" ? <Plug className="size-4" /> : <UserCheck className="size-4" />}
+            {approval.action.type === "mail.send" ? (
+              <Mail className="size-4" />
+            ) : approval.action.type === "connector" ? (
+              <Plug className="size-4" />
+            ) : (
+              <UserCheck className="size-4" />
+            )}
           </span>
           <div className="min-w-0">
             <p className="text-sm font-semibold text-fg">{approval.title}</p>
@@ -111,7 +117,10 @@ export function ApprovalCard({ approval, showAgent = true, className }: { approv
         <div className="flex items-center gap-2">
           <StatusPill status={approval.status} size="xs" />
           {approval.runId && (
-            <Link to={`/runs/${approval.runId}`} className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300">
+            <Link
+              to={`/runs/${approval.runId}`}
+              className="inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
+            >
               Run <ExternalLink className="size-3" />
             </Link>
           )}
@@ -137,7 +146,13 @@ export function ApprovalCard({ approval, showAgent = true, className }: { approv
       </div>
       {pending && (
         <div className="flex flex-col gap-2 border-t border-line bg-subtle/40 px-4 py-3 sm:flex-row sm:items-center">
-          <input className="input h-9 flex-1 py-1.5" placeholder="Add a note (optional)" value={note} onChange={(e) => setNote(e.target.value)} aria-label="Decision note" />
+          <input
+            className="input h-9 flex-1 py-1.5"
+            placeholder="Add a note (optional)"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            aria-label="Decision note"
+          />
           <div className="flex gap-2">
             <Button
               variant="danger"

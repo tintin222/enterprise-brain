@@ -86,8 +86,7 @@ function DelegateMenu({ question, onPick }: { question: RoundQuestion; onPick: (
         aria-expanded={open}
         className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-[13px] font-medium text-muted hover:bg-subtle hover:text-fg"
       >
-        <UserRoundSearch className="size-4" />
-        I don't know — ask someone
+        <UserRoundSearch className="size-4" />I don't know — ask someone
       </button>
       {open && (
         <div className="absolute bottom-full left-0 z-20 mb-1.5 w-64 animate-pop-in rounded-xl border border-line bg-surface p-1.5 shadow-lg" role="menu">
@@ -142,7 +141,13 @@ function AnswerControl({
       return (
         <div className="flex flex-wrap gap-2" role="radiogroup" aria-label={question.title}>
           {options.map((o) => (
-            <Chip key={o.value} role="radio" selected={value === o.value} title={o.description} onClick={() => (value === o.value ? onChange(undefined) : set(o.value))}>
+            <Chip
+              key={o.value}
+              role="radio"
+              selected={value === o.value}
+              title={o.description}
+              onClick={() => (value === o.value ? onChange(undefined) : set(o.value))}
+            >
               {value === o.value && <Check className="size-3.5" />}
               {o.label}
             </Chip>
@@ -225,7 +230,11 @@ function AnswerControl({
           <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
             <p className="text-xs text-muted">{hint}</p>
             {recommended.length > 0 && !text && (
-              <button type="button" onClick={() => set(recommended.join("\n"))} className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-300">
+              <button
+                type="button"
+                onClick={() => set(recommended.join("\n"))}
+                className="text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
+              >
                 Start from the recommendation
               </button>
             )}
@@ -296,7 +305,13 @@ function QuestionCard({
     <div
       className={clsx(
         "rounded-xl border bg-surface p-4 shadow-xs transition-colors",
-        delegated ? "border-amber-300 dark:border-amber-400/40" : accepted ? "border-brand-300 dark:border-brand-400/40" : filled ? "border-emerald-300 dark:border-emerald-400/40" : "border-line",
+        delegated
+          ? "border-amber-300 dark:border-amber-400/40"
+          : accepted
+            ? "border-brand-300 dark:border-brand-400/40"
+            : filled
+              ? "border-emerald-300 dark:border-emerald-400/40"
+              : "border-line",
       )}
     >
       <div className="flex items-start justify-between gap-2">
@@ -403,7 +418,14 @@ export function QuestionRound({ round, view, actions }: { round: BuilderRound; v
   return (
     <div className="space-y-3">
       {questions.map((q) => (
-        <QuestionCard key={q.nodeId} question={q} answer={answers[q.nodeId]} onChange={(a) => setAnswer(q.nodeId, a)} actions={actions} sampleCount={sampleCount} />
+        <QuestionCard
+          key={q.nodeId}
+          question={q}
+          answer={answers[q.nodeId]}
+          onChange={(a) => setAnswer(q.nodeId, a)}
+          actions={actions}
+          sampleCount={sampleCount}
+        />
       ))}
       <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-line bg-surface/95 px-3 py-2.5 shadow-lg shadow-slate-900/5 backdrop-blur">
         <span className="text-[13px] text-muted">

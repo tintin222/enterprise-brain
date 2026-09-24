@@ -8,6 +8,7 @@ import { Logo } from "../components/Logo.tsx";
 import { ErrorState, LoadingBlock } from "../components/Spinner.tsx";
 import { stakeholderLabel } from "../lib/labels.ts";
 import type { PublicRequest } from "../types.ts";
+import { useDocumentTitle } from "../lib/title.ts";
 
 const TEXT = {
   en: {
@@ -99,6 +100,7 @@ function Message({ icon: Icon, title, body, tone }: { icon: typeof CircleCheck; 
 
 export default function AnswerPage() {
   const { token = "" } = useParams();
+  useDocumentTitle("Your input is requested");
   const request = useQuery({
     queryKey: ["public-request", token],
     queryFn: () => api.get<PublicRequest>(`/api/public/requests/${encodeURIComponent(token)}`),

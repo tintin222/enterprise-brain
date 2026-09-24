@@ -11,19 +11,28 @@ function StateIcon({ state }: { state: NodeState }) {
   switch (state.status) {
     case "answered":
       return (
-        <span className="flex size-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300" title="Answered">
+        <span
+          className="flex size-5 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300"
+          title="Answered"
+        >
           <Check className="size-3.5" />
         </span>
       );
     case "assumed":
       return (
-        <span className="flex size-5 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300" title="Assumed">
+        <span
+          className="flex size-5 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300"
+          title="Assumed"
+        >
           <span className="text-sm leading-none font-bold">~</span>
         </span>
       );
     case "delegated":
       return (
-        <span className="flex size-5 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300" title="Waiting on someone else">
+        <span
+          className="flex size-5 items-center justify-center rounded-full bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300"
+          title="Waiting on someone else"
+        >
           <Hourglass className="size-3" />
         </span>
       );
@@ -95,7 +104,13 @@ function NodeRow({ view, node, actions }: { view: SessionView; node: Requirement
             <p>Settled by: {state.answeredBy === "system" ? "the analyst" : state.answeredBy === "default" ? "assumption" : state.answeredBy}</p>
           )}
           {settled && !locked && (
-            <Button size="xs" variant="secondary" icon={RotateCcw} loading={actions.reopen.isPending && actions.reopen.variables === node.id} onClick={() => actions.reopen.mutate(node.id)}>
+            <Button
+              size="xs"
+              variant="secondary"
+              icon={RotateCcw}
+              loading={actions.reopen.isPending && actions.reopen.variables === node.id}
+              onClick={() => actions.reopen.mutate(node.id)}
+            >
               Reopen
             </Button>
           )}

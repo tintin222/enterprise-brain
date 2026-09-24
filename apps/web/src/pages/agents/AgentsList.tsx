@@ -142,7 +142,7 @@ export default function AgentsList() {
         )}
         {data && data.length > 0 && filtered.length === 0 && <p className="px-5 py-10 text-center text-sm text-muted">No agents match these filters.</p>}
         {filtered.length > 0 && (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-line bg-subtle/50 text-xs text-muted">
                 <tr>

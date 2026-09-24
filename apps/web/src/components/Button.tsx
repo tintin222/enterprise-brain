@@ -43,7 +43,18 @@ interface CommonProps {
 
 export interface ButtonProps extends CommonProps, Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children"> {}
 
-export function Button({ variant = "secondary", size = "md", icon: Icon, iconRight: IconRight, loading, className, children, disabled, type, ...rest }: ButtonProps) {
+export function Button({
+  variant = "secondary",
+  size = "md",
+  icon: Icon,
+  iconRight: IconRight,
+  loading,
+  className,
+  children,
+  disabled,
+  type,
+  ...rest
+}: ButtonProps) {
   return (
     <button type={type ?? "button"} className={buttonClass(variant, size, className)} disabled={disabled || loading} {...rest}>
       {loading ? <LoaderCircle className={clsx(iconSizes[size], "animate-spin")} /> : Icon ? <Icon className={iconSizes[size]} /> : null}

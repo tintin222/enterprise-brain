@@ -15,10 +15,18 @@ export function RouteError() {
         </div>
         <h1 className="text-lg font-semibold">{status === 404 ? "Page not found" : chunk ? "A new version is available" : "This page crashed"}</h1>
         <p className="mt-2 text-sm break-words text-muted">
-          {chunk ? "The console was updated while this tab was open. Reload to continue." : isRouteErrorResponse(error) ? error.statusText : errorMessage(error)}
+          {chunk
+            ? "The console was updated while this tab was open. Reload to continue."
+            : isRouteErrorResponse(error)
+              ? error.statusText
+              : errorMessage(error)}
         </p>
         <div className="mt-6 flex justify-center gap-2">
-          <button type="button" onClick={() => window.location.reload()} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
+          >
             Reload
           </button>
           <Link to="/" className="rounded-lg border border-line-strong px-4 py-2 text-sm font-medium hover:bg-subtle">

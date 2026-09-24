@@ -45,6 +45,7 @@ import { approvalRuleLabel, archetypeLabel, categoryLabel, describeTrigger, PERS
 import { useAgent, useConnectors, useDepartmentName } from "../../lib/queries.ts";
 import type { AgentDefinition, AgentDetail as AgentDetailData, RunRow } from "../../types.ts";
 import { useAgentMutations } from "./agentActions.ts";
+import { useDocumentTitle } from "../../lib/title.ts";
 
 type Tab = "overview" | "workflow" | "definition" | "versions" | "runs";
 
@@ -63,7 +64,7 @@ function Overview({ detail }: { detail: AgentDetailData }) {
   const departmentName = useDepartmentName();
   const g = definition.guardrails;
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <Section title="About" icon={Bot} className="lg:col-span-2">
         <KeyValue
           items={[
@@ -281,7 +282,11 @@ function Versions({ detail }: { detail: AgentDetailData }) {
   const versions = [...detail.versions].sort((a, b) => b.version - a.version);
   return (
     <Card className="overflow-hidden">
-      <CardHeader title="Versions" subtitle="Every change to the definition is kept. Rolling back creates a new version with the old definition." icon={HistoryIcon} />
+      <CardHeader
+        title="Versions"
+        subtitle="Every change to the definition is kept. Rolling back creates a new version with the old definition."
+        icon={HistoryIcon}
+      />
       <ul className="divide-y divide-line">
         {versions.map((v) => {
           const current = v.version === detail.agent.version;
@@ -327,7 +332,13 @@ function TestDialog({ detail, open, onClose }: { detail: AgentDetailData; open: 
     if (!open) setRun(null);
   }, [open]);
   return (
-    <Dialog open={open} onClose={onClose} size="lg" title={`Test ${detail.definition.name}`} description="Test runs never change real systems: gated actions become dry runs and approvals are simulated.">
+    <Dialog
+      open={open}
+      onClose={onClose}
+      size="lg"
+      title={`Test ${detail.definition.name}`}
+      description="Test runs never change real systems: gated actions become dry runs and approvals are simulated."
+    >
       {run ? (
         <div className="space-y-4">
           <LiveRunResult runId={run.id} outputs={detail.definition.outputs} highlight={detail.definition.ui.highlight} />
@@ -344,6 +355,7 @@ function TestDialog({ detail, open, onClose }: { detail: AgentDetailData; open: 
 
 export default function AgentDetail() {
   const { slug } = useParams();
+  useDocumentTitle(slug ? `Agent ${slug}` : "Agent");
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const tab = (params.get("tab") as Tab | null) ?? "overview";

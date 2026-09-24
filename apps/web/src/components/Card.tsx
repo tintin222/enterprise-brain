@@ -1,6 +1,7 @@
 import { clsx } from "clsx";
 import type { LucideIcon } from "lucide-react";
 import type { HTMLAttributes, ReactNode } from "react";
+import { useDocumentTitle } from "../lib/title.ts";
 
 export function Card({ className, children, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
@@ -57,6 +58,7 @@ export function PageHeader({
   eyebrow?: ReactNode;
   className?: string;
 }) {
+  useDocumentTitle(typeof title === "string" ? title : null);
   return (
     <div className={clsx("mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between", className)}>
       <div className="flex min-w-0 items-start gap-3">

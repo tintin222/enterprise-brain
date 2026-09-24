@@ -192,7 +192,10 @@ export async function readSse(body: ReadableStream<Uint8Array>, onEvent: SseHand
   for (;;) {
     const { value, done } = await reader.read();
     if (done) break;
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n?/g, "\n");
+    buffer += decoder.decode(value, { stream: true });
+    // Normalise line endings, but hold back a trailing \r: its \n may arrive in the next chunk.
+    const heldCr = buffer.endsWith("\r");
+    buffer = (heldCr ? buffer.slice(0, -1) : buffer).replace(/\r\n?/g, "\n") + (heldCr ? "\r" : "");
     let boundary = buffer.indexOf("\n\n");
     while (boundary !== -1) {
       const frame = buffer.slice(0, boundary);
@@ -201,8 +204,8 @@ export async function readSse(body: ReadableStream<Uint8Array>, onEvent: SseHand
       boundary = buffer.indexOf("\n\n");
     }
   }
-  buffer += decoder.decode();
-  if (buffer.trim()) dispatchFrame(buffer, onEvent);
+  buffer = (buffer + decoder.decode()).replace(/\r\n?/g, "\n");
+  for (const frame of buffer.split("\n\n")) if (frame.trim()) dispatchFrame(frame, onEvent);
 }
 
 /** POST a JSON body and consume the text/event-stream response. Resolves when the stream ends. */
@@ -230,12 +233,7 @@ export async function streamPost(path: string, body: unknown, onEvent: SseHandle
  * The stream is closed after an `end` event (no automatic reconnect loops).
  * Returns an unsubscribe function.
  */
-export function subscribe(
-  path: string,
-  events: string[],
-  onEvent: SseHandler,
-  onClose?: (error?: unknown) => void,
-): () => void {
+export function subscribe(path: string, events: string[], onEvent: SseHandler, onClose?: (error?: unknown) => void): () => void {
   let closed = false;
   const finish = (error?: unknown) => {
     if (closed) return;

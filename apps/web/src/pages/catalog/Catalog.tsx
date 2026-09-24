@@ -24,9 +24,10 @@ type Tab = "departments" | "agents" | "usecases";
 function Departments({ catalog }: { catalog: CatalogResponse }) {
   const installed = useDepartments();
   const installedKeys = new Set((installed.data ?? []).map((d) => d.key));
-  if (!catalog.departments.length) return <EmptyState icon={Boxes} title="No department templates" description="The catalog directory has no departments yet." />;
+  if (!catalog.departments.length)
+    return <EmptyState icon={Boxes} title="No department templates" description="The catalog directory has no departments yet." />;
   return (
-    <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {catalog.departments.map((d) => {
         const Icon = namedIcon(d.icon);
         const agents = catalog.agents.filter((a) => a.department === d.id);
@@ -106,7 +107,7 @@ function AgentTemplates({ catalog, installed, onOpen }: { catalog: CatalogRespon
         </select>
       </div>
       {list.length === 0 && <p className="py-10 text-center text-sm text-muted">No templates match.</p>}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {list.map((a) => {
           const Icon = archetypeIcon(a.archetype);
           return (
@@ -170,7 +171,7 @@ function UseCases({ catalog, installed }: { catalog: CatalogResponse; installed:
     onError: (e) => toast.error(e),
   });
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
       {catalog.useCases.map((u) => {
         const Icon = namedIcon(u.icon);
         const ready = u.defaultAgent ? installed.some((a) => a.templateId === u.defaultAgent && a.status !== "archived") : false;
@@ -204,7 +205,13 @@ function UseCases({ catalog, installed }: { catalog: CatalogResponse; installed:
                 </ButtonLink>
               )}
               {!ready && u.defaultAgent && (
-                <Button size="sm" variant="soft" icon={Download} loading={install.isPending && install.variables?.id === u.id} onClick={() => install.mutate(u)}>
+                <Button
+                  size="sm"
+                  variant="soft"
+                  icon={Download}
+                  loading={install.isPending && install.variables?.id === u.id}
+                  onClick={() => install.mutate(u)}
+                >
                   Install
                 </Button>
               )}
@@ -251,7 +258,7 @@ export default function Catalog() {
       />
       {catalog.error && <ErrorState error={catalog.error} onRetry={() => void catalog.refetch()} />}
       {catalog.isLoading && (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2, 3, 4, 5].map((i) => (
             <Skeleton key={i} className="h-48" />
           ))}

@@ -94,7 +94,9 @@ function UserMessage({ children, pending }: { children: ReactNode; pending?: boo
       <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200">
         <User className="size-4" />
       </div>
-      <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-brand-600 px-4 py-2.5 text-sm whitespace-pre-wrap text-white shadow-sm dark:bg-brand-500">{children}</div>
+      <div className="max-w-[85%] rounded-2xl rounded-tr-sm bg-brand-600 px-4 py-2.5 text-sm whitespace-pre-wrap text-white shadow-sm dark:bg-brand-500">
+        {children}
+      </div>
     </div>
   );
 }

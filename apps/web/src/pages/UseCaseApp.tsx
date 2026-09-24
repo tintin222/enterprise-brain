@@ -8,10 +8,11 @@ import { Card } from "../components/Card.tsx";
 import { Page } from "../components/Layout.tsx";
 import { ErrorState, LoadingBlock } from "../components/Spinner.tsx";
 import { useCompany } from "../lib/company.tsx";
-import { humanize } from "../lib/format.ts";
+import { categoryLabel } from "../lib/labels.ts";
 import { keys, useAgent, useAgents, useCatalog } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
 import type { AgentRow } from "../types.ts";
+import { useDocumentTitle } from "../lib/title.ts";
 
 const CONFIG = {
   documents: {
@@ -19,7 +20,8 @@ const CONFIG = {
     template: "shared-services.document-processor",
     icon: ScanText,
     title: "Documents & OCR",
-    tagline: "Upload any document — PDF, Word, a scan or a phone photo. The agent recognises what it is, extracts the data you need and prepares the next step.",
+    tagline:
+      "Upload any document — PDF, Word, a scan or a phone photo. The agent recognises what it is, extracts the data you need and prepares the next step.",
     points: ["Reads scans and photos with OCR", "Classifies the document type", "Extracts fields with confidence", "Validates against your systems"],
   },
   excel: {
@@ -27,7 +29,8 @@ const CONFIG = {
     template: "shared-services.excel-analyst",
     icon: FileSpreadsheet,
     title: "Excel automation",
-    tagline: "Upload a spreadsheet and say what you need: totals, pivots, reconciliations, clean-ups or anomaly checks. You get a new workbook plus an explanation.",
+    tagline:
+      "Upload a spreadsheet and say what you need: totals, pivots, reconciliations, clean-ups or anomaly checks. You get a new workbook plus an explanation.",
     points: ["Totals, pivots and top-N", "Reconciliations and differences", "Duplicate and anomaly checks", "A clean result workbook"],
   },
 } as const;
@@ -41,6 +44,7 @@ function InstalledApp({ agent }: { agent: AgentRow }) {
 
 export default function UseCaseApp({ kind }: { kind: keyof typeof CONFIG }) {
   const config = CONFIG[kind];
+  useDocumentTitle(config.title);
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -49,7 +53,8 @@ export default function UseCaseApp({ kind }: { kind: keyof typeof CONFIG }) {
   const useCase = catalog.data?.useCases.find((u) => u.id === config.useCase);
   const templateId = useCase?.defaultAgent ?? config.template;
   const installed =
-    agents.data?.find((a) => a.templateId === templateId && a.status !== "archived") ?? agents.data?.find((a) => a.templateId === config.template && a.status !== "archived");
+    agents.data?.find((a) => a.templateId === templateId && a.status !== "archived") ??
+    agents.data?.find((a) => a.templateId === config.template && a.status !== "archived");
 
   const install = useMutation({
     mutationFn: () => api.post<{ useCase: unknown; agent: AgentRow | null }>(path(`/catalog/use-cases/${config.useCase}/install`)),
@@ -110,7 +115,8 @@ export default function UseCaseApp({ kind }: { kind: keyof typeof CONFIG }) {
           </div>
           <h2 className="mt-4 text-lg font-semibold text-fg">Install the {useCase?.name ?? config.title} agent</h2>
           <p className="mx-auto mt-1 max-w-lg text-sm text-muted">
-            {useCase?.description ?? "A ready-made agent from the catalog powers this use case."} It's installed active and can be customised afterwards with the Agent Builder.
+            {useCase?.description ?? "A ready-made agent from the catalog powers this use case."} It's installed active and can be customised afterwards with
+            the Agent Builder.
           </p>
           {useCase?.examples.length ? (
             <ul className="mx-auto mt-5 max-w-lg space-y-1.5 text-left">
@@ -130,7 +136,7 @@ export default function UseCaseApp({ kind }: { kind: keyof typeof CONFIG }) {
             </ButtonLink>
           </div>
           {useCase?.connectors.length ? (
-            <p className="mt-4 text-xs text-faint">Works with: {useCase.connectors.map((c) => humanize(c)).join(", ")}</p>
+            <p className="mt-4 text-xs text-faint">Works with: {useCase.connectors.map((c) => categoryLabel(c)).join(", ")}</p>
           ) : null}
         </Card>
       )}

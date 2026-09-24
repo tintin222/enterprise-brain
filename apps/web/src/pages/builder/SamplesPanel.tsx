@@ -50,8 +50,16 @@ export function SamplesPanel({ view, actions }: { view: SessionView; actions: Se
                 )}
               </div>
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {s.documentType && s.documentType !== "unknown" && <Badge tone="brand" size="xs">{humanize(s.documentType)}</Badge>}
-                {s.pages !== undefined && <Badge size="xs">{s.pages} page{s.pages === 1 ? "" : "s"}</Badge>}
+                {s.documentType && s.documentType !== "unknown" && (
+                  <Badge tone="brand" size="xs">
+                    {humanize(s.documentType)}
+                  </Badge>
+                )}
+                {s.pages !== undefined && (
+                  <Badge size="xs">
+                    {s.pages} page{s.pages === 1 ? "" : "s"}
+                  </Badge>
+                )}
                 {s.language && <Badge size="xs">Language: {s.language.toUpperCase()}</Badge>}
                 <Badge size="xs">{s.mimeType.split("/").pop()}</Badge>
               </div>
@@ -78,7 +86,13 @@ export function SamplesPanel({ view, actions }: { view: SessionView; actions: Se
           <BookOpen className="size-4 text-muted" /> Reference documents
         </p>
         <p className="mt-0.5 mb-2.5 text-xs text-muted">Job descriptions, policies or price lists the agent should consult. They go into its knowledge base.</p>
-        <Dropzone compact busy={actions.uploadReference.isPending} disabled={locked} label="Add reference documents" onFiles={(files) => actions.uploadReference.mutate(files)} />
+        <Dropzone
+          compact
+          busy={actions.uploadReference.isPending}
+          disabled={locked}
+          label="Add reference documents"
+          onFiles={(files) => actions.uploadReference.mutate(files)}
+        />
       </div>
     </div>
   );

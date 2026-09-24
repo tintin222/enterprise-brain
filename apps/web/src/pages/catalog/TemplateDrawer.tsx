@@ -48,7 +48,8 @@ export function useInstallTemplate() {
   const queryClient = useQueryClient();
   const toast = useToast();
   return useMutation({
-    mutationFn: ({ id, activate }: { id: string; activate: boolean }) => api.post<AgentRow>(path(`/catalog/agents/${encodeURIComponent(id)}/install`), { activate }),
+    mutationFn: ({ id, activate }: { id: string; activate: boolean }) =>
+      api.post<AgentRow>(path(`/catalog/agents/${encodeURIComponent(id)}/install`), { activate }),
     onSuccess: (row) => {
       void queryClient.invalidateQueries({ queryKey: keys.agents(company) });
       void queryClient.invalidateQueries({ queryKey: keys.departments(company) });
@@ -129,7 +130,7 @@ export function TemplateDrawer({ id, onClose }: { id: string | null; onClose: ()
               ))}
             </ul>
           </Section>
-          <div className="grid gap-6 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
             <Section title="Inputs">
               <Fields fields={t.inputs} />
             </Section>

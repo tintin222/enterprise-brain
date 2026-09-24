@@ -27,7 +27,17 @@ export function Skeleton({ className }: { className?: string }) {
   return <div className={clsx("animate-pulse rounded-md bg-subtle", className)} />;
 }
 
-export function ErrorState({ error, onRetry, className, title = "Something went wrong" }: { error: unknown; onRetry?: () => void; className?: string; title?: string }) {
+export function ErrorState({
+  error,
+  onRetry,
+  className,
+  title = "Something went wrong",
+}: {
+  error: unknown;
+  onRetry?: () => void;
+  className?: string;
+  title?: string;
+}) {
   return (
     <div
       role="alert"

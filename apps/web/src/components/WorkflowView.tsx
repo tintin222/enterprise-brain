@@ -13,7 +13,12 @@ function Collapsible({ label, children }: { label: string; children: ReactNode }
   const [open, setOpen] = useState(false);
   return (
     <div>
-      <button type="button" onClick={() => setOpen((o) => !o)} className="inline-flex items-center gap-1 text-xs font-medium text-muted hover:text-fg" aria-expanded={open}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="inline-flex items-center gap-1 text-xs font-medium text-muted hover:text-fg"
+        aria-expanded={open}
+      >
         {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
         {label}
       </button>
@@ -23,7 +28,11 @@ function Collapsible({ label, children }: { label: string; children: ReactNode }
 }
 
 function Pre({ children }: { children: string }) {
-  return <pre className="max-h-60 overflow-auto rounded-lg border border-line bg-subtle/60 p-2.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-fg">{children}</pre>;
+  return (
+    <pre className="max-h-60 overflow-auto rounded-lg border border-line bg-subtle/60 p-2.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-fg">
+      {children}
+    </pre>
+  );
 }
 
 function Meta({ label, children }: { label: string; children: ReactNode }) {

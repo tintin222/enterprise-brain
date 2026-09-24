@@ -27,7 +27,16 @@ export function ScoreRing({ score, size = 88, label }: { score: number; size?: n
     <div className="relative shrink-0" style={{ width: size, height: size }} role="img" aria-label={`${label ?? "Score"}: ${Math.round(clamped)} of 100`}>
       <svg viewBox="0 0 100 100" className="size-full -rotate-90">
         <circle cx="50" cy="50" r={r} fill="none" strokeWidth="9" className="stroke-slate-200 dark:stroke-slate-700" />
-        <circle cx="50" cy="50" r={r} fill="none" strokeWidth="9" strokeLinecap="round" className={tone.stroke} strokeDasharray={`${(clamped / 100) * c} ${c}`} />
+        <circle
+          cx="50"
+          cy="50"
+          r={r}
+          fill="none"
+          strokeWidth="9"
+          strokeLinecap="round"
+          className={tone.stroke}
+          strokeDasharray={`${(clamped / 100) * c} ${c}`}
+        />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className={clsx("font-semibold tabular-nums", tone.text, size >= 80 ? "text-2xl" : "text-base")}>{Math.round(clamped)}</span>
@@ -121,7 +130,7 @@ function ObjectTable({ rows, field }: { rows: Record<string, unknown>[]; field?:
   if (keysList.some((k) => LABEL_KEYS.includes(k.toLowerCase()))) keysList = keysList.filter((k) => k.toLowerCase() !== "id");
   const columns = keysList.sort((a, b) => columnRank(a) - columnRank(b)).slice(0, 6);
   return (
-    <div className="overflow-x-auto rounded-lg border border-line">
+    <div className="relative overflow-x-auto rounded-lg border border-line">
       <table className="w-full text-left text-[13px]">
         <thead className="bg-subtle/70 text-xs text-muted">
           <tr>
@@ -242,7 +251,11 @@ export function ValueView({ field, name, value }: { field?: FieldSpec; name: str
             </div>
           );
         })}
-        {hidden > 0 && <p className="text-xs text-faint sm:col-span-2">{hidden} empty field{hidden === 1 ? "" : "s"} not shown</p>}
+        {hidden > 0 && (
+          <p className="text-xs text-faint sm:col-span-2">
+            {hidden} empty field{hidden === 1 ? "" : "s"} not shown
+          </p>
+        )}
       </dl>
     );
   }

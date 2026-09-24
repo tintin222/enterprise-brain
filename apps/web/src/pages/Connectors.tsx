@@ -38,9 +38,29 @@ function ConfigInput({ field, value, onChange, id }: { field: ConfigField; value
       </select>
     );
   }
-  if (field.type === "textarea") return <textarea id={id} rows={4} className="input font-mono text-xs" placeholder={field.placeholder} value={String(value)} onChange={(e) => onChange(e.target.value)} />;
+  if (field.type === "textarea")
+    return (
+      <textarea
+        id={id}
+        rows={4}
+        className="input font-mono text-xs"
+        placeholder={field.placeholder}
+        value={String(value)}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    );
   const type = field.secret || field.type === "password" ? "password" : field.type === "number" ? "number" : field.type === "url" ? "url" : "text";
-  return <input id={id} type={type} autoComplete={type === "password" ? "new-password" : "off"} className="input" placeholder={field.placeholder} value={String(value)} onChange={(e) => onChange(e.target.value)} />;
+  return (
+    <input
+      id={id}
+      type={type}
+      autoComplete={type === "password" ? "new-password" : "off"}
+      className="input"
+      placeholder={field.placeholder}
+      value={String(value)}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
 }
 
 function ConnectDrawer({ manifest, onClose }: { manifest: ConnectorManifest | null; onClose: () => void }) {
@@ -60,7 +80,9 @@ function ConnectDrawer({ manifest, onClose }: { manifest: ConnectorManifest | nu
       if (!manifest) throw new Error("No connector selected");
       const clean = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== "" && v !== undefined));
       const instance = await api.post<ConnectorInstance>(path("/connectors"), { type: manifest.type, name: name || undefined, values: clean });
-      const test = await api.post<{ ok: boolean; message: string }>(path(`/connectors/${encodeURIComponent(instance.id)}/test`)).catch((e: unknown) => ({ ok: false, message: e instanceof Error ? e.message : String(e) }));
+      const test = await api
+        .post<{ ok: boolean; message: string }>(path(`/connectors/${encodeURIComponent(instance.id)}/test`))
+        .catch((e: unknown) => ({ ok: false, message: e instanceof Error ? e.message : String(e) }));
       return { instance, test };
     },
     onSuccess: ({ instance, test }) => {
@@ -138,7 +160,11 @@ function coerce(schema: JsonSchema, raw: string | boolean): unknown {
   if (type === "boolean") return raw === true;
   if (typeof raw !== "string" || raw === "") return undefined;
   if (type === "number" || type === "integer") return Number(raw);
-  if (type === "array") return raw.split(",").map((s) => s.trim()).filter(Boolean);
+  if (type === "array")
+    return raw
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
   if (type === "object") {
     try {
       return JSON.parse(raw);
@@ -156,7 +182,7 @@ function ResultTable({ items }: { items: Record<string, unknown>[] }) {
     return seen.filter((k) => items.some((r) => typeof r[k] !== "object" || r[k] === null)).slice(0, 8);
   }, [items]);
   return (
-    <div className="overflow-x-auto rounded-lg border border-line">
+    <div className="relative overflow-x-auto rounded-lg border border-line">
       <table className="w-full text-left text-[13px]">
         <thead className="bg-subtle/60 text-xs text-muted">
           <tr>
@@ -213,7 +239,12 @@ function SandboxExplorer({ manifests, initialType }: { manifests: ConnectorManif
   const props = Object.entries(op?.input.properties ?? {});
   const required = new Set(op?.input.required ?? []);
   const result = run.data?.result;
-  const items = isRecord(result) && Array.isArray(result.items) ? (result.items.filter(isRecord) as Record<string, unknown>[]) : Array.isArray(result) && result.every(isRecord) ? (result as Record<string, unknown>[]) : null;
+  const items =
+    isRecord(result) && Array.isArray(result.items)
+      ? (result.items.filter(isRecord) as Record<string, unknown>[])
+      : Array.isArray(result) && result.every(isRecord)
+        ? (result as Record<string, unknown>[])
+        : null;
 
   return (
     <Card>
@@ -223,7 +254,7 @@ function SandboxExplorer({ manifests, initialType }: { manifests: ConnectorManif
         icon={FlaskConical}
       />
       <div className="space-y-4 p-5">
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <Field label="System">
             {(id) => (
               <select
@@ -266,7 +297,7 @@ function SandboxExplorer({ manifests, initialType }: { manifests: ConnectorManif
         </div>
         {op && <p className="text-[13px] text-muted">{op.description}</p>}
         {props.length > 0 && (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {props.map(([key, schema]) => {
               const t = schemaType(schema);
               const enumValues = Array.isArray(schema.enum) ? schema.enum.map(String) : null;
@@ -357,11 +388,11 @@ export default function Connectors() {
 
   const grouped = useMemo(() => {
     const map = new Map<string, ConnectorManifest[]>();
-    for (const m of catalog.data ?? []) {
-      const key = CONNECTOR_CATEGORY_ORDER.includes(m.category) ? m.category : "other";
-      map.set(key, [...(map.get(key) ?? []), m]);
-    }
-    return CONNECTOR_CATEGORY_ORDER.filter((c) => map.has(c)).map((c) => ({ category: c, items: map.get(c)! }));
+    for (const m of catalog.data ?? []) map.set(m.category, [...(map.get(m.category) ?? []), m]);
+    const known = CONNECTOR_CATEGORY_ORDER.filter((c) => c !== "other" && map.has(c));
+    const extra = [...map.keys()].filter((c) => !CONNECTOR_CATEGORY_ORDER.includes(c)).sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b)));
+    const order = [...known, ...extra, ...(map.has("other") ? ["other"] : [])];
+    return order.map((c) => ({ category: c, items: map.get(c) ?? [] }));
   }, [catalog.data]);
 
   const configuredTypes = new Set((instances.data ?? []).map((i) => i.type));
@@ -379,7 +410,13 @@ export default function Connectors() {
         {instances.isLoading && <Skeleton className="m-4 h-16" />}
         {instances.error && <ErrorState error={instances.error} className="m-4" />}
         {instances.data && instances.data.length === 0 && (
-          <EmptyState compact className="m-4" icon={Plug} title="No systems connected yet" description="Pick a system below. Agents keep using demo data for anything that isn't connected." />
+          <EmptyState
+            compact
+            className="m-4"
+            icon={Plug}
+            title="No systems connected yet"
+            description="Pick a system below. Agents keep using demo data for anything that isn't connected."
+          />
         )}
         {instances.data && instances.data.length > 0 && (
           <ul className="divide-y divide-line">
@@ -433,7 +470,7 @@ export default function Connectors() {
               <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-fg">
                 <Icon className="size-4 text-muted" /> {categoryLabel(category)}
               </h3>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {items.map((m) => (
                   <Card key={m.type} className="flex flex-col p-4">
                     <div className="flex items-start justify-between gap-2">
@@ -461,7 +498,12 @@ export default function Connectors() {
                           Explore
                         </Button>
                       ) : (
-                        <Button size="xs" variant={configuredTypes.has(m.type) ? "secondary" : "primary"} icon={configuredTypes.has(m.type) ? CircleCheck : Plug} onClick={() => setConnecting(m)}>
+                        <Button
+                          size="xs"
+                          variant={configuredTypes.has(m.type) ? "secondary" : "primary"}
+                          icon={configuredTypes.has(m.type) ? CircleCheck : Plug}
+                          onClick={() => setConnecting(m)}
+                        >
                           {configuredTypes.has(m.type) ? "Add another" : "Connect"}
                         </Button>
                       )}

@@ -15,9 +15,17 @@ import { archetypeIcon } from "../lib/icons.tsx";
 import { archetypeLabel } from "../lib/labels.ts";
 import { keys, useAgents } from "../lib/queries.ts";
 import type { CatalogSearchResult, SearchHit, SearchResponse } from "../types.ts";
+import { useDocumentTitle } from "../lib/title.ts";
 
 function terms(query: string): string[] {
-  return [...new Set(query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((t) => t.length >= 3))];
+  return [
+    ...new Set(
+      query
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter((t) => t.length >= 3),
+    ),
+  ];
 }
 
 function escapeRegex(s: string): string {
@@ -73,6 +81,7 @@ const SUGGESTIONS = ["annual leave", "travel policy hotel limit", "VPN access", 
 
 export default function Search() {
   const { company, path } = useCompany();
+  useDocumentTitle("Search");
   const [params, setParams] = useSearchParams();
   const q = params.get("q") ?? "";
   const [input, setInput] = useState(q);
@@ -159,11 +168,15 @@ export default function Search() {
       </div>
 
       {q && (
-        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
           <section aria-label="Knowledge results">
             <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-fg">
               <BookOpen className="size-4 text-muted" /> Knowledge
-              {knowledge.data && <span className="font-normal text-muted">· {hits.length} results in {knowledge.data.tookMs} ms</span>}
+              {knowledge.data && (
+                <span className="font-normal text-muted">
+                  · {hits.length} results in {knowledge.data.tookMs} ms
+                </span>
+              )}
             </h2>
             {knowledge.isLoading && (
               <div className="space-y-3">
@@ -227,7 +240,10 @@ export default function Search() {
                     const Icon = archetypeIcon(a.archetype);
                     return (
                       <li key={a.id}>
-                        <Link to={`/apps/${a.slug}`} className="flex items-start gap-3 rounded-xl border border-line bg-surface p-3 hover:border-brand-300 dark:hover:border-brand-400/40">
+                        <Link
+                          to={`/apps/${a.slug}`}
+                          className="flex items-start gap-3 rounded-xl border border-line bg-surface p-3 hover:border-brand-300 dark:hover:border-brand-400/40"
+                        >
                           <Icon className="mt-0.5 size-4 shrink-0 text-brand-600 dark:text-brand-300" />
                           <span className="min-w-0 flex-1">
                             <span className="flex items-center gap-2">
@@ -252,7 +268,10 @@ export default function Search() {
               <ul className="space-y-2">
                 {catalog.data?.slice(0, 6).map((r) => (
                   <li key={`${r.kind}-${r.id}`}>
-                    <Link to={catalogLink(r)} className="block rounded-xl border border-line bg-surface p-3 hover:border-brand-300 dark:hover:border-brand-400/40">
+                    <Link
+                      to={catalogLink(r)}
+                      className="block rounded-xl border border-line bg-surface p-3 hover:border-brand-300 dark:hover:border-brand-400/40"
+                    >
                       <span className="flex items-center gap-2">
                         <span className="truncate text-sm font-medium text-fg">{r.name}</span>
                         <Badge size="xs" tone={r.kind === "agent" ? "brand" : "neutral"}>
@@ -266,7 +285,10 @@ export default function Search() {
                 ))}
               </ul>
               {q && (
-                <Link to={`/builder/new`} className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300">
+                <Link
+                  to={`/builder/new`}
+                  className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
+                >
                   Nothing fits? Build an agent <ArrowRight className="size-3" />
                 </Link>
               )}

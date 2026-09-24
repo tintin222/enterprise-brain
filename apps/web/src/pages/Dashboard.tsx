@@ -31,6 +31,7 @@ import { formatMoney, formatNumber, timeAgo } from "../lib/format.ts";
 import { activityIcon } from "../lib/icons.tsx";
 import { keys } from "../lib/queries.ts";
 import type { Dashboard as DashboardData } from "../types.ts";
+import { useDocumentTitle } from "../lib/title.ts";
 
 function Kpi({
   label,
@@ -69,7 +70,11 @@ function Kpi({
       {sub && <div className="mt-1 text-xs text-muted">{sub}</div>}
     </>
   );
-  const cls = clsx("rounded-xl border border-line bg-surface p-4 shadow-xs", to && "transition-colors hover:border-brand-300 dark:hover:border-brand-400/40", className);
+  const cls = clsx(
+    "rounded-xl border border-line bg-surface p-4 shadow-xs",
+    to && "transition-colors hover:border-brand-300 dark:hover:border-brand-400/40",
+    className,
+  );
   return to ? (
     <Link to={to} className={cls}>
       {body}
@@ -90,6 +95,7 @@ const USE_CASES: { to: string; label: string; description: string; icon: LucideI
 
 export default function Dashboard() {
   const { company, companyName, path } = useCompany();
+  useDocumentTitle("Dashboard");
   const { data, isLoading, error, refetch } = useQuery({
     queryKey: keys.dashboard(company),
     queryFn: () => api.get<DashboardData>(path("/dashboard")),
@@ -166,14 +172,21 @@ export default function Dashboard() {
             />
             <Kpi label="Cost this month" value={formatMoney(data.costMonthUsd, 2)} sub="LLM usage across all runs" icon={CircleDollarSign} tone="green" />
             <Kpi label="Departments" value={formatNumber(c.departments)} sub="Installed operating model" icon={Building} to="/departments" tone="slate" />
-            <Kpi label="Knowledge documents" value={formatNumber(c.knowledgeDocuments)} sub="Searchable by every agent" icon={BookOpen} to="/knowledge" tone="slate" />
+            <Kpi
+              label="Knowledge documents"
+              value={formatNumber(c.knowledgeDocuments)}
+              sub="Searchable by every agent"
+              icon={BookOpen}
+              to="/knowledge"
+              tone="slate"
+            />
             <Kpi label="Agents in the making" value={formatNumber(c.openBuilderSessions)} sub="Open Agent Builder sessions" icon={WandSparkles} to="/builder" />
           </>
         )}
       </div>
 
       <h2 className="mt-10 mb-3 text-sm font-semibold text-fg">Ready-made use cases</h2>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {USE_CASES.map((u) => (
           <Link
             key={u.to}

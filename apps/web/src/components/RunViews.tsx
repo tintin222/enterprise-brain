@@ -25,7 +25,7 @@ import { useCompany } from "../lib/company.tsx";
 import { formatMoney, formatTime, runDuration, timeAgo } from "../lib/format.ts";
 import { stepIcon } from "../lib/icons.tsx";
 import { runTriggerLabel } from "../lib/labels.ts";
-import { keys } from "../lib/queries.ts";
+import { keys, useAgents } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
 import type { AgentDefinition, FieldSpec, RunDetail, RunEvent, RunRow, UploadedFile } from "../types.ts";
 import { Badge, StatusPill } from "./Badge.tsx";
@@ -92,9 +92,15 @@ function eventDetails(event: RunEvent) {
   if (!preview && !Object.keys(rest).length) return undefined;
   return (
     <div className="space-y-2">
-      {preview && <pre className="max-h-64 overflow-auto rounded-lg border border-line bg-subtle/60 p-2.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-fg">{preview}</pre>}
+      {preview && (
+        <pre className="max-h-64 overflow-auto rounded-lg border border-line bg-subtle/60 p-2.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-fg">
+          {preview}
+        </pre>
+      )}
       {Object.keys(rest).length > 0 && (
-        <pre className="max-h-48 overflow-auto rounded-lg border border-line bg-subtle/60 p-2.5 font-mono text-[11px] whitespace-pre-wrap text-muted">{JSON.stringify(rest, null, 2)}</pre>
+        <pre className="max-h-48 overflow-auto rounded-lg border border-line bg-subtle/60 p-2.5 font-mono text-[11px] whitespace-pre-wrap text-muted">
+          {JSON.stringify(rest, null, 2)}
+        </pre>
       )}
     </div>
   );
@@ -274,6 +280,7 @@ export function RunForm({
         {fileField && (
           <DemoSamplesButton
             label="Try with a demo file"
+            accept={fileField.accept}
             onPick={(_ids, _label, files) =>
               setValue(
                 fileField.key,
@@ -310,10 +317,15 @@ export function RunsTable({
   empty?: ReactNode;
 }) {
   const navigate = useNavigate();
+  const agents = useAgents();
   if (!runs.length) return <>{empty ?? <p className="px-5 py-8 text-center text-sm text-muted">No runs yet.</p>}</>;
+  const agentOf = (run: RunRow) => {
+    const known = agents.data?.find((a) => a.id === run.agentId);
+    return { slug: run.agentSlug ?? known?.slug, name: run.agentName ?? known?.name ?? "Agent" };
+  };
   const byKey = new Map(outputs.map((f) => [f.key, f]));
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="w-full text-left text-sm">
         <thead className="border-b border-line bg-subtle/50 text-xs text-muted">
           <tr>
@@ -351,17 +363,17 @@ export function RunsTable({
               </td>
               {showAgent && (
                 <td className="max-w-[14rem] truncate px-4 py-2.5 font-medium text-fg">
-                  {run.agentSlug ? (
-                    <Link to={`/agents/${run.agentSlug}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
-                      {run.agentName ?? run.agentSlug}
+                  {agentOf(run).slug ? (
+                    <Link to={`/agents/${agentOf(run).slug}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
+                      {agentOf(run).name}
                     </Link>
                   ) : (
-                    (run.agentName ?? "Agent")
+                    agentOf(run).name
                   )}
                 </td>
               )}
               {highlight.map((k) => (
-                <td key={k} className="max-w-[16rem] px-4 py-2.5">
+                <td key={k} className="max-w-[16rem] min-w-[8rem] px-4 py-2.5">
                   <CellValue name={k} value={run.output?.[k]} field={byKey.get(k)} />
                 </td>
               ))}

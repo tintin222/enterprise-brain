@@ -14,6 +14,7 @@ export function DemoSamplesButton({
   className,
   preferred,
   label = "Use demo samples",
+  accept,
 }: {
   onPick: (fileIds: string[], label: string, files: StoredFile[]) => void;
   busy?: boolean;
@@ -21,6 +22,8 @@ export function DemoSamplesButton({
   /** Put this set first (e.g. "cv" for a CV screener). */
   preferred?: string;
   label?: string;
+  /** Only offer files matching these extensions / mime types. */
+  accept?: string[];
 }) {
   const { data: sets } = useDemoFiles();
   const [open, setOpen] = useState(false);
@@ -35,8 +38,19 @@ export function DemoSamplesButton({
     return () => document.removeEventListener("mousedown", close);
   }, [open]);
 
-  if (!sets || sets.size === 0) return null;
-  const entries = [...sets.entries()].sort(([a], [b]) => (a === preferred ? -1 : b === preferred ? 1 : a.localeCompare(b)));
+  const matches = (f: StoredFile) =>
+    !accept?.length ||
+    accept.some((rule) => {
+      const r = rule.toLowerCase();
+      if (r.startsWith(".")) return f.name.toLowerCase().endsWith(r);
+      if (r.endsWith("/*")) return f.mimeType.toLowerCase().startsWith(r.slice(0, -1));
+      return f.mimeType.toLowerCase() === r;
+    });
+  const entries = [...(sets?.entries() ?? [])]
+    .map(([set, files]) => [set, files.filter(matches)] as const)
+    .filter(([, files]) => files.length > 0)
+    .sort(([a], [b]) => (a === preferred ? -1 : b === preferred ? 1 : a.localeCompare(b)));
+  if (!entries.length) return null;
 
   return (
     <div ref={ref} className={clsx("relative inline-block", className)}>

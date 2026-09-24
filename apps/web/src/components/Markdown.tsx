@@ -41,7 +41,17 @@ function hardBreaks(text: string): string {
 }
 
 /** Markdown with GitHub-flavoured extensions (tables, task lists, strikethrough) and styled prose. */
-export const Markdown = memo(function Markdown({ children, className, compact, breaks }: { children: string; className?: string; compact?: boolean; breaks?: boolean }) {
+export const Markdown = memo(function Markdown({
+  children,
+  className,
+  compact,
+  breaks,
+}: {
+  children: string;
+  className?: string;
+  compact?: boolean;
+  breaks?: boolean;
+}) {
   const text = normalize(children);
   return (
     <div className={clsx("md", compact && "md-compact", className)}>

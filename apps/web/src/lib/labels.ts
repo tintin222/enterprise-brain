@@ -112,7 +112,7 @@ export function describeTrigger(trigger: TriggerSpec): string {
       return `Email to ${trigger.mailbox}${bits.length ? ` (${bits.join(", ")})` : ""}`;
     }
     case "schedule":
-      return `Schedule ${trigger.cron}${trigger.timezone ? ` (${trigger.timezone})` : ""}`;
+      return `${describeCron(trigger.cron)}${trigger.timezone ? ` (${trigger.timezone})` : ""}`;
     case "webhook":
       return trigger.description ? `Webhook: ${trigger.description}` : "Webhook";
     case "chat":
@@ -122,6 +122,29 @@ export function describeTrigger(trigger: TriggerSpec): string {
     case "connector-event":
       return `${trigger.connector}: ${trigger.event}`;
   }
+}
+
+const DAYS = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"];
+
+/** Common cron patterns in words ("0 8 * * 1" → "Mondays at 08:00"); anything else stays as cron. */
+export function describeCron(cron: string): string {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return `Schedule ${cron}`;
+  const [min, hour, dom, month, dow] = parts as [string, string, string, string, string];
+  if (!/^\d+$/.test(min)) {
+    if (min.startsWith("*/") && hour === "*" && dom === "*" && month === "*" && dow === "*") return `Every ${min.slice(2)} minutes`;
+    return `Schedule ${cron}`;
+  }
+  if (hour === "*" && dom === "*" && month === "*" && dow === "*") return `Every hour at :${min.padStart(2, "0")}`;
+  if (hour.startsWith("*/") && dom === "*" && month === "*" && dow === "*") return `Every ${hour.slice(2)} hours`;
+  if (!/^\d+$/.test(hour)) return `Schedule ${cron}`;
+  const time = `${hour.padStart(2, "0")}:${min.padStart(2, "0")}`;
+  if (month !== "*") return `Schedule ${cron}`;
+  if (dom === "*" && dow === "*") return `Every day at ${time}`;
+  if (dom === "*" && dow === "1-5") return `Weekdays at ${time}`;
+  if (dom === "*" && /^[0-6]$/.test(dow)) return `${DAYS[Number(dow)]} at ${time}`;
+  if (/^\d+$/.test(dom) && dow === "*") return `Monthly on day ${dom} at ${time}`;
+  return `Schedule ${cron}`;
 }
 
 export function triggerShort(trigger: TriggerSpec): string {

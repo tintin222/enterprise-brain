@@ -32,7 +32,11 @@ export default function RunsList() {
 
   return (
     <Page>
-      <PageHeader icon={CirclePlay} title="Runs" description="Every execution of every agent — by a person, an email, a schedule or Paperclip — with its full trail, output and cost." />
+      <PageHeader
+        icon={CirclePlay}
+        title="Runs"
+        description="Every execution of every agent — by a person, an email, a schedule or Paperclip — with its full trail, output and cost."
+      />
       <Card className="overflow-hidden">
         <div className="flex flex-col gap-3 border-b border-line p-4 sm:flex-row sm:items-center">
           <select className="input h-9 w-full py-1.5 sm:w-64" value={agent} onChange={(e) => update("agent", e.target.value)} aria-label="Agent">

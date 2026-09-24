@@ -5,7 +5,16 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { FieldForm } from "../../components/FieldForm.tsx";
 import { JsonDetails } from "../../components/JsonView.tsx";
 import { archetypeIcon, stepIcon } from "../../lib/icons.tsx";
-import { approvalRuleLabel, archetypeLabel, categoryLabel, describeStep, describeTrigger, PERSONAL_DATA_LABELS, plainTemplate, STEP_TYPE_LABELS } from "../../lib/labels.ts";
+import {
+  approvalRuleLabel,
+  archetypeLabel,
+  categoryLabel,
+  describeStep,
+  describeTrigger,
+  PERSONAL_DATA_LABELS,
+  plainTemplate,
+  STEP_TYPE_LABELS,
+} from "../../lib/labels.ts";
 import { humanize } from "../../lib/format.ts";
 import { useDepartmentName } from "../../lib/queries.ts";
 import type { AgentDefinition, FieldSpec, TriggerSpec } from "../../types.ts";
@@ -115,7 +124,9 @@ export function Blueprint({ definition, showPreview = true }: { definition: Agen
                 <li key={step.id} className="flex gap-3">
                   <span className="relative flex size-7 shrink-0 items-center justify-center rounded-lg bg-subtle text-muted ring-1 ring-line">
                     <SIcon className="size-3.5" />
-                    <span className="absolute -top-1.5 -left-1.5 flex size-4 items-center justify-center rounded-full bg-brand-600 text-[9px] font-bold text-white">{i + 1}</span>
+                    <span className="absolute -top-1.5 -left-1.5 flex size-4 items-center justify-center rounded-full bg-brand-600 text-[9px] font-bold text-white">
+                      {i + 1}
+                    </span>
                   </span>
                   <div className="min-w-0 pt-0.5">
                     <p className="text-sm text-fg">{step.name ? plainTemplate(step.name) : describeStep(step)}</p>
@@ -204,7 +215,9 @@ export function Blueprint({ definition, showPreview = true }: { definition: Agen
               <p className="text-sm font-semibold text-fg">{definition.ui.title ?? definition.name}</p>
               {definition.ui.description && <p className="mb-3 text-xs text-muted">{definition.ui.description}</p>}
               {definition.ui.layout === "chat" ? (
-                <div className="mt-3 rounded-lg border border-dashed border-line-strong p-4 text-center text-sm text-muted">A chat screen where your team talks to the agent.</div>
+                <div className="mt-3 rounded-lg border border-dashed border-line-strong p-4 text-center text-sm text-muted">
+                  A chat screen where your team talks to the agent.
+                </div>
               ) : definition.ui.layout === "inbox" ? (
                 <div className="mt-3 rounded-lg border border-dashed border-line-strong p-4 text-center text-sm text-muted">
                   An inbox of processed emails with the agent's results.

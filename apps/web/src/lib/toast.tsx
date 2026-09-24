@@ -76,7 +76,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 <p className="text-sm font-medium text-fg">{t.title}</p>
                 {t.description && <p className="mt-0.5 text-sm text-muted">{t.description}</p>}
                 {t.link && (
-                  <Link to={t.link.to} onClick={() => dismiss(t.id)} className="mt-1 inline-block text-sm font-medium text-brand-600 hover:underline dark:text-brand-300">
+                  <Link
+                    to={t.link.to}
+                    onClick={() => dismiss(t.id)}
+                    className="mt-1 inline-block text-sm font-medium text-brand-600 hover:underline dark:text-brand-300"
+                  >
                     {t.link.label} →
                   </Link>
                 )}

@@ -10,6 +10,7 @@ import { useCompany } from "../lib/company.tsx";
 import { timeAgo } from "../lib/format.ts";
 import { keys } from "../lib/queries.ts";
 import type { Conversation } from "../types.ts";
+import { useDocumentTitle } from "../lib/title.ts";
 
 const SUGGESTIONS = [
   "How many days of annual leave do I get?",
@@ -20,6 +21,7 @@ const SUGGESTIONS = [
 
 export default function Assistant() {
   const { company, path, info } = useCompany();
+  useDocumentTitle("Assistant");
   const queryClient = useQueryClient();
   const [params, setParams] = useSearchParams();
   const selected = params.get("c");

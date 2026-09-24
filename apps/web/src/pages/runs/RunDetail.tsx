@@ -21,6 +21,7 @@ import { displayValue, formatDateTime, formatMoney, formatNumber, humanize, isRe
 import { runTriggerLabel } from "../../lib/labels.ts";
 import { keys } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
+import { useDocumentTitle } from "../../lib/title.ts";
 
 function InputValue({ value }: { value: unknown }): ReactNode {
   if (isUuid(value)) return <FileIdLink fileId={value} />;
@@ -54,6 +55,7 @@ function InputValue({ value }: { value: unknown }): ReactNode {
 
 export default function RunDetail() {
   const { id = "" } = useParams();
+  useDocumentTitle("Run");
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -178,7 +180,7 @@ export default function RunDetail() {
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="min-w-0 space-y-6">
           {approvals.some((a) => a.status === "pending") && (
             <div className="space-y-3">
@@ -217,7 +219,13 @@ export default function RunDetail() {
               {run.output && Object.keys(run.output).length ? (
                 <OutputView output={run.output} fields={agent?.outputs ?? []} highlight={agent?.ui?.highlight ?? []} />
               ) : (
-                <p className="text-sm text-muted">{live ? "The output appears when the run finishes." : run.status === "waiting_approval" ? "The run continues after the approval." : "No output."}</p>
+                <p className="text-sm text-muted">
+                  {live
+                    ? "The output appears when the run finishes."
+                    : run.status === "waiting_approval"
+                      ? "The run continues after the approval."
+                      : "No output."}
+                </p>
               )}
             </div>
           </Card>

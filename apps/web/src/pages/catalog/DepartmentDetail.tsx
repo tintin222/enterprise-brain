@@ -19,6 +19,7 @@ import { keys, useCatalog, useDepartments } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { CatalogResponse, DepartmentTemplate, ProcessStep, ProcessTemplate } from "../../types.ts";
 import { TemplateDrawer } from "./TemplateDrawer.tsx";
+import { useDocumentTitle } from "../../lib/title.ts";
 
 function actorInfo(step: ProcessStep, catalog: CatalogResponse, department: DepartmentTemplate) {
   const [kind = "system", ref = ""] = step.actor.split(":");
@@ -27,7 +28,17 @@ function actorInfo(step: ProcessStep, catalog: CatalogResponse, department: Depa
   return { kind, label: categoryLabel(ref), ref };
 }
 
-export function StepFlow({ process, catalog, department, onAgent }: { process: ProcessTemplate; catalog: CatalogResponse; department: DepartmentTemplate; onAgent?: (id: string) => void }) {
+export function StepFlow({
+  process,
+  catalog,
+  department,
+  onAgent,
+}: {
+  process: ProcessTemplate;
+  catalog: CatalogResponse;
+  department: DepartmentTemplate;
+  onAgent?: (id: string) => void;
+}) {
   return (
     <ol className="flex flex-wrap items-stretch gap-y-3">
       {process.steps.map((step, i) => {
@@ -82,6 +93,7 @@ export function StepFlow({ process, catalog, department, onAgent }: { process: P
 
 export default function DepartmentDetail() {
   const { id = "" } = useParams();
+  useDocumentTitle("Department template");
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -92,7 +104,8 @@ export default function DepartmentDetail() {
   const [activate, setActivate] = useState(true);
 
   const install = useMutation({
-    mutationFn: () => api.post<{ department: unknown; processes: unknown[]; agents: unknown[] }>(path(`/catalog/departments/${encodeURIComponent(id)}/install`), { activate }),
+    mutationFn: () =>
+      api.post<{ department: unknown; processes: unknown[]; agents: unknown[] }>(path(`/catalog/departments/${encodeURIComponent(id)}/install`), { activate }),
     onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: keys.departments(company) });
       void queryClient.invalidateQueries({ queryKey: keys.agents(company) });

@@ -48,8 +48,16 @@ function SampleCards({ samples }: { samples: SampleAnalysis[] }) {
             <span className="truncate">{s.fileName}</span>
           </p>
           <div className="mt-1.5 flex flex-wrap gap-1">
-            {s.documentType && s.documentType !== "unknown" && <Badge size="xs" tone="brand">{s.documentType}</Badge>}
-            {s.pages !== undefined && <Badge size="xs">{s.pages} page{s.pages === 1 ? "" : "s"}</Badge>}
+            {s.documentType && s.documentType !== "unknown" && (
+              <Badge size="xs" tone="brand">
+                {s.documentType}
+              </Badge>
+            )}
+            {s.pages !== undefined && (
+              <Badge size="xs">
+                {s.pages} page{s.pages === 1 ? "" : "s"}
+              </Badge>
+            )}
             {s.language && <Badge size="xs">{s.language.toUpperCase()}</Badge>}
             {s.needsOcr && (
               <Badge size="xs" tone="amber" icon={ScanText}>
@@ -69,13 +77,26 @@ function PastRound({ message }: { message: BuilderMessage }) {
   const count = round?.questions.length ?? 0;
   return (
     <div className="rounded-2xl rounded-tl-sm border border-line bg-surface px-4 py-3 shadow-xs">
-      {round?.intro && <Markdown compact className="mb-2">{round.intro}</Markdown>}
-      <button type="button" onClick={() => setOpen((o) => !o)} className="flex items-center gap-1.5 text-[13px] font-medium text-muted hover:text-fg" aria-expanded={open}>
+      {round?.intro && (
+        <Markdown compact className="mb-2">
+          {round.intro}
+        </Markdown>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1.5 text-[13px] font-medium text-muted hover:text-fg"
+        aria-expanded={open}
+      >
         {open ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
         Round {round?.number ?? message.round} · {count} question{count === 1 ? "" : "s"}
         {round?.answeredAt && <span className="font-normal text-faint">— answered</span>}
       </button>
-      {open && <Markdown compact className="mt-2 border-t border-line pt-2">{message.content}</Markdown>}
+      {open && (
+        <Markdown compact className="mt-2 border-t border-line pt-2">
+          {message.content}
+        </Markdown>
+      )}
     </div>
   );
 }
@@ -89,7 +110,10 @@ function RequestNotice({ view, requestId, onOpenRequest }: { view: SessionView; 
         <Mail className="size-4 shrink-0 text-amber-600 dark:text-amber-300" />
         <span className="min-w-0">
           <span className="font-medium text-fg">Request for {stakeholderLabel(request.role)}</span>
-          <span className="text-muted"> · {request.questions.length} question{request.questions.length === 1 ? "" : "s"}</span>
+          <span className="text-muted">
+            {" "}
+            · {request.questions.length} question{request.questions.length === 1 ? "" : "s"}
+          </span>
         </span>
         <StatusPill status={request.status} size="xs" />
       </div>
@@ -115,7 +139,19 @@ export function TypingIndicator({ label = "The analyst is thinking…" }: { labe
   );
 }
 
-export function UserBubble({ children, at, name, pending, attachments }: { children: ReactNode; at?: string; name?: string | null; pending?: boolean; attachments?: { fileId: string; name: string }[] }) {
+export function UserBubble({
+  children,
+  at,
+  name,
+  pending,
+  attachments,
+}: {
+  children: ReactNode;
+  at?: string;
+  name?: string | null;
+  pending?: boolean;
+  attachments?: { fileId: string; name: string }[];
+}) {
   return (
     <div className={clsx("flex flex-row-reverse gap-3", pending && "opacity-70")}>
       <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-200 text-xs font-semibold text-slate-700 dark:bg-slate-700 dark:text-slate-200">
@@ -167,81 +203,81 @@ export function Transcript({
       [...messages].reverse().find((m) => m.role === "analyst" && m.round === currentRound.number)?.id);
 
   const renderMessage = (m: BuilderMessage): ReactNode => {
-        if (m.role === "system") {
-          return (
-            <div key={m.id} className="flex justify-center">
-              <div className="max-w-[90%] rounded-xl bg-subtle px-3.5 py-2 text-center text-xs text-muted">
-                <Markdown compact className="text-xs [&_ul]:text-left">
-                  {m.content}
-                </Markdown>
-                <Time at={m.createdAt} />
-              </div>
+    if (m.role === "system") {
+      return (
+        <div key={m.id} className="flex justify-center">
+          <div className="max-w-[90%] rounded-xl bg-subtle px-3.5 py-2 text-center text-xs text-muted">
+            <Markdown compact className="text-xs [&_ul]:text-left">
+              {m.content}
+            </Markdown>
+            <Time at={m.createdAt} />
+          </div>
+        </div>
+      );
+    }
+    if (m.role === "user") {
+      return (
+        <UserBubble key={m.id} at={m.createdAt} name={session.requesterName} attachments={m.attachments}>
+          <Markdown compact>{m.content}</Markdown>
+        </UserBubble>
+      );
+    }
+    const isRound = Boolean(m.data?.round);
+    if (isRound && m.id === currentRoundMessageId && currentRound) {
+      return (
+        <AnalystBubble key={m.id} at={m.createdAt}>
+          {(currentRound.intro || m.data.round?.intro) && (
+            <div className="mb-3 rounded-2xl rounded-tl-sm border border-line bg-surface px-4 py-3 shadow-xs">
+              <Markdown compact>{currentRound.intro ?? m.data.round?.intro ?? ""}</Markdown>
             </div>
-          );
-        }
-        if (m.role === "user") {
-          return (
-            <UserBubble key={m.id} at={m.createdAt} name={session.requesterName} attachments={m.attachments}>
-              <Markdown compact>{m.content}</Markdown>
-            </UserBubble>
-          );
-        }
-        const isRound = Boolean(m.data?.round);
-        if (isRound && m.id === currentRoundMessageId && currentRound) {
-          return (
-            <AnalystBubble key={m.id} at={m.createdAt}>
-              {(currentRound.intro || m.data.round?.intro) && (
-                <div className="mb-3 rounded-2xl rounded-tl-sm border border-line bg-surface px-4 py-3 shadow-xs">
-                  <Markdown compact>{currentRound.intro ?? m.data.round?.intro ?? ""}</Markdown>
-                </div>
-              )}
-              <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted">
-                <Sparkles className="size-3.5 text-brand-500" /> Round {currentRound.number} — answer with the buttons, or type below
-              </p>
-              <QuestionRound key={currentRound.number} round={currentRound} view={view} actions={actions} />
-            </AnalystBubble>
-          );
-        }
-        if (isRound) {
-          return (
-            <AnalystBubble key={m.id} at={m.createdAt}>
-              <PastRound message={m} />
-            </AnalystBubble>
-          );
-        }
-        return (
-          <AnalystBubble key={m.id} at={m.createdAt}>
-            <div className="rounded-2xl rounded-tl-sm border border-line bg-surface px-4 py-3 shadow-xs">
-              <Markdown compact>{m.content}</Markdown>
-              {m.data?.samples && m.data.samples.length > 0 && <SampleCards samples={m.data.samples} />}
-              {m.data?.requestId && <RequestNotice view={view} requestId={m.data.requestId} onOpenRequest={onOpenRequest} />}
-              {m.id === lastSummaryId && session.status === "confirming" && (
-                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
-                  <Button variant="primary" icon={Sparkles} loading={actions.confirm.isPending} onClick={() => actions.confirm.mutate()}>
-                    Confirm & build the agent
-                  </Button>
-                  <span className="text-xs text-muted">Nothing is generated until you confirm.</span>
-                </div>
-              )}
-              {m.data?.agentId && view.agent && (
-                <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
-                  <ButtonLink size="sm" variant="soft" to={`/apps/${view.agent.slug}`}>
-                    Open the agent's app
-                  </ButtonLink>
-                  <ButtonLink size="sm" variant="ghost" to={`/agents/${view.agent.slug}`}>
-                    Agent details
-                  </ButtonLink>
-                </div>
-              )}
+          )}
+          <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted">
+            <Sparkles className="size-3.5 text-brand-500" /> Round {currentRound.number} — answer with the buttons, or type below
+          </p>
+          <QuestionRound key={currentRound.number} round={currentRound} view={view} actions={actions} />
+        </AnalystBubble>
+      );
+    }
+    if (isRound) {
+      return (
+        <AnalystBubble key={m.id} at={m.createdAt}>
+          <PastRound message={m} />
+        </AnalystBubble>
+      );
+    }
+    return (
+      <AnalystBubble key={m.id} at={m.createdAt}>
+        <div className="rounded-2xl rounded-tl-sm border border-line bg-surface px-4 py-3 shadow-xs">
+          <Markdown compact>{m.content}</Markdown>
+          {m.data?.samples && m.data.samples.length > 0 && <SampleCards samples={m.data.samples} />}
+          {m.data?.requestId && <RequestNotice view={view} requestId={m.data.requestId} onOpenRequest={onOpenRequest} />}
+          {m.id === lastSummaryId && session.status === "confirming" && (
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
+              <Button variant="primary" icon={Sparkles} loading={actions.confirm.isPending} onClick={() => actions.confirm.mutate()}>
+                Confirm & build the agent
+              </Button>
+              <span className="text-xs text-muted">Nothing is generated until you confirm.</span>
             </div>
-          </AnalystBubble>
-        );
+          )}
+          {m.data?.agentId && view.agent && (
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
+              <ButtonLink size="sm" variant="soft" to={`/apps/${view.agent.slug}`}>
+                Open the agent's app
+              </ButtonLink>
+              <ButtonLink size="sm" variant="ghost" to={`/agents/${view.agent.slug}`}>
+                Agent details
+              </ButtonLink>
+            </div>
+          )}
+        </div>
+      </AnalystBubble>
+    );
   };
 
   return (
     <div className="space-y-5">
       {messages.map((m) => (
-        <div key={m.id} data-message="">
+        <div key={m.id} data-message="" className="scroll-mt-20">
           {renderMessage(m)}
         </div>
       ))}

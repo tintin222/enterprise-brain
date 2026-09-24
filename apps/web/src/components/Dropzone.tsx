@@ -85,7 +85,9 @@ export function Dropzone({
         className={clsx(
           "group relative flex cursor-pointer items-center justify-center rounded-xl border-2 border-dashed text-center transition-colors",
           compact ? "gap-3 px-4 py-3" : "flex-col gap-2 px-6 py-7",
-          over ? "border-brand-500 bg-brand-50/70 dark:bg-brand-400/10" : "border-line-strong bg-subtle/40 hover:border-brand-400 hover:bg-brand-50/40 dark:hover:bg-brand-400/5",
+          over
+            ? "border-brand-500 bg-brand-50/70 dark:bg-brand-400/10"
+            : "border-line-strong bg-subtle/40 hover:border-brand-400 hover:bg-brand-50/40 dark:hover:bg-brand-400/5",
           inactive && "cursor-not-allowed opacity-60",
         )}
       >

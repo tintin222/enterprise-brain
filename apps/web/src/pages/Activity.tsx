@@ -80,9 +80,17 @@ export default function Activity() {
         </div>
         {activity.error && <ErrorState error={activity.error} className="m-4" onRetry={() => void activity.refetch()} />}
         {activity.isLoading && <Skeleton className="m-4 h-60" />}
-        {activity.data && filtered.length === 0 && <EmptyState compact className="m-4" icon={ScrollText} title="No activity" description="Actions in the console, runs and approvals are recorded here." />}
+        {activity.data && filtered.length === 0 && (
+          <EmptyState
+            compact
+            className="m-4"
+            icon={ScrollText}
+            title="No activity"
+            description="Actions in the console, runs and approvals are recorded here."
+          />
+        )}
         {filtered.length > 0 && (
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="border-b border-line bg-subtle/50 text-xs text-muted">
                 <tr>

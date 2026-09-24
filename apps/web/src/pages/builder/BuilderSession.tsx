@@ -31,6 +31,7 @@ import { RequirementsPanel } from "./RequirementsPanel.tsx";
 import { SamplesPanel } from "./SamplesPanel.tsx";
 import { StakeholdersPanel } from "./StakeholdersPanel.tsx";
 import { Transcript } from "./Transcript.tsx";
+import { useDocumentTitle } from "../../lib/title.ts";
 
 type PanelTab = "blueprint" | "requirements" | "stakeholders" | "samples";
 
@@ -74,16 +75,14 @@ function SessionHeader({ view }: { view: SessionView }) {
           aria-valuemax={100}
           aria-label="Requirements settled"
         >
-          <div className="h-full rounded-full bg-gradient-to-r from-brand-500 to-violet-500 transition-[width] duration-500" style={{ width: `${progress.percent}%` }} />
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-brand-500 to-violet-500 transition-[width] duration-500"
+            style={{ width: `${progress.percent}%` }}
+          />
         </div>
         <span className="text-xs text-muted">
           <span className="font-semibold text-fg tabular-nums">{progress.percent}%</span> · {progress.settled} of {progress.total} requirements settled
-          {progress.delegated > 0 && (
-            <span className="text-amber-700 dark:text-amber-300">
-              {" "}
-              · {progress.delegated} waiting on others
-            </span>
-          )}
+          {progress.delegated > 0 && <span className="text-amber-700 dark:text-amber-300"> · {progress.delegated} waiting on others</span>}
         </span>
       </div>
     </div>
@@ -123,8 +122,9 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
           <Hourglass className="hidden size-5 shrink-0 text-amber-600 sm:block dark:text-amber-300" />
           <div className="min-w-[16rem] flex-1 text-[13px] text-amber-950 dark:text-amber-100">
             <p className="font-semibold">Waiting on others{openRequests ? ` — ${openRequests} request${openRequests === 1 ? "" : "s"} open` : ""}</p>
-            <p className="opacity-90">
-              Everything on your side is done. You can continue now with assumptions — the agent runs on manual uploads and demo data until the other teams answer.
+            <p className="hidden opacity-90 sm:block">
+              Everything on your side is done. You can continue now with assumptions — the agent runs on manual uploads and demo data until the other teams
+              answer.
             </p>
           </div>
           <div className="ml-auto flex shrink-0 flex-wrap gap-2">
@@ -143,9 +143,15 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
           <ClipboardList className="hidden size-5 shrink-0 text-brand-600 sm:block dark:text-brand-300" />
           <div className="min-w-[16rem] flex-1 text-[13px] text-brand-950 dark:text-brand-100">
             <p className="font-semibold">Ready to build</p>
-            <p className="opacity-90">Review the summary above. Nothing is generated until you confirm — or tell me what to change.</p>
+            <p className="hidden opacity-90 sm:block">Review the summary above. Nothing is generated until you confirm — or tell me what to change.</p>
           </div>
-          <Button variant="primary" icon={WandSparkles} loading={actions.confirm.isPending} onClick={() => actions.confirm.mutate()} className="ml-auto shrink-0">
+          <Button
+            variant="primary"
+            icon={WandSparkles}
+            loading={actions.confirm.isPending}
+            onClick={() => actions.confirm.mutate()}
+            className="ml-auto shrink-0"
+          >
             Confirm & build the agent
           </Button>
         </div>
@@ -164,7 +170,7 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
         <div className="flex flex-wrap items-center gap-3 border-t border-emerald-200 bg-emerald-50/80 px-4 py-3 sm:px-6 dark:border-emerald-400/20 dark:bg-emerald-400/10">
           <div className="min-w-[16rem] flex-1 text-[13px] text-emerald-950 dark:text-emerald-100">
             <p className="font-semibold">{agent?.name ?? "Your agent"} is built and in testing</p>
-            <p className="opacity-90">Check the test results above. Tell me what to change, or activate it when you're happy.</p>
+            <p className="hidden opacity-90 sm:block">Check the test results above. Tell me what to change, or activate it when you're happy.</p>
           </div>
           <div className="ml-auto flex shrink-0 flex-wrap gap-2">
             {agent && (
@@ -189,7 +195,7 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
           <Rocket className="hidden size-5 shrink-0 text-emerald-600 sm:block dark:text-emerald-300" />
           <div className="min-w-[16rem] flex-1 text-[13px] text-emerald-950 dark:text-emerald-100">
             <p className="font-semibold">{agent?.name ?? "The agent"} is live</p>
-            <p className="opacity-90">Your team can use it now. You can still ask me for changes here.</p>
+            <p className="hidden opacity-90 sm:block">Your team can use it now. You can still ask me for changes here.</p>
           </div>
           {agent && (
             <div className="ml-auto flex shrink-0 gap-2">
@@ -314,7 +320,15 @@ function Composer({ view, actions, onSending }: { view: SessionView; actions: Se
             aria-label="Message the analyst"
             className="max-h-[200px] min-h-9 flex-1 resize-none bg-transparent px-1 py-2 text-sm text-fg outline-none placeholder:text-faint"
           />
-          <Button variant="primary" size="md" icon={SendHorizontal} onClick={send} loading={busy} disabled={disabled || (!text.trim() && !files.length)} aria-label="Send">
+          <Button
+            variant="primary"
+            size="md"
+            icon={SendHorizontal}
+            onClick={send}
+            loading={busy}
+            disabled={disabled || (!text.trim() && !files.length)}
+            aria-label="Send"
+          >
             <span className="hidden sm:inline">Send</span>
           </Button>
         </div>
@@ -328,7 +342,9 @@ function Composer({ view, actions, onSending }: { view: SessionView; actions: Se
             ) : null}
             <span className="hidden md:inline">Enter to send, Shift+Enter for a new line</span>
           </span>
-          {status === "interviewing" && <DemoSamplesButton busy={actions.demoSamples.isPending} onPick={(ids) => actions.demoSamples.mutate(ids)} className="[&>button]:py-0.5" />}
+          {status === "interviewing" && (
+            <DemoSamplesButton busy={actions.demoSamples.isPending} onPick={(ids) => actions.demoSamples.mutate(ids)} className="[&>button]:py-0.5" />
+          )}
         </div>
       </div>
     </div>
@@ -341,6 +357,7 @@ function Composer({ view, actions, onSending }: { view: SessionView; actions: Se
 
 function SessionScreen({ view }: { view: SessionView }) {
   const actions = useSessionActions(view.session.id);
+  useDocumentTitle(`${view.session.title} · Agent Builder`);
   const [tab, setTab] = useState<PanelTab>("blueprint");
   const [pane, setPane] = useState<"chat" | "design">("chat");
   const [highlight, setHighlight] = useState<string | null>(null);
@@ -350,7 +367,8 @@ function SessionScreen({ view }: { view: SessionView }) {
 
   const openRequests = view.requests.filter((r) => r.status !== "answered").length;
   const draftRequests = view.requests.filter((r) => r.status === "draft").length;
-  const busyWithoutText = (actions.reply.isPending && sendingText === null) || actions.demoSamples.isPending || actions.uploadSamples.isPending || actions.proceed.isPending;
+  const busyWithoutText =
+    (actions.reply.isPending && sendingText === null) || actions.demoSamples.isPending || actions.uploadSamples.isPending || actions.proceed.isPending;
   const pendingText = sendingText !== null ? sendingText : busyWithoutText ? "" : null;
 
   const openRequest = (id: string) => {
@@ -369,6 +387,11 @@ function SessionScreen({ view }: { view: SessionView }) {
     firstScroll.current = false;
     const nodes = el.querySelectorAll<HTMLElement>("[data-message]");
     const last = nodes[nodes.length - 1];
+    if (el.scrollHeight <= el.clientHeight + 1) {
+      // Narrow screens: the page scrolls, not the transcript.
+      last?.scrollIntoView({ behavior, block: "start" });
+      return;
+    }
     if (last && last.offsetHeight > el.clientHeight * 0.75) {
       el.scrollTo({ top: last.offsetTop - 16, behavior });
     } else {
@@ -392,29 +415,43 @@ function SessionScreen({ view }: { view: SessionView }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col lg:h-[calc(100dvh-3.5rem)] lg:flex-none lg:overflow-hidden">
       <SessionHeader view={view} />
-      <div className="flex justify-center border-b border-line bg-surface px-4 py-2 lg:hidden">
+      <div className="flex justify-center border-b border-line bg-surface px-4 py-2 xl:hidden">
         <Segmented
           value={pane}
           onChange={setPane}
           options={[
-            { value: "chat", label: <span className="flex items-center gap-1.5"><MessageSquare className="size-3.5" /> Conversation</span> },
-            { value: "design", label: <span className="flex items-center gap-1.5"><LayoutTemplate className="size-3.5" /> Design</span> },
+            {
+              value: "chat",
+              label: (
+                <span className="flex items-center gap-1.5">
+                  <MessageSquare className="size-3.5" /> Conversation
+                </span>
+              ),
+            },
+            {
+              value: "design",
+              label: (
+                <span className="flex items-center gap-1.5">
+                  <LayoutTemplate className="size-3.5" /> Design
+                </span>
+              ),
+            },
           ]}
         />
       </div>
-      <div className="grid min-h-0 flex-1 lg:grid-cols-[minmax(0,1fr)_420px] xl:grid-cols-[minmax(0,1fr)_480px]">
-        <section className={clsx("min-h-0 flex-col", pane === "chat" ? "flex" : "hidden lg:flex")} aria-label="Conversation">
+      <div className="grid grid-cols-1 min-h-0 flex-1 xl:grid-cols-[minmax(0,1fr)_440px] 2xl:grid-cols-[minmax(0,1fr)_500px]">
+        <section className={clsx("min-h-0 flex-col", pane === "chat" ? "flex" : "hidden xl:flex")} aria-label="Conversation">
           <div ref={scroller} className="relative min-h-[50vh] flex-1 overflow-y-auto px-4 py-6 sm:px-6 lg:min-h-0">
             <div className="mx-auto max-w-3xl">
               <Transcript view={view} actions={actions} onOpenRequest={openRequest} pendingText={pendingText} />
             </div>
           </div>
-          <div className="sticky bottom-0 z-10 lg:static">
+          <div className="sticky bottom-0 z-10 bg-surface lg:static">
             <StatusBar view={view} actions={actions} onShowRequests={() => openRequest(view.requests.find((r) => r.status !== "answered")?.id ?? "")} />
             <Composer view={view} actions={actions} onSending={setSendingText} />
           </div>
         </section>
-        <aside className={clsx("min-h-0 flex-col border-line bg-surface lg:border-l", pane === "design" ? "flex" : "hidden lg:flex")} aria-label="Agent design">
+        <aside className={clsx("min-h-0 flex-col border-line bg-surface xl:border-l", pane === "design" ? "flex" : "hidden xl:flex")} aria-label="Agent design">
           <Tabs tabs={tabs} value={tab} onChange={setTab} size="sm" fill className="shrink-0 px-1" />
           <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
             {tab === "blueprint" && <BlueprintPanel draft={view.draft} />}

@@ -91,7 +91,7 @@ export default function Departments() {
                 {d.processes.map((p) => {
                   const agents = d.agents.filter((a) => a.processId === p.id);
                   return (
-                    <div key={p.id} className="grid gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+                    <div key={p.id} className="grid grid-cols-1 gap-3 px-5 py-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
                       <div className="min-w-0">
                         <p className="flex items-center gap-2 text-sm font-medium text-fg">
                           <Workflow className="size-4 shrink-0 text-muted" /> {p.name}
@@ -100,7 +100,11 @@ export default function Departments() {
                         <p className="mt-0.5 line-clamp-2 pl-6 text-xs text-muted">{p.summary}</p>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {agents.length ? agents.map((a) => <AgentChip key={a.id} agent={a} />) : <span className="text-xs text-faint">No agents in this process yet.</span>}
+                        {agents.length ? (
+                          agents.map((a) => <AgentChip key={a.id} agent={a} />)
+                        ) : (
+                          <span className="text-xs text-faint">No agents in this process yet.</span>
+                        )}
                       </div>
                     </div>
                   );

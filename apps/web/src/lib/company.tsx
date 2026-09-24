@@ -94,7 +94,8 @@ function ServerDown({ error, onRetry }: { error: unknown; onRetry: () => void })
         </div>
         <h1 className="text-lg font-semibold">Can't reach the Enterprise Brain server</h1>
         <p className="mt-2 text-sm text-muted">
-          {error ? errorMessage(error) : "The API did not answer."} Start it with <code className="rounded bg-subtle px-1.5 py-0.5 text-xs">pnpm dev</code> and try again.
+          {error ? errorMessage(error) : "The API did not answer."} Start it with <code className="rounded bg-subtle px-1.5 py-0.5 text-xs">pnpm dev</code> and
+          try again.
         </p>
         <button
           type="button"
@@ -132,15 +133,7 @@ function ApiKeyGate({ invalid }: { invalid: boolean }) {
         </label>
         <div className="relative">
           <KeyRound className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-faint" />
-          <input
-            id="api-key"
-            type="password"
-            autoFocus
-            className="input pl-9"
-            placeholder="EB_API_KEY"
-            value={key}
-            onChange={(e) => setKey(e.target.value)}
-          />
+          <input id="api-key" type="password" autoFocus className="input pl-9" placeholder="EB_API_KEY" value={key} onChange={(e) => setKey(e.target.value)} />
         </div>
         {invalid && <p className="mt-2 text-sm text-red-600 dark:text-red-400">That key was rejected. Check the value of EB_API_KEY.</p>}
         <p className="hint">The key is stored only in this browser.</p>

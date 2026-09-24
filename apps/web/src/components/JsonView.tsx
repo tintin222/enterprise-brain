@@ -51,7 +51,11 @@ function Node({ name, value, depth, defaultExpandDepth }: { name?: ReactNode; va
   }
   return (
     <div className="leading-6">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="-ml-4 inline-flex items-center text-left hover:text-brand-600 dark:hover:text-brand-300">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="-ml-4 inline-flex items-center text-left hover:text-brand-600 dark:hover:text-brand-300"
+      >
         {open ? <ChevronDown className="size-3.5 text-faint" /> : <ChevronRight className="size-3.5 text-faint" />}
         {label}
         <span className="text-faint">{summary}</span>
@@ -82,7 +86,17 @@ export function JsonView({ data, className, expandDepth = 1, copy = true }: { da
 }
 
 /** "Details" toggle that reveals raw JSON (progressive disclosure). */
-export function JsonDetails({ data, label = "Details", className, expandDepth = 2 }: { data: unknown; label?: string; className?: string; expandDepth?: number }) {
+export function JsonDetails({
+  data,
+  label = "Details",
+  className,
+  expandDepth = 2,
+}: {
+  data: unknown;
+  label?: string;
+  className?: string;
+  expandDepth?: number;
+}) {
   const [open, setOpen] = useState(false);
   return (
     <div className={className}>

@@ -111,7 +111,9 @@ export function useSessionActions(sessionId: string) {
   });
 
   const patchRequest = (row: StakeholderRequest) => {
-    queryClient.setQueryData<SessionView>(sessionKey, (old) => (old ? { ...old, requests: old.requests.map((r) => (r.id === row.id ? { ...r, ...row } : r)) } : old));
+    queryClient.setQueryData<SessionView>(sessionKey, (old) =>
+      old ? { ...old, requests: old.requests.map((r) => (r.id === row.id ? { ...r, ...row } : r)) } : old,
+    );
   };
 
   const updateRequest = useMutation({
@@ -124,7 +126,8 @@ export function useSessionActions(sessionId: string) {
   });
 
   const sendRequest = useMutation({
-    mutationFn: ({ id, via }: { id: string; via: "mail" | "manual" }) => api.post<StakeholderRequest>(path(`/builder/requests/${encodeURIComponent(id)}/send`), { via }),
+    mutationFn: ({ id, via }: { id: string; via: "mail" | "manual" }) =>
+      api.post<StakeholderRequest>(path(`/builder/requests/${encodeURIComponent(id)}/send`), { via }),
     onSuccess: (row, { via }) => {
       patchRequest(row);
       void queryClient.invalidateQueries({ queryKey: sessionKey });

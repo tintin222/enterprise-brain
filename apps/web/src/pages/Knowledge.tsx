@@ -35,7 +35,12 @@ function NewCollectionDialog({ open, onClose, onCreated }: { open: boolean; onCl
   const invalidate = useKnowledgeInvalidate();
   const [form, setForm] = useState({ name: "", key: "", description: "" });
   const create = useMutation({
-    mutationFn: () => api.post<KnowledgeCollection>(path("/knowledge/collections"), { name: form.name, key: form.key || undefined, description: form.description || undefined }),
+    mutationFn: () =>
+      api.post<KnowledgeCollection>(path("/knowledge/collections"), {
+        name: form.name,
+        key: form.key || undefined,
+        description: form.description || undefined,
+      }),
     onSuccess: (c) => {
       invalidate();
       toast.success(`Collection “${c.name}” created`);
@@ -66,10 +71,27 @@ function NewCollectionDialog({ open, onClose, onCreated }: { open: boolean; onCl
     >
       <form onSubmit={submit} className="space-y-4">
         <Field label="Name" required>
-          {(id) => <input id={id} autoFocus className="input" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="HR policies" />}
+          {(id) => (
+            <input
+              id={id}
+              autoFocus
+              className="input"
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="HR policies"
+            />
+          )}
         </Field>
         <Field label="Key" optional hint="Used by agents to refer to the collection. Derived from the name when empty.">
-          {(id) => <input id={id} className="input font-mono text-xs" value={form.key} onChange={(e) => setForm({ ...form, key: e.target.value })} placeholder="hr-policies" />}
+          {(id) => (
+            <input
+              id={id}
+              className="input font-mono text-xs"
+              value={form.key}
+              onChange={(e) => setForm({ ...form, key: e.target.value })}
+              placeholder="hr-policies"
+            />
+          )}
         </Field>
         <Field label="Description" optional>
           {(id) => <textarea id={id} rows={2} className="input" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />}
@@ -90,7 +112,7 @@ function AddTextDialog({ open, onClose, collection }: { open: boolean; onClose: 
     mutationFn: () => api.post<KnowledgeDocument>(path("/knowledge/documents"), { collection, title, text }),
     onSuccess: (doc) => {
       invalidate();
-      toast.success(`Added “${doc.title}”`, { description: `${doc.chunkCount} chunks indexed` });
+      toast.success(`Added “${doc.title}”`, { description: `${doc.chunkCount} chunk${doc.chunkCount === 1 ? "" : "s"} indexed` });
       setTitle("");
       setText("");
       onClose();
@@ -133,7 +155,13 @@ function DocumentDrawer({ id, onClose }: { id: string | null; onClose: () => voi
     enabled: Boolean(id),
   });
   return (
-    <Drawer open={Boolean(id)} onClose={onClose} width="lg" title={doc.data?.title ?? "Document"} description={doc.data ? `${doc.data.chunkCount} chunks · ${doc.data.source} · added ${formatDateTime(doc.data.createdAt)}` : undefined}>
+    <Drawer
+      open={Boolean(id)}
+      onClose={onClose}
+      width="lg"
+      title={doc.data?.title ?? "Document"}
+      description={doc.data ? `${doc.data.chunkCount} chunks · ${doc.data.source} · added ${formatDateTime(doc.data.createdAt)}` : undefined}
+    >
       {doc.isLoading && <Skeleton className="h-40" />}
       {doc.error && <ErrorState error={doc.error} />}
       {doc.data && (
@@ -165,10 +193,20 @@ function SearchPlayground({ collection }: { collection?: string }) {
   };
   return (
     <Card>
-      <CardHeader title="Search playground" subtitle="See exactly what agents retrieve: hybrid vector + full-text search with reciprocal-rank fusion." icon={Search} />
+      <CardHeader
+        title="Search playground"
+        subtitle="See exactly what agents retrieve: hybrid vector + full-text search with reciprocal-rank fusion."
+        icon={Search}
+      />
       <div className="space-y-4 p-5">
         <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row">
-          <input className="input flex-1" placeholder="e.g. How many days of annual leave do I get?" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search query" />
+          <input
+            className="input flex-1"
+            placeholder="e.g. How many days of annual leave do I get?"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search query"
+          />
           {collection && (
             <select className="input w-auto" value={scope} onChange={(e) => setScope(e.target.value as "current" | "all")} aria-label="Scope">
               <option value="current">This collection</option>
@@ -242,7 +280,8 @@ export default function Knowledge() {
     },
     onSuccess: (docs) => {
       invalidate();
-      toast.success(`Indexed ${docs.length} document${docs.length === 1 ? "" : "s"}`, { description: `${docs.reduce((n, d) => n + d.chunkCount, 0)} chunks` });
+      const chunks = docs.reduce((n, d) => n + d.chunkCount, 0);
+      toast.success(`Indexed ${docs.length} document${docs.length === 1 ? "" : "s"}`, { description: `${chunks} chunk${chunks === 1 ? "" : "s"}` });
     },
     onError: (e) => toast.error(e),
   });
@@ -295,7 +334,7 @@ export default function Knowledge() {
           </Button>
         }
       />
-      <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
         <Card className="h-fit overflow-hidden">
           <div className="border-b border-line px-4 py-3 text-xs font-semibold tracking-wide text-muted uppercase">Collections</div>
           {collections.isLoading && <Skeleton className="m-3 h-32" />}
@@ -305,7 +344,10 @@ export default function Knowledge() {
               <button
                 type="button"
                 onClick={() => select(null)}
-                className={clsx("flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm", !selected ? "bg-brand-50 font-medium text-brand-700 dark:bg-brand-400/15 dark:text-brand-200" : "text-fg hover:bg-subtle")}
+                className={clsx(
+                  "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm",
+                  !selected ? "bg-brand-50 font-medium text-brand-700 dark:bg-brand-400/15 dark:text-brand-200" : "text-fg hover:bg-subtle",
+                )}
               >
                 <Layers className="size-4 shrink-0" /> All documents
               </button>
@@ -317,7 +359,9 @@ export default function Knowledge() {
                   onClick={() => select(c.key)}
                   className={clsx("w-full rounded-lg px-3 py-2 text-left", selected === c.key ? "bg-brand-50 dark:bg-brand-400/15" : "hover:bg-subtle")}
                 >
-                  <span className={clsx("block truncate text-sm font-medium", selected === c.key ? "text-brand-700 dark:text-brand-200" : "text-fg")}>{c.name}</span>
+                  <span className={clsx("block truncate text-sm font-medium", selected === c.key ? "text-brand-700 dark:text-brand-200" : "text-fg")}>
+                    {c.name}
+                  </span>
                   <span className="block text-xs text-faint">
                     {c.documentCount} docs · {c.chunkCount} chunks
                   </span>
@@ -362,7 +406,9 @@ export default function Knowledge() {
                 />
               </div>
             ) : (
-              (collections.data?.length ?? 0) > 0 && <p className="border-b border-line px-5 py-3 text-xs text-muted">Select a collection to upload files or add text.</p>
+              (collections.data?.length ?? 0) > 0 && (
+                <p className="border-b border-line px-5 py-3 text-xs text-muted">Select a collection to upload files or add text.</p>
+              )
             )}
             {documents.isLoading && <Skeleton className="m-4 h-32" />}
             {documents.error && <ErrorState error={documents.error} className="m-4" />}
@@ -372,11 +418,15 @@ export default function Knowledge() {
                 className="m-4"
                 icon={FileText}
                 title="No documents yet"
-                description={current ? "Drop files above or paste text. Agents can use them right away." : "Create a collection, then add your policies, procedures and manuals."}
+                description={
+                  current
+                    ? "Drop files above or paste text. Agents can use them right away."
+                    : "Create a collection, then add your policies, procedures and manuals."
+                }
               />
             )}
             {documents.data && documents.data.length > 0 && (
-              <div className="overflow-x-auto">
+              <div className="relative overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead className="border-b border-line bg-subtle/50 text-xs text-muted">
                     <tr>

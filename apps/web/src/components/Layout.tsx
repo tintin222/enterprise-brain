@@ -117,15 +117,15 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                       className={({ isActive }) =>
                         clsx(
                           "group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
-                          isActive
-                            ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200"
-                            : "text-muted hover:bg-subtle hover:text-fg",
+                          isActive ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200" : "text-muted hover:bg-subtle hover:text-fg",
                         )
                       }
                     >
                       {({ isActive }) => (
                         <>
-                          <Icon className={clsx("size-[18px] shrink-0", isActive ? "text-brand-600 dark:text-brand-300" : "text-faint group-hover:text-muted")} />
+                          <Icon
+                            className={clsx("size-[18px] shrink-0", isActive ? "text-brand-600 dark:text-brand-300" : "text-faint group-hover:text-muted")}
+                          />
                           <span className="flex-1 truncate">{item.label}</span>
                           {count > 0 && (
                             <span className="rounded-full bg-amber-500 px-1.5 text-[11px] leading-[18px] font-semibold text-white tabular-nums">{count}</span>
@@ -157,7 +157,8 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
 function LlmBadge() {
   const { info } = useCompany();
   if (info.llm.available) {
-    const provider = info.llm.provider?.toLowerCase().includes("anthropic") || info.llm.provider?.toLowerCase().includes("claude") ? "Claude" : info.llm.provider || "LLM";
+    const provider =
+      info.llm.provider?.toLowerCase().includes("anthropic") || info.llm.provider?.toLowerCase().includes("claude") ? "Claude" : info.llm.provider || "LLM";
     return (
       <span
         className="hidden items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1 text-xs font-medium text-fg sm:inline-flex"
@@ -170,11 +171,13 @@ function LlmBadge() {
   }
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800 ring-1 ring-amber-600/20 ring-inset dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-400/25"
+      className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium whitespace-nowrap text-amber-800 ring-1 ring-amber-600/20 ring-inset dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-400/25"
       title="Set ANTHROPIC_API_KEY for Claude; the platform runs with deterministic fallbacks"
     >
       <span className="size-1.5 rounded-full bg-amber-500" />
-      Offline mode
+      <span>
+        Offline<span className="hidden sm:inline"> mode</span>
+      </span>
     </span>
   );
 }
@@ -188,7 +191,11 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
       <button type="button" onClick={onMenu} className="-ml-1 rounded-lg p-1.5 text-muted hover:bg-subtle hover:text-fg lg:hidden" aria-label="Open navigation">
         <Menu className="size-5" />
       </button>
-      <Link to="/settings" className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold text-fg hover:text-brand-700 dark:hover:text-brand-300" title="Company">
+      <Link
+        to="/settings"
+        className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold text-fg hover:text-brand-700 dark:hover:text-brand-300"
+        title="Company"
+      >
         <Building className="size-4 shrink-0 text-muted" />
         <span className="truncate">{companyName}</span>
       </Link>
@@ -263,4 +270,3 @@ export function AppShell() {
 export function Page({ children, className, wide }: { children: ReactNode; className?: string; wide?: boolean }) {
   return <div className={clsx("mx-auto w-full px-4 py-6 sm:px-6 lg:px-8 lg:py-8", wide ? "max-w-[1600px]" : "max-w-7xl", className)}>{children}</div>;
 }
-

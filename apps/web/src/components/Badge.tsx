@@ -138,9 +138,58 @@ export function StatusPill({ status, label, className, size }: { status: string 
 /** Verdict-like values: pass/shortlist = green, review = amber, fail/reject = red. */
 export function verdictTone(value: unknown): Tone | undefined {
   if (typeof value !== "string" && typeof value !== "boolean") return undefined;
-  const v = String(value).toLowerCase().replace(/[\s_-]+/g, "");
-  if (["pass", "passed", "shortlist", "shortlisted", "approve", "approved", "accept", "accepted", "match", "matched", "hire", "yes", "true", "ok", "valid", "resolved", "strongyes", "recommended"].includes(v)) return "green";
-  if (["review", "maybe", "unknown", "unclear", "hold", "onhold", "check", "needsreview", "manualreview", "partial", "pricemismatch", "quantitymismatch", "mismatch", "escalate", "pending", "waitlist"].includes(v)) return "amber";
-  if (["fail", "failed", "reject", "rejected", "decline", "declined", "no", "false", "invalid", "nomatch", "nopo", "blocked", "spam", "notrecommended"].includes(v)) return "red";
+  const v = String(value)
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+  if (
+    [
+      "pass",
+      "passed",
+      "shortlist",
+      "shortlisted",
+      "approve",
+      "approved",
+      "accept",
+      "accepted",
+      "match",
+      "matched",
+      "hire",
+      "yes",
+      "true",
+      "ok",
+      "valid",
+      "resolved",
+      "strongyes",
+      "recommended",
+    ].includes(v)
+  )
+    return "green";
+  if (
+    [
+      "review",
+      "maybe",
+      "unknown",
+      "unclear",
+      "hold",
+      "onhold",
+      "check",
+      "needsreview",
+      "manualreview",
+      "partial",
+      "pricemismatch",
+      "quantitymismatch",
+      "mismatch",
+      "escalate",
+      "pending",
+      "waitlist",
+    ].includes(v)
+  )
+    return "amber";
+  if (
+    ["fail", "failed", "reject", "rejected", "decline", "declined", "no", "false", "invalid", "nomatch", "nopo", "blocked", "spam", "notrecommended"].includes(
+      v,
+    )
+  )
+    return "red";
   return undefined;
 }
