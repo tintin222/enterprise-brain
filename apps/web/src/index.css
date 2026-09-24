@@ -1,0 +1,349 @@
+@import "tailwindcss";
+
+/* Dark mode is class based: <html class="dark">. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif,
+    "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+
+  /* The "brain" accent: indigo leaning violet. */
+  --color-brand-50: oklch(96.4% 0.02 280);
+  --color-brand-100: oklch(93% 0.036 280);
+  --color-brand-200: oklch(87% 0.068 281);
+  --color-brand-300: oklch(78.5% 0.118 282);
+  --color-brand-400: oklch(68% 0.18 283);
+  --color-brand-500: oklch(59% 0.228 283);
+  --color-brand-600: oklch(52% 0.25 283);
+  --color-brand-700: oklch(46% 0.232 283);
+  --color-brand-800: oklch(39.5% 0.19 283);
+  --color-brand-900: oklch(35% 0.14 284);
+  --color-brand-950: oklch(25.5% 0.09 285);
+
+  --animate-fade-in: eb-fade-in 160ms ease-out;
+  --animate-slide-in-right: eb-slide-in-right 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-slide-in-left: eb-slide-in-left 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-pop-in: eb-pop-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  @keyframes eb-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes eb-slide-in-right {
+    from {
+      transform: translateX(24px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes eb-slide-in-left {
+    from {
+      transform: translateX(-24px);
+      opacity: 0;
+    }
+    to {
+      transform: translateX(0);
+      opacity: 1;
+    }
+  }
+  @keyframes eb-pop-in {
+    from {
+      transform: translateY(6px) scale(0.98);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0) scale(1);
+      opacity: 1;
+    }
+  }
+}
+
+/* Semantic surface tokens that switch with the theme: bg-canvas, bg-surface, bg-subtle, border-line, text-fg, text-muted, text-faint. */
+@theme inline {
+  --color-canvas: var(--eb-canvas);
+  --color-surface: var(--eb-surface);
+  --color-subtle: var(--eb-subtle);
+  --color-line: var(--eb-line);
+  --color-line-strong: var(--eb-line-strong);
+  --color-fg: var(--eb-fg);
+  --color-muted: var(--eb-muted);
+  --color-faint: var(--eb-faint);
+}
+
+:root {
+  --eb-canvas: #f6f7fb;
+  --eb-surface: #ffffff;
+  --eb-subtle: #f1f4f9;
+  --eb-line: #e3e8ef;
+  --eb-line-strong: #cdd5e1;
+  --eb-fg: #0f172a;
+  --eb-muted: #5b6b82;
+  --eb-faint: #94a3b8;
+  color-scheme: light;
+}
+
+.dark {
+  --eb-canvas: #0a0e1a;
+  --eb-surface: #111726;
+  --eb-subtle: #182033;
+  --eb-line: #232d42;
+  --eb-line-strong: #33405a;
+  --eb-fg: #e6eaf2;
+  --eb-muted: #9aa6ba;
+  --eb-faint: #66738a;
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+  body {
+    background-color: var(--eb-canvas);
+    color: var(--eb-fg);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--color-brand-500) 28%, transparent);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: var(--eb-faint);
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--eb-line-strong) transparent;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Form controls (shared by FieldForm, dialogs and pages)
+ * ------------------------------------------------------------------------- */
+@layer components {
+  .input {
+    display: block;
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid var(--eb-line-strong);
+    background-color: var(--eb-surface);
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: var(--eb-fg);
+    box-shadow: 0 1px 1px rgb(15 23 42 / 0.03);
+    transition:
+      border-color 120ms,
+      box-shadow 120ms;
+  }
+  .input:hover:not(:disabled) {
+    border-color: color-mix(in oklab, var(--color-brand-500) 35%, var(--eb-line-strong));
+  }
+  .input:focus {
+    outline: none;
+    border-color: var(--color-brand-500);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-brand-500) 22%, transparent);
+  }
+  .input:disabled {
+    cursor: not-allowed;
+    opacity: 0.65;
+    background-color: var(--eb-subtle);
+  }
+  textarea.input {
+    resize: vertical;
+    min-height: 4.5rem;
+  }
+  select.input {
+    appearance: none;
+    padding-right: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%2394a3b8'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z' clip-rule='evenodd'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+    background-size: 1.1rem;
+  }
+  .label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--eb-fg);
+    margin-bottom: 0.375rem;
+  }
+  .hint {
+    font-size: 0.75rem;
+    color: var(--eb-muted);
+    margin-top: 0.3rem;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Markdown prose (react-markdown output)
+ * ------------------------------------------------------------------------- */
+.md {
+  font-size: 0.9rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.md > :first-child {
+  margin-top: 0;
+}
+.md > :last-child {
+  margin-bottom: 0;
+}
+.md p,
+.md ul,
+.md ol,
+.md pre,
+.md table,
+.md blockquote {
+  margin: 0.55em 0;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+  font-weight: 650;
+  line-height: 1.3;
+  margin: 1.1em 0 0.45em;
+  color: var(--eb-fg);
+}
+.md h1 {
+  font-size: 1.25em;
+}
+.md h2 {
+  font-size: 1.12em;
+}
+.md h3 {
+  font-size: 1.02em;
+}
+.md h4 {
+  font-size: 0.95em;
+}
+.md strong {
+  font-weight: 650;
+}
+.md a {
+  color: var(--color-brand-600);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--color-brand-500) 40%, transparent);
+  text-underline-offset: 2px;
+}
+.dark .md a {
+  color: var(--color-brand-300);
+}
+.md a:hover {
+  text-decoration-color: currentColor;
+}
+.md ul {
+  list-style: disc;
+  padding-left: 1.35em;
+}
+.md ol {
+  list-style: decimal;
+  padding-left: 1.5em;
+}
+.md li {
+  margin: 0.2em 0;
+}
+.md li > ul,
+.md li > ol {
+  margin: 0.2em 0;
+}
+.md li::marker {
+  color: var(--eb-faint);
+}
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--eb-subtle);
+  border: 1px solid var(--eb-line);
+  padding: 0.08em 0.35em;
+  border-radius: 0.35em;
+}
+.md pre {
+  background: var(--eb-subtle);
+  border: 1px solid var(--eb-line);
+  border-radius: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  overflow-x: auto;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+.md pre code {
+  background: none;
+  border: 0;
+  padding: 0;
+}
+.md blockquote {
+  border-left: 3px solid color-mix(in oklab, var(--color-brand-500) 45%, var(--eb-line));
+  padding: 0.1em 0 0.1em 0.85em;
+  color: var(--eb-muted);
+}
+.md hr {
+  border: 0;
+  border-top: 1px dashed var(--eb-line-strong);
+  margin: 0.9em 0;
+}
+.md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+  display: block;
+  overflow-x: auto;
+}
+.md th,
+.md td {
+  border: 1px solid var(--eb-line);
+  padding: 0.35em 0.6em;
+  text-align: left;
+  vertical-align: top;
+}
+.md th {
+  background: var(--eb-subtle);
+  font-weight: 600;
+}
+.md em {
+  color: inherit;
+}
+.md img {
+  max-width: 100%;
+  border-radius: 0.5rem;
+}
+.md-compact {
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+/* Highlighted query terms in search results. */
+mark.hl {
+  background: color-mix(in oklab, #facc15 45%, transparent);
+  color: inherit;
+  border-radius: 0.2em;
+  padding: 0 0.1em;
+}
+
+/* Subtle dotted background used by hero panels. */
+.bg-dots {
+  background-image: radial-gradient(color-mix(in oklab, var(--eb-fg) 9%, transparent) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
