@@ -138,9 +138,11 @@ export class Analyst {
     const ranked = searchCatalog(this.catalog, text, { kinds: ["agent"], limit: 6 });
     const candidates = ranked.map((r) => findAgent(this.catalog, r.id)).filter((a): a is AgentTemplate => a !== undefined);
     const language = detectLanguage(text) ?? "en";
-    // Offline there is no model to judge the fit, so only a clear lead counts as a match.
+    // Offline there is no model to judge the fit: take the best template when it scores well and either
+    // leads clearly or its runner-up is the same kind of agent (e.g. two mail-triage templates).
     const [first, second] = ranked;
-    const offlineTemplate = first && first.score >= OFFLINE_MATCH_MIN_SCORE && (!second || first.score >= second.score * 1.25) ? candidates[0] : undefined;
+    const clearLead = !second || first!.score >= second.score * 1.25 || first!.archetype === second.archetype;
+    const offlineTemplate = first && first.score >= OFFLINE_MATCH_MIN_SCORE && clearLead ? candidates[0] : undefined;
 
     if (!this.llm.available) {
       return {

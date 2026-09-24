@@ -4,7 +4,7 @@
 
 Enterprise Brain is the underlying structure a company needs to put AI agents to work across its departments:
 
-- **Department & process templates** (HR, Finance, Sales, Marketing, Customer Service, Procurement, IT, Legal, Operations, Management and company-wide shared services), each with KPIs, human roles, typical systems and ready-to-run **predefined agents**.
+- **Department & process templates:** 11 departments (HR, Finance, Sales, Marketing, Customer Service, Procurement, IT, Legal, Operations, Management and company-wide shared services) with 35 processes and 37 ready-to-run **predefined agents**. Each department comes with KPIs, human roles and typical systems.
 - **Connectors** to enterprise systems: SAP S/4HANA, SAP SuccessFactors, Workday, Microsoft Dynamics 365, Salesforce, HubSpot, Microsoft 365 mail, Gmail, IMAP/SMTP, SharePoint, SQL databases and generic REST APIs. Built-in **sandbox** ERP, CRM, HRIS, ATS and ITSM systems let every template run on day one.
 - **One place to manage agents:** versions with rollback, runs with full timelines, human **approvals**, cost tracking and an audit log.
 - **The default use cases, ready to use:** conversational AI, enterprise search, knowledge base, mail reading/classifying/replying, document & OCR processing that takes action in your systems, and Excel automation.

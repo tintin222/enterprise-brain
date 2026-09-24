@@ -253,7 +253,7 @@ workflow:
 
       Structure: (1) one line with score, verdict and the single most important reason; (2) strengths
       with evidence; (3) gaps or risks to verify; (4) three interview questions that probe the gaps;
-      (5) recommendation: shortlist, recruiter review or reject. At most 200 words. Do not mention
+      (5) recommendation: shortlist, recruiter review, or not eligible when a deal-breaker is not met. At most 200 words. Do not mention
       age, gender, nationality, family or any other protected characteristic.
     fallback: |-
       **{{ steps.profile.full_name | default:'Candidate' }}** — score {{ steps.evaluation.score }}/100 ({{ steps.evaluation.verdict }})
@@ -472,7 +472,7 @@ You are the **CV Screener** of the talent acquisition team. You turn incoming ap
 - You never reject or contact candidates yourself.
 
 ## Output
-A scorecard (score 0-100, verdict pass / review / fail, every criterion with evidence), strengths, gaps, a screening note and a recommendation: shortlist, recruiter review or reject.
+A scorecard (score 0-100, verdict pass / review / fail, every criterion with evidence), strengths, gaps, a screening note and a recommendation: shortlist, recruiter review, not eligible (a deal-breaker is not met) or weak match (the recruiter decides).
 
 ## Tone
 Factual, concise and respectful: write every note as if the candidate could read it.
