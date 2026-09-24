@@ -1,0 +1,64 @@
+id: management.kpi-reporting
+department: management
+name: Monthly KPI & Management Reporting
+summary: >-
+  After month end, financial and commercial data are pulled from the ERP and CRM, compared with the
+  budget and targets, and turned into a KPI pack with variances, traffic lights and management
+  commentary, released by the chief of staff.
+description: >-
+  Management packs are still assembled by hand from ERP exports and spreadsheets, and arrive when the
+  month is long gone. The KPI Reporter reads the closed period's trial balance, receivables and sales
+  pipeline, compares them with the budget workbook, computes the KPIs and variances and drafts the
+  commentary; the BI analyst validates and the chief of staff releases the pack.
+trigger:
+  type: schedule
+  description: Working day 3 after month end, once the period is closed in the ERP.
+frequency: Monthly (after month-end close)
+steps:
+  - id: close
+    name: Period closed in the ERP
+    actor: system:erp
+  - id: compile
+    name: Compile KPIs, variances and commentary
+    actor: agent:management.kpi-reporter
+  - id: validate
+    name: Validate the figures
+    actor: human:bi-analyst
+  - id: release
+    name: Release the management pack
+    actor: human:chief-of-staff
+    approval: true
+    sla: 1 business day
+  - id: review
+    name: Monthly performance review
+    actor: human:executive-team-member
+agents:
+  - management.kpi-reporter
+kpis:
+  - id: lead-time
+    name: Pack available after month end
+    unit: business days
+    target: "<= 3"
+  - id: manual-effort
+    name: Analyst hours per monthly pack
+    unit: hours
+    target: "< 4"
+  - id: restatements
+    name: Figures corrected after release
+    unit: count
+    target: "0"
+integrations:
+  - category: erp
+    purpose: Trial balance, receivables and operational figures.
+    required: true
+  - category: crm
+    purpose: Sales pipeline.
+    required: false
+  - category: storage
+    purpose: Budget and target workbooks; distribution of the pack.
+    required: false
+useCases: [excel-automation]
+value:
+  hoursSavedPerMonth: 40
+  description: The monthly pack takes a few hours of validation instead of a week of consolidation, and arrives in the first week of the month.
+maturity: ready

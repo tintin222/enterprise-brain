@@ -1,0 +1,67 @@
+id: finance.expense-audit
+department: finance
+name: Travel & Expense Audit
+summary: >-
+  Audits every expense claim and its receipts against the travel and expense policy before
+  reimbursement: missing receipts, limits and per-diems, duplicates, personal items and VAT deductibility.
+description: >-
+  Finance usually audits a small sample of expense claims because checking receipts is slow. The
+  Expense Auditor reads every receipt (photos included), categorises the spend, applies the policy
+  limits for the employee's grade and destination, detects duplicates and personal items and checks
+  whether VAT can be deducted, so reviewers focus on the flagged claims only.
+trigger:
+  type: form
+  description: An employee submits an expense claim with receipts, or the expense tool exports claims for audit.
+frequency: Continuous; peaks at month end
+steps:
+  - id: submit
+    name: Submit the expense claim
+    actor: human:employee
+  - id: audit
+    name: Audit receipts against the policy
+    actor: agent:finance.expense-auditor
+    description: Reads every receipt, categorises spend, applies limits and per-diems, detects duplicates and VAT issues.
+    sla: 15 minutes
+  - id: manager-approval
+    name: Manager approval
+    actor: human:line-manager
+    approval: true
+    description: The line manager approves the business purpose.
+  - id: finance-review
+    name: Finance review of flagged claims
+    actor: human:ap-clerk
+    approval: true
+    description: Only claims with findings are reviewed line by line.
+  - id: reimburse
+    name: Reimburse
+    actor: system:erp
+    description: Approved amounts are paid with the next payment run or payroll.
+agents:
+  - finance.expense-auditor
+kpis:
+  - id: audit-coverage
+    name: Claims audited
+    unit: "%"
+    target: "100"
+  - id: findings-rate
+    name: Claims with policy findings
+    unit: "%"
+  - id: reimbursement-time
+    name: Submission to reimbursement
+    unit: days
+    target: "< 5"
+integrations:
+  - category: dms
+    purpose: Travel and expense policy, per-diem and hotel limit tables.
+    required: true
+  - category: hris
+    purpose: Employee grade and cost center for policy limits.
+    required: false
+  - category: erp
+    purpose: Post reimbursements.
+    required: false
+useCases: [document-processing, excel-automation]
+value:
+  hoursSavedPerMonth: 50
+  description: Auditing 100% of claims instead of a 10% sample, at about 3 minutes saved per claim, while out-of-policy spend is caught before payment.
+maturity: ready

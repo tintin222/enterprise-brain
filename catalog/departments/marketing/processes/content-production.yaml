@@ -1,0 +1,64 @@
+id: marketing.content-production
+department: marketing
+name: Content Production
+summary: >-
+  From brief to approved draft: blog posts, LinkedIn posts, newsletters, case studies and product
+  pages written in the brand voice from approved product facts, checked for claims and approved
+  before publishing.
+description: >-
+  Content teams spend most of their time on first drafts and fact-checking. The Content Writer drafts
+  from the brief using the brand guidelines and the approved product facts in the knowledge base,
+  reviews its own draft against the brief, brand voice and claim rules, and hands the content manager
+  a draft ready for editing. Regulated or comparative claims go to legal before publishing.
+trigger:
+  type: form
+  description: A content brief is submitted (topic, audience, format, key messages, keywords).
+frequency: Continuous; 10-40 pieces per month
+steps:
+  - id: brief
+    name: Submit the content brief
+    actor: human:content-manager
+  - id: draft
+    name: Research and draft
+    actor: agent:marketing.content-writer
+    description: Drafts from brand guidelines and product facts; self-reviews against brief, voice and claim rules.
+    sla: 1 hour
+  - id: brand-review
+    name: Brand and fact review
+    actor: human:brand-manager
+    approval: true
+    sla: 2 business days
+  - id: legal-review
+    name: Legal review of claims
+    actor: human:legal-counsel
+    approval: true
+    description: Only for comparative, environmental or regulated claims (advertising regulation).
+  - id: publish
+    name: Publish
+    actor: system:web
+agents:
+  - marketing.content-writer
+kpis:
+  - id: time-to-publish
+    name: Brief-to-publish time
+    unit: days
+    target: "< 5"
+  - id: first-draft-acceptance
+    name: Drafts accepted with light edits
+    unit: "%"
+    target: "> 70"
+  - id: content-output
+    name: Pieces published
+    unit: per month
+integrations:
+  - category: dms
+    purpose: Brand guidelines, product fact sheets and approved references.
+    required: true
+  - category: web
+    purpose: Publish to the CMS.
+    required: false
+useCases: [conversational-ai, knowledge-base]
+value:
+  hoursSavedPerMonth: 40
+  description: 20 pieces a month with 2-3 hours saved on research and first drafts each.
+maturity: ready

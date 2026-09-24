@@ -1,0 +1,68 @@
+id: operations.delivery-documents
+department: operations
+name: Goods Receipt & Delivery Note Check
+summary: >-
+  Delivery notes (irsaliye, scanned or e-İrsaliye) are read with OCR and compared with the purchase
+  order and the warehouse count before the goods receipt is posted; discrepancies are reported to the
+  supplier the same day.
+description: >-
+  At the receiving dock, clerks compare paper delivery notes with purchase orders by hand, and
+  discrepancies surface weeks later as invoice mismatches. The Delivery Note Processor reads the
+  delivery note, matches supplier, materials and quantities against the open purchase order and the
+  warehouse count, flags over- and under-deliveries and missing batch information, and prepares the
+  goods receipt decision and the supplier notice.
+trigger:
+  type: event
+  description: A delivery arrives and the clerk scans its delivery note, or the supplier emails the e-İrsaliye.
+frequency: Continuous; 50-300 deliveries per week
+steps:
+  - id: receive
+    name: Unload, count and scan the delivery note
+    actor: human:goods-receipt-clerk
+  - id: check
+    name: Compare delivery note, PO and count
+    actor: agent:operations.delivery-note-processor
+    description: OCR, supplier and PO match, quantities per line, batches, e-İrsaliye number.
+    sla: 10 minutes
+  - id: confirm
+    name: Confirm the goods receipt
+    actor: human:warehouse-supervisor
+    approval: true
+    sla: Same shift
+  - id: post
+    name: Post the goods receipt
+    actor: system:erp
+  - id: discrepancies
+    name: Resolve discrepancies with the supplier
+    actor: human:buyer
+    description: Over- and under-deliveries and wrong materials are clarified with the supplier.
+agents:
+  - operations.delivery-note-processor
+kpis:
+  - id: dock-to-stock
+    name: Dock-to-stock time
+    unit: hours
+    target: "< 24"
+  - id: discrepancies-caught
+    name: Discrepancies detected at receipt (not at invoice)
+    unit: "%"
+    target: "> 95"
+  - id: gr-accuracy
+    name: Goods receipt accuracy
+    unit: "%"
+    target: "> 99.5"
+integrations:
+  - category: erp
+    purpose: Purchase orders, suppliers and goods receipts.
+    required: true
+  - category: other
+    purpose: e-İrsaliye (electronic delivery notes) from the GİB integrator.
+    required: false
+  - category: mail
+    purpose: Delivery notes emailed by suppliers; discrepancy notices.
+    required: false
+useCases: [document-processing]
+value:
+  hoursSavedPerMonth: 45
+  description: 800 deliveries a month with about 4 minutes of manual comparison saved each; fewer invoice blocks later in accounts payable.
+maturity: ready

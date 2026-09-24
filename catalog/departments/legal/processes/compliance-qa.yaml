@@ -1,0 +1,55 @@
+id: legal.compliance-qa
+department: legal
+name: Compliance Questions & Guidance
+summary: >-
+  Employees get immediate, policy-based answers to compliance questions (gifts and hospitality,
+  conflicts of interest, competition law, sanctions, data protection, whistleblowing), with sensitive
+  matters routed to the compliance officer or the DPO.
+description: >-
+  Most compliance questions are about applying a written policy to a concrete situation: may I accept
+  this gift, may I meet this competitor, can I send this customer list to a partner? The Compliance
+  Assistant answers from the code of conduct and compliance policies with citations, and routes
+  reports of misconduct, data protection requests and anything ambiguous to the right person.
+trigger:
+  type: chat
+  description: An employee asks a compliance question in the assistant.
+frequency: Continuous
+steps:
+  - id: ask
+    name: Ask a compliance question
+    actor: human:employee
+  - id: answer
+    name: Answer from policies
+    actor: agent:legal.compliance-assistant
+    sla: 1 minute
+  - id: escalate
+    name: Handle escalations and reports
+    actor: human:compliance-officer
+    description: Potential misconduct, conflicts of interest, sanctions matches and unclear cases.
+  - id: privacy
+    name: Data protection questions
+    actor: human:dpo
+    description: Data subject requests, data transfers abroad, privacy impact assessments.
+agents:
+  - legal.compliance-assistant
+kpis:
+  - id: self-service
+    name: Questions answered without a lawyer
+    unit: "%"
+    target: "> 60"
+  - id: escalation-time
+    name: Time to handle escalations
+    unit: business days
+    target: "< 2"
+integrations:
+  - category: dms
+    purpose: Code of conduct, compliance and data protection policies.
+    required: true
+  - category: messaging
+    purpose: Offer the assistant in Microsoft Teams.
+    required: false
+useCases: [conversational-ai, knowledge-base]
+value:
+  hoursSavedPerMonth: 40
+  description: 300 questions a month answered instantly instead of waiting for the compliance team, with consistent answers across the company.
+maturity: ready

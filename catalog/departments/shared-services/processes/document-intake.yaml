@@ -1,0 +1,59 @@
+id: shared-services.document-intake
+department: shared-services
+name: Document & OCR Intake
+summary: >-
+  Any document (PDF, scan, photo, Word, Excel) is classified and its data extracted into structured
+  fields and an Excel file, with low-confidence fields sent to a person for verification.
+description: >-
+  Many teams re-key data from documents that no specialised agent covers yet: certificates, official
+  letters, bank statements, forms. The Document Processor reads them with OCR, recognises the
+  document type, extracts standard fields plus any fields the user asks for, and returns structured
+  data. It is also the starting point from which specialised document agents are built.
+trigger:
+  type: mail
+  description: Documents are uploaded in the console or sent to the documents mailbox (e.g. documents@company.com).
+frequency: Continuous
+steps:
+  - id: receive
+    name: Receive documents
+    actor: system:mail
+  - id: extract
+    name: Classify and extract
+    actor: agent:shared-services.document-processor
+    description: OCR, document type recognition, standard and requested fields, summary.
+  - id: verify
+    name: Verify uncertain fields
+    actor: human:shared-services-specialist
+    approval: true
+    description: Fields the agent marks as low confidence are checked against the original.
+  - id: deliver
+    name: File the document and data
+    actor: system:dms
+    description: The document and the extracted data are stored for the requesting team.
+agents:
+  - shared-services.document-processor
+kpis:
+  - id: straight-through
+    name: Documents without manual correction
+    unit: "%"
+    target: "> 80"
+  - id: field-accuracy
+    name: Field accuracy (sampled)
+    unit: "%"
+    target: "> 97"
+  - id: turnaround
+    name: Turnaround per document
+    unit: minutes
+    target: "< 2"
+integrations:
+  - category: mail
+    purpose: Receive documents sent to the intake mailbox.
+    required: false
+  - category: dms
+    purpose: Store documents and extracted data.
+    required: false
+useCases: [document-processing]
+value:
+  hoursSavedPerMonth: 80
+  description: 1,500 documents a month at 3-4 minutes of manual reading and typing each.
+maturity: ready

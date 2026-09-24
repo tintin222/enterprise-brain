@@ -1,0 +1,69 @@
+id: it.helpdesk-triage
+department: it
+name: IT Service Desk Triage
+summary: >-
+  Emails and portal requests to the IT service desk are classified, prioritised by impact and
+  urgency, logged as tickets routed to the right team, and answered with self-help steps from the IT
+  knowledge base.
+description: >-
+  Level-1 service desks spend much of their time reading, categorising and routing tickets and
+  answering the same questions (VPN, passwords, printers, Outlook). The Helpdesk Agent classifies
+  each request, sets priority from impact and urgency, checks the user's assets and open tickets,
+  creates the ticket for the right assignment group and drafts a reply with the ticket number and
+  self-help steps from the knowledge base; the analyst approves the reply.
+trigger:
+  type: mail
+  description: An employee emails the IT support mailbox (e.g. it-support@company.com) or submits a portal request.
+frequency: Continuous; 1,000-4,000 requests per month
+steps:
+  - id: report
+    name: Report an issue or request
+    actor: human:employee
+  - id: triage
+    name: Classify, prioritise and log
+    actor: agent:it.helpdesk-agent
+    description: Category, priority, asset and duplicate check, ticket for the right assignment group, self-help reply draft.
+    sla: 5 minutes
+  - id: approve
+    name: Approve the reply
+    actor: human:service-desk-analyst
+    approval: true
+    sla: 30 minutes
+  - id: route
+    name: Work the ticket
+    actor: system:itsm
+    description: The assignment group resolves the ticket within the SLA of its priority.
+  - id: security
+    name: Handle security incidents
+    actor: human:security-officer
+    description: Phishing reports, malware and suspicious activity go to information security immediately.
+agents:
+  - it.helpdesk-agent
+kpis:
+  - id: first-response
+    name: First response time
+    unit: minutes
+    target: "< 15"
+  - id: routing-accuracy
+    name: Tickets routed to the right group first time
+    unit: "%"
+    target: "> 95"
+  - id: self-help-resolution
+    name: Requests resolved by self-help steps
+    unit: "%"
+    target: "> 25"
+integrations:
+  - category: mail
+    purpose: Read the IT support mailbox and send approved replies.
+    required: true
+  - category: itsm
+    purpose: Tickets, assets and assignment groups.
+    required: true
+  - category: dms
+    purpose: IT knowledge base with self-help articles.
+    required: false
+useCases: [mail-triage, knowledge-base]
+value:
+  hoursSavedPerMonth: 100
+  description: 2,500 requests a month with about 3 minutes of reading, categorising and routing saved each; a quarter solved by self-help.
+maturity: ready

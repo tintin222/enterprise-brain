@@ -1,0 +1,33 @@
+{
+  "name": "@enterprise-brain/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Enterprise Brain API server: console API, Agent Builder, stakeholder answer pages, Paperclip Hermes gateway and MCP endpoint.",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false --env-file-if-exists=../../.env src/main.ts",
+    "start": "tsx --env-file-if-exists=../../.env src/main.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@enterprise-brain/builder": "workspace:*",
+    "@enterprise-brain/catalog": "workspace:*",
+    "@enterprise-brain/connectors": "workspace:*",
+    "@enterprise-brain/core": "workspace:*",
+    "@enterprise-brain/db": "workspace:*",
+    "@enterprise-brain/documents": "workspace:*",
+    "@enterprise-brain/knowledge": "workspace:*",
+    "@enterprise-brain/llm": "workspace:*",
+    "@enterprise-brain/paperclip": "workspace:*",
+    "@enterprise-brain/runtime": "workspace:*",
+    "@fastify/cors": "^11.3.0",
+    "@fastify/multipart": "^10.1.2",
+    "@fastify/static": "^10.1.4",
+    "@modelcontextprotocol/sdk": "^1.30.1",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.12.5",
+    "jszip": "^3.10.2",
+    "pdf-lib": "^1.17.1",
+    "zod": "^4.4.3"
+  }
+}

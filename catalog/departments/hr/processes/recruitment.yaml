@@ -1,0 +1,86 @@
+id: hr.recruitment
+department: hr
+name: Recruitment & CV Screening
+summary: >-
+  From application to interview: CVs arriving by email or upload are read, scored against the
+  requisition with evidence, shortlisted in the ATS after recruiter approval, and interviews are booked.
+description: >-
+  Recruiters spend most of their time reading CVs that do not fit. The CV Screener reads every
+  application (PDF, Word or scanned), extracts a structured profile and scores it against the
+  must-have, nice-to-have and knockout criteria of the requisition, quoting the CV as evidence and
+  ignoring protected characteristics. The recruiter decides on a one-screen scorecard; approved
+  candidates are created in the ATS and the Interview Scheduler books the interviews.
+trigger:
+  type: mail
+  description: >-
+    An application arrives in the careers mailbox (e.g. careers@company.com), or a recruiter uploads
+    CVs for an open requisition (Kariyer.net or LinkedIn exports).
+frequency: Continuous; typically 50-500 applications per open position
+steps:
+  - id: receive
+    name: Receive application
+    actor: system:mail
+    description: Applications arrive in the careers mailbox; CV attachments are stored as files.
+  - id: screen
+    name: Screen and score the CV
+    actor: agent:hr.cv-screener
+    description: >-
+      Extracts the candidate profile and scores it against the requisition's must-have, nice-to-have
+      and knockout criteria, with a quote from the CV for every judgement.
+    sla: 15 minutes
+  - id: shortlist
+    name: Approve the shortlist
+    actor: human:recruiter
+    approval: true
+    description: The recruiter reviews score, evidence and gaps and decides who moves forward.
+    sla: 1 business day
+  - id: record
+    name: Create candidate in the ATS
+    actor: system:ats
+    description: Shortlisted candidates are created with score, screening note and CV.
+  - id: schedule
+    name: Schedule interviews
+    actor: agent:hr.interview-scheduler
+    description: Turns preferred slots into a booked interview and drafts the invitation for approval.
+  - id: decide
+    name: Interview and hiring decision
+    actor: human:hiring-manager
+    approval: true
+    description: The hiring manager interviews the candidate and decides on the offer.
+agents:
+  - hr.cv-screener
+  - hr.interview-scheduler
+kpis:
+  - id: time-to-shortlist
+    name: Time to shortlist
+    unit: hours
+    target: "< 24"
+  - id: recruiter-agreement
+    name: Recruiter agreement with agent verdicts
+    unit: "%"
+    target: "> 90"
+    description: Share of screening verdicts the recruiter confirms without changes (quality of the scorecard).
+  - id: candidate-response-time
+    name: Candidate response time
+    unit: business days
+    target: "<= 2"
+integrations:
+  - category: mail
+    purpose: Read the careers mailbox and send candidate communication.
+    required: true
+  - category: ats
+    purpose: Read requisitions; create candidates, move stages and schedule interviews.
+    required: true
+  - category: calendar
+    purpose: Check interviewer availability.
+    required: false
+  - category: dms
+    purpose: Job descriptions and competency frameworks.
+    required: false
+useCases: [document-processing, mail-triage]
+value:
+  hoursSavedPerMonth: 120
+  description: >-
+    400 applications a month at 10-15 minutes of reading each become a 2-minute review of a
+    scorecard; candidates hear back within a day instead of a week.
+maturity: ready

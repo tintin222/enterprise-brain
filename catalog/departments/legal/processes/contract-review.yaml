@@ -1,0 +1,70 @@
+id: legal.contract-review
+department: legal
+name: Contract Review
+summary: >-
+  Contracts submitted by the business are read, their key clauses extracted and every clause
+  assessed against the company's contract playbook; legal counsel receives a risk memo with
+  proposed redlines instead of a 40-page PDF.
+description: >-
+  Legal teams are a bottleneck when every contract is read from scratch. The Contract Reviewer
+  extracts parties, term, renewal, termination, liability, indemnities, governing law, payment,
+  data protection, IP and other key clauses with their clause numbers, compares them with the
+  playbook's standard and fallback positions and red lines, and writes a risk memo with proposed
+  redlines. Counsel reviews and negotiates; red-line deviations go to the General Counsel.
+trigger:
+  type: mail
+  description: The business sends a contract for review (legal request mailbox or request form).
+frequency: Continuous; 30-200 contracts per month
+steps:
+  - id: request
+    name: Submit the contract for review
+    actor: human:employee
+    description: Contract file, counterparty, our role and business context (value, duration, what we buy or sell).
+  - id: review
+    name: Extract clauses and assess risk
+    actor: agent:legal.contract-reviewer
+    description: Clause extraction with clause numbers, assessment against the playbook, risk memo with redlines.
+    sla: 30 minutes
+  - id: counsel
+    name: Legal review and negotiation
+    actor: human:legal-counsel
+    approval: true
+    sla: 3 business days
+  - id: escalate
+    name: Approve red-line deviations
+    actor: human:general-counsel
+    approval: true
+    description: Unlimited liability, foreign jurisdiction without arbitration, exclusivity and other red lines.
+  - id: sign
+    name: Signature
+    actor: system:esign
+agents:
+  - legal.contract-reviewer
+kpis:
+  - id: turnaround
+    name: Review turnaround
+    unit: business days
+    target: "< 3"
+  - id: counsel-time
+    name: Counsel time per standard contract
+    unit: minutes
+    target: "< 45"
+  - id: memo-accuracy
+    name: Clauses correctly extracted (sampled)
+    unit: "%"
+    target: "> 95"
+integrations:
+  - category: dms
+    purpose: Contract repository and the contract playbook.
+    required: true
+  - category: mail
+    purpose: Legal request mailbox.
+    required: false
+  - category: esign
+    purpose: Signature after approval.
+    required: false
+useCases: [document-processing, knowledge-base]
+value:
+  hoursSavedPerMonth: 80
+  description: 60 contracts a month with about 80 minutes of first reading and memo writing saved each.
+maturity: ready

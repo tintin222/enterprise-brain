@@ -1,0 +1,68 @@
+id: shared-services
+name: Shared Services
+icon: layers
+summary: >-
+  Company-wide AI capabilities every department builds on: the company assistant and knowledge
+  base, enterprise search, document and OCR intake, shared-mailbox triage and spreadsheet automation.
+mission: >-
+  Give every employee safe, governed access to AI for everyday knowledge work, and give departments
+  reusable, well-governed building blocks instead of one-off tools.
+kpis:
+  - id: active-users
+    name: Monthly active users
+    unit: "% of employees"
+    target: "> 60"
+  - id: answer-rate
+    name: Questions answered from company knowledge
+    unit: "%"
+    target: "> 85"
+  - id: straight-through-documents
+    name: Documents processed without manual re-keying
+    unit: "%"
+    target: "> 80"
+  - id: mailbox-first-response
+    name: Shared mailbox first response
+    unit: hours
+    target: "< 4"
+  - id: hours-saved
+    name: Hours saved across the company
+    unit: hours per month
+    target: "> 500"
+roles:
+  - id: employee
+    title: Employee
+    description: Any member of staff using the company-wide assistants, search and self-service agents.
+  - id: shared-services-manager
+    title: Head of Shared Services
+    description: Owns the company-wide AI services, their service levels and adoption.
+  - id: shared-services-specialist
+    title: Shared Services Specialist
+    description: Handles shared mailboxes and document-intake exceptions; approves outgoing replies.
+  - id: knowledge-manager
+    title: Knowledge Manager
+    description: Curates knowledge collections, assigns content owners and retires outdated documents.
+  - id: automation-lead
+    title: Automation Lead (AI Center of Excellence)
+    description: Designs, reviews and governs agents; turns recurring manual work into automations.
+systems:
+  - category: dms
+    examples: [SharePoint, Confluence, Google Drive, OneDrive]
+    purpose: Policies, procedures, product documentation and other knowledge sources.
+  - category: mail
+    examples: [Microsoft 365 (Exchange Online), Google Workspace (Gmail)]
+    purpose: Shared mailboxes such as info@ and documents@.
+  - category: messaging
+    examples: [Microsoft Teams, Slack]
+    purpose: Where employees talk to the company assistant.
+  - category: storage
+    examples: [SharePoint document libraries, network file shares, Azure Blob Storage]
+    purpose: Incoming documents and generated workbooks.
+  - category: database
+    examples: [Microsoft SQL Server, PostgreSQL, Oracle Database]
+    purpose: Read-only reporting views for search and spreadsheet automation.
+processes:
+  - shared-services.knowledge-service
+  - shared-services.document-intake
+  - shared-services.mail-intake
+  - shared-services.spreadsheet-automation
+tags: [company-wide, knowledge-management, automation, center-of-excellence, ortak hizmetler]

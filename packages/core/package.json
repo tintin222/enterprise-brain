@@ -1,0 +1,16 @@
+{
+  "name": "@enterprise-brain/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Domain model and schemas shared across Enterprise Brain: departments, processes, agent definitions, connectors, builder requirement trees.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  }
+}

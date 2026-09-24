@@ -1,0 +1,25 @@
+id: conversational-ai
+name: Conversational AI
+icon: message-square
+archetype: conversational
+summary: >-
+  A secure company assistant that employees chat with: it answers from company knowledge with
+  citations, reads uploaded documents and spreadsheets, and drafts emails and texts.
+description: >-
+  The everyday entry point to AI for every employee. Unlike a public chatbot, the assistant is
+  grounded in the company's own policies, procedures and documents (with citations), respects access
+  rights, keeps data inside the company's tenant and never sends anything without a person's approval.
+  Departments add specialised assistants (HR policies, IT support, compliance) built from the same
+  foundation.
+capabilities: [knowledge.search, documents.read, excel.read, mail.draft, web.search]
+connectors: [dms, storage, messaging, hris, crm]
+defaultAgent: shared-services.company-assistant
+app: /assistant
+examples:
+  - "How many days of annual leave do I get after five years, and how do I carry over unused days?"
+  - Summarise this 40-page supplier contract and list the termination clauses.
+  - Draft a polite reply to this customer email in Turkish and English.
+  - "Yurt dışı seyahatlerinde günlük harcırah limiti ne kadar?"
+  - What changed between version 3 and version 4 of our travel policy?
+triggers:
+  - type: chat

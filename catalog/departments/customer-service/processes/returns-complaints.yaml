@@ -1,0 +1,68 @@
+id: customer-service.returns-complaints
+department: customer-service
+name: Returns, Warranty & Complaints
+summary: >-
+  Return requests, warranty claims and complaints are checked against the order, the evidence and
+  the return and warranty terms; the agent proposes a resolution that the returns specialist decides.
+description: >-
+  Every claim needs the same checks: is the order ours and within the return or warranty period, is
+  the evidence sufficient, what is the customer entitled to? The Returns Agent performs these checks
+  from the ERP order, the attached photos and documents and the policy, logs the case and prepares
+  both the internal recommendation and the customer reply. The returns specialist decides.
+trigger:
+  type: mail
+  description: A return request, warranty claim or complaint arrives by email or the returns form.
+frequency: Continuous; 100-400 claims per month
+steps:
+  - id: receive
+    name: Receive the claim
+    actor: system:mail
+  - id: assess
+    name: Check order, evidence and entitlement
+    actor: agent:customer-service.returns-agent
+    description: Order look-up, return window and warranty period, evidence, entitlement under the terms and consumer law.
+  - id: decide
+    name: Decide the resolution
+    actor: human:returns-specialist
+    approval: true
+    sla: 2 business days
+  - id: execute
+    name: Execute the resolution
+    actor: system:erp
+    description: Return order, replacement delivery, repair order or credit note.
+  - id: close
+    name: Confirm and close
+    actor: human:support-specialist
+agents:
+  - customer-service.returns-agent
+kpis:
+  - id: claim-decision-time
+    name: Claim-to-decision time
+    unit: business days
+    target: "<= 2"
+  - id: complaint-resolution-time
+    name: Complaint resolution time
+    unit: days
+    target: "< 5"
+  - id: repeat-complaints
+    name: Repeat complaints
+    unit: "%"
+    target: "< 5"
+integrations:
+  - category: mail
+    purpose: Read claims and send approved replies.
+    required: true
+  - category: erp
+    purpose: Orders, deliveries and resolution documents.
+    required: true
+  - category: crm
+    purpose: Cases and activities.
+    required: true
+  - category: dms
+    purpose: Return, warranty and complaint handling terms.
+    required: false
+useCases: [mail-triage, document-processing]
+value:
+  hoursSavedPerMonth: 60
+  description: 250 claims a month with about 15 minutes of checking and drafting saved each.
+maturity: ready

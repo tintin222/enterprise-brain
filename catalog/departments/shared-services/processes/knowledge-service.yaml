@@ -1,0 +1,70 @@
+id: shared-services.knowledge-service
+department: shared-services
+name: Company Assistant & Knowledge Service
+summary: >-
+  Employees ask questions in plain language and get answers grounded in the company's own policies,
+  procedures and documents, with citations; unanswered questions show the knowledge owners what is missing.
+description: >-
+  The knowledge service is the foundation of conversational AI and enterprise search. Knowledge
+  managers publish curated collections with owners and review dates; the Company Assistant answers
+  from them with citations, and the Search Assistant also looks up live records in connected systems
+  (read-only). Questions without a good answer are reviewed weekly and turned into content.
+trigger:
+  type: chat
+  description: An employee asks a question in the assistant (web console or Microsoft Teams) or in the search box.
+frequency: Continuous
+steps:
+  - id: curate
+    name: Curate knowledge collections
+    actor: human:knowledge-manager
+    description: Publish documents into collections, assign owners and review dates, retire outdated versions.
+  - id: ask
+    name: Ask a question
+    actor: human:employee
+  - id: answer
+    name: Answer with citations
+    actor: agent:shared-services.company-assistant
+    description: Searches the knowledge base, reads attached files and answers with numbered sources.
+    sla: 30 seconds
+  - id: search
+    name: Search documents and systems
+    actor: agent:shared-services.search-assistant
+    description: Combines knowledge search with read-only look-ups in ERP, CRM, ITSM and HRIS.
+  - id: close-gaps
+    name: Close knowledge gaps
+    actor: human:knowledge-manager
+    description: Weekly review of unanswered or low-rated questions; missing content is assigned to its owner.
+agents:
+  - shared-services.company-assistant
+  - shared-services.search-assistant
+kpis:
+  - id: answer-rate
+    name: Questions answered from company knowledge
+    unit: "%"
+    target: "> 85"
+  - id: citation-coverage
+    name: Answers with sources
+    unit: "%"
+    target: "100"
+  - id: content-freshness
+    name: Documents reviewed in the last 12 months
+    unit: "%"
+    target: "> 90"
+integrations:
+  - category: dms
+    purpose: Knowledge sources (SharePoint, Confluence, Google Drive).
+    required: true
+  - category: messaging
+    purpose: Offer the assistant inside Microsoft Teams or Slack.
+    required: false
+  - category: erp
+    purpose: Read-only look-ups of suppliers, customers and orders for search.
+    required: false
+  - category: crm
+    purpose: Read-only look-ups of accounts, contacts and cases for search.
+    required: false
+useCases: [conversational-ai, knowledge-base, enterprise-search]
+value:
+  hoursSavedPerMonth: 200
+  description: A 1,000-employee company saves 10-15 minutes per employee per month otherwise spent searching for documents and asking colleagues.
+maturity: ready

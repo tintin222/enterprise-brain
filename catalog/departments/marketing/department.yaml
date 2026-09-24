@@ -1,0 +1,64 @@
+id: marketing
+name: Marketing
+icon: megaphone
+summary: >-
+  Builds the brand and creates demand: content and thought leadership, campaigns across digital
+  channels, events, and reporting on what marketing contributes to pipeline and revenue.
+mission: >-
+  Publish more high-quality, on-brand content with less effort, and steer the marketing budget with
+  current, trustworthy performance data instead of month-old spreadsheets.
+kpis:
+  - id: content-output
+    name: Content pieces published
+    unit: per month
+    target: "> 20"
+  - id: time-to-publish
+    name: Brief-to-publish time
+    unit: days
+    target: "< 5"
+  - id: marketing-qualified-leads
+    name: Marketing-qualified leads
+    unit: per month
+  - id: cost-per-lead
+    name: Cost per lead
+    unit: TRY
+  - id: pipeline-contribution
+    name: Marketing-sourced pipeline
+    unit: "% of total pipeline"
+    target: "> 30"
+roles:
+  - id: marketing-director
+    title: Marketing Director
+    description: Owns the marketing strategy, budget and brand.
+  - id: content-manager
+    title: Content Manager
+    description: Plans and approves content across website, blog, social media and newsletters.
+  - id: campaign-manager
+    title: Campaign Manager
+    description: Runs paid and owned campaigns and manages channel budgets.
+  - id: marketing-analyst
+    title: Marketing Analyst
+    description: Measures campaign performance and attribution.
+  - id: brand-manager
+    title: Brand Manager
+    description: Guards brand voice, visual identity and claims.
+systems:
+  - category: crm
+    examples: [HubSpot Marketing Hub, Salesforce Marketing Cloud Account Engagement, Microsoft Dynamics 365 Customer Insights]
+    purpose: Marketing automation, lead capture and campaign attribution.
+  - category: web
+    examples: [WordPress, Google Analytics 4, Google Search Console]
+    purpose: Website content, traffic and conversion data.
+  - category: other
+    examples: [Google Ads, Meta Ads Manager, LinkedIn Campaign Manager]
+    purpose: Paid media platforms and their exports.
+  - category: bi
+    examples: [Looker Studio, Microsoft Power BI]
+    purpose: Marketing dashboards.
+  - category: dms
+    examples: [SharePoint, Google Drive, Canva]
+    purpose: Brand guidelines, product facts and approved content.
+processes:
+  - marketing.content-production
+  - marketing.campaign-reporting
+tags: [brand, demand-generation, content-marketing, campaigns, pazarlama]

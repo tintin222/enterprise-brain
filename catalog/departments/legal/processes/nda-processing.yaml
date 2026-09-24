@@ -1,0 +1,61 @@
+id: legal.nda-processing
+department: legal
+name: NDA Processing
+summary: >-
+  Incoming NDAs (often on the counterparty's paper) are checked against the NDA playbook within
+  minutes: standard NDAs go straight to signature, others get a precise mark-up and a reply draft.
+description: >-
+  NDAs are high-volume and low-value but block deals when they wait in a queue. The NDA Assistant
+  checks mutuality, definitions and exclusions, term and survival, governing law, penalty clauses,
+  non-solicitation and non-compete language against the playbook, and drafts either a
+  ready-to-sign confirmation or a mark-up email; the contract manager approves.
+trigger:
+  type: mail
+  description: A counterparty sends an NDA, or the business requests one for a new partner.
+frequency: Continuous; 20-100 NDAs per month
+steps:
+  - id: receive
+    name: Receive the NDA
+    actor: system:mail
+  - id: check
+    name: Check against the NDA playbook
+    actor: agent:legal.nda-assistant
+    description: Key terms, deviations from the playbook, reply or mark-up draft.
+    sla: 15 minutes
+  - id: approve
+    name: Approve the response
+    actor: human:contract-manager
+    approval: true
+    sla: 1 business day
+  - id: sign
+    name: Sign
+    actor: system:esign
+  - id: file
+    name: File the executed NDA
+    actor: system:dms
+agents:
+  - legal.nda-assistant
+kpis:
+  - id: nda-turnaround
+    name: NDA turnaround
+    unit: hours
+    target: "< 24"
+  - id: standard-terms
+    name: NDAs signed on standard or fallback terms
+    unit: "%"
+    target: "> 90"
+integrations:
+  - category: mail
+    purpose: Receive NDAs and send approved replies.
+    required: true
+  - category: esign
+    purpose: Signature.
+    required: false
+  - category: dms
+    purpose: NDA playbook and repository.
+    required: false
+useCases: [document-processing, mail-triage]
+value:
+  hoursSavedPerMonth: 30
+  description: 50 NDAs a month with about 35 minutes of review and correspondence saved each; deals no longer wait for NDAs.
+maturity: ready

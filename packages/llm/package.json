@@ -1,0 +1,17 @@
+{
+  "name": "@enterprise-brain/llm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "LLM access layer: Claude via the Anthropic SDK (default), usage/cost accounting, tool-use loop, embeddings providers, and a scripted client for tests.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@enterprise-brain/core": "workspace:*"
+  }
+}

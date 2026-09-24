@@ -1,0 +1,68 @@
+id: operations.quality-incidents
+department: operations
+name: Quality Incident & Non-conformance Management
+summary: >-
+  Non-conformances from incoming inspection, production or customer complaints are classified by
+  severity, the affected stock is identified, and an 8D report is started with containment actions
+  and root-cause hypotheses from past incidents.
+description: >-
+  The first 24 hours decide the cost of a quality problem: containment must be fast and complete. The
+  Quality Incident Agent structures the report, classifies severity, checks the affected stock and
+  incoming orders in the ERP, finds similar past incidents in the quality knowledge base and drafts
+  the 8D disciplines D1-D4; the quality manager approves the launch and the containment actions.
+trigger:
+  type: form
+  description: A non-conformance is reported (inspection, production line, customer complaint) with photos and details.
+frequency: Continuous; 10-60 incidents per month
+steps:
+  - id: report
+    name: Report the non-conformance
+    actor: human:production-supervisor
+  - id: assess
+    name: Classify, scope and draft the 8D
+    actor: agent:operations.quality-incident-agent
+    description: Severity, affected stock and orders, similar past incidents, 8D D1-D4 draft.
+    sla: 1 hour
+  - id: approve
+    name: Approve severity and 8D launch
+    actor: human:quality-manager
+    approval: true
+    sla: 4 hours
+  - id: contain
+    name: Contain and investigate
+    actor: human:quality-engineer
+    description: Quarantine stock, sort, inform customers or suppliers, root-cause analysis.
+  - id: block-stock
+    name: Block affected stock
+    actor: system:erp
+    description: Quality notification and stock blocked in the ERP.
+agents:
+  - operations.quality-incident-agent
+kpis:
+  - id: containment-time
+    name: Report-to-containment time
+    unit: hours
+    target: "< 24"
+  - id: 8d-closure
+    name: 8D closure time
+    unit: days
+    target: "< 30"
+  - id: repeat-incidents
+    name: Repeat incidents (same root cause)
+    unit: "%"
+    target: "< 5"
+integrations:
+  - category: erp
+    purpose: Stock, batches, open purchase orders and quality notifications.
+    required: true
+  - category: dms
+    purpose: Past 8D reports, FMEAs, control plans and specifications.
+    required: false
+  - category: mail
+    purpose: Inform the reporter and stakeholders.
+    required: false
+useCases: [document-processing, knowledge-base]
+value:
+  hoursSavedPerMonth: 30
+  description: 30 incidents a month with about an hour of report writing and data gathering saved each, and faster containment.
+maturity: ready

@@ -1,0 +1,20 @@
+{
+  "name": "@enterprise-brain/documents",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Document understanding: text extraction from PDF/DOCX/XLSX/CSV/HTML/images, OCR (Claude vision, optional tesseract.js), document-type and language detection, heuristic field extraction, Excel read/write.",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc -p tsconfig.json" },
+  "dependencies": {
+    "@enterprise-brain/core": "workspace:*",
+    "@enterprise-brain/llm": "workspace:*",
+    "exceljs": "^4.4.0",
+    "mammoth": "^1.12.3",
+    "unpdf": "^1.8.1"
+  },
+  "devDependencies": {
+    "docx": "^9.7.2",
+    "pdf-lib": "^1.17.1"
+  }
+}

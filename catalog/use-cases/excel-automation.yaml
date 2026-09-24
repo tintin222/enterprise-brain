@@ -1,0 +1,25 @@
+id: excel-automation
+name: Excel Automation
+icon: table
+archetype: excel-automation
+summary: >-
+  Upload a spreadsheet and describe what you need: totals, pivots, reconciliations, clean-ups,
+  anomaly checks or a formatted report; the result comes back as a new workbook plus an explanation.
+description: >-
+  Finance, sales, procurement and operations teams still run on spreadsheets: exports from the ERP,
+  price lists, campaign reports, stock counts. Excel automation reads the workbook, applies the
+  requested analysis or transformation, flags anomalies, writes a clean result workbook and explains
+  what it did, including the Excel formulas to reproduce it. Recurring spreadsheet work becomes an
+  agent that runs on a schedule.
+capabilities: [excel.read, excel.write, documents.read]
+connectors: [storage, erp, bi, database]
+defaultAgent: shared-services.excel-analyst
+app: /excel
+examples:
+  - Total the sales export by region and customer segment and show the top 10 customers.
+  - Compare this month's price list with last month's and list every price change above 5%.
+  - Find duplicate suppliers and invalid IBANs in this vendor master export.
+  - "Bu stok sayım dosyasında sistem stoğu ile sayılan miktar arasında fark olan kalemleri çıkar."
+  - Reconcile the bank statement with the ledger export and list the open items.
+triggers:
+  - type: manual

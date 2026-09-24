@@ -1,0 +1,79 @@
+id: finance
+name: Finance & Accounting
+icon: wallet
+summary: >-
+  Records, controls and reports the company's money flows: supplier invoices and payments, employee
+  expenses, receivables and collections, and the monthly close.
+mission: >-
+  Close the books faster with fewer errors, pay suppliers correctly and on time and collect cash
+  sooner, with every posting traceable and every exception decided by a person.
+kpis:
+  - id: invoice-cycle-time
+    name: Invoice processing cycle time
+    unit: days
+    target: "< 3"
+    description: Receipt of a supplier invoice to posting in the ERP.
+  - id: touchless-rate
+    name: Touchless invoice rate
+    unit: "%"
+    target: "> 70"
+    description: Invoices posted without manual data entry or correction.
+  - id: dso
+    name: Days sales outstanding (DSO)
+    unit: days
+    target: "< 45"
+  - id: close-duration
+    name: Month-end close duration
+    unit: business days
+    target: "<= 5"
+  - id: expense-compliance
+    name: Expense policy compliance
+    unit: "%"
+    target: "> 97"
+roles:
+  - id: cfo
+    title: Chief Financial Officer
+    description: Owns financial control, approval limits and the finance function.
+  - id: finance-manager
+    title: Finance Manager
+    description: Approves exceptions, high-value invoices and write-offs; owns AP and AR.
+  - id: financial-controller
+    title: Financial Controller
+    description: Owns the close, reconciliations and internal controls; signs off month-end.
+  - id: ap-clerk
+    title: Accounts Payable Clerk
+    description: Reviews supplier invoices, resolves match exceptions and prepares payments.
+  - id: ar-specialist
+    title: Accounts Receivable / Collections Specialist
+    description: Manages receivables, dunning and customer payment agreements.
+  - id: gl-accountant
+    title: General Ledger Accountant
+    description: Books accruals and adjustments and prepares reconciliations.
+  - id: cost-center-owner
+    title: Cost Center Owner
+    description: Budget owner who approves non-PO invoices and spending on the cost center.
+systems:
+  - category: erp
+    examples: [SAP S/4HANA, Microsoft Dynamics 365 Finance, Oracle NetSuite, Logo Tiger, Netsis]
+    purpose: General ledger, accounts payable and receivable, purchase orders, supplier and customer master data.
+  - category: accounting
+    examples: [Logo Go3, Mikro, Luca]
+    purpose: Statutory bookkeeping under Turkish Tax Procedure Law (VUK) for smaller entities.
+  - category: other
+    examples: [GİB e-Fatura / e-Arşiv, Sovos (Foriba), Uyumsoft, EDM Bilişim]
+    purpose: Receiving and issuing e-invoices (UBL-TR) through a GİB-licensed integrator.
+  - category: mail
+    examples: [Microsoft 365 shared mailboxes]
+    purpose: AP inbox (e.g. invoices@) and customer payment correspondence.
+  - category: bi
+    examples: [Microsoft Power BI, Microsoft Excel]
+    purpose: Reporting, reconciliations and close workpapers.
+  - category: dms
+    examples: [SharePoint, DocuWare]
+    purpose: Invoice archive, policies and audit evidence.
+processes:
+  - finance.accounts-payable
+  - finance.expense-audit
+  - finance.collections
+  - finance.month-end-close
+tags: [accounting, accounts-payable, receivables, controlling, finans, muhasebe]

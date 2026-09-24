@@ -1,0 +1,58 @@
+id: finance.month-end-close
+department: finance
+name: Month-end Close & Reconciliation
+summary: >-
+  Reconciles bank statements with the ledger at month end, explains every difference, prepares the
+  exceptions workbook and routes the reconciliation to the controller for sign-off.
+description: >-
+  Bank reconciliation is one of the most time-consuming close tasks: matching hundreds of statement
+  lines with ledger entries and explaining the rest. The Reconciliation Analyst matches statement and
+  ledger exports, classifies unmatched items (timing differences, bank charges, missing entries, FX
+  differences), proposes the adjusting entries and produces a sign-off pack for the controller.
+trigger:
+  type: schedule
+  description: Working days 1-3 after month end, when the bank statement and ledger export are available.
+frequency: Monthly (month-end close)
+steps:
+  - id: export
+    name: Export statement and ledger
+    actor: human:gl-accountant
+    description: Bank statement (Excel, CSV or MT940 converted) and the ledger export of the bank account.
+  - id: reconcile
+    name: Match and explain differences
+    actor: agent:finance.reconciliation-analyst
+  - id: adjust
+    name: Book adjustments
+    actor: human:gl-accountant
+    description: Bank charges, FX differences and missing entries are booked.
+  - id: sign-off
+    name: Controller sign-off
+    actor: human:financial-controller
+    approval: true
+    sla: 1 business day
+  - id: close
+    name: Close the period
+    actor: system:erp
+agents:
+  - finance.reconciliation-analyst
+kpis:
+  - id: close-duration
+    name: Month-end close duration
+    unit: business days
+    target: "<= 5"
+  - id: unreconciled-items
+    name: Unexplained items at sign-off
+    unit: count
+    target: "0"
+integrations:
+  - category: erp
+    purpose: Trial balance and G/L balances of the period.
+    required: true
+  - category: storage
+    purpose: Bank statement files and reconciliation workpapers.
+    required: false
+useCases: [excel-automation]
+value:
+  hoursSavedPerMonth: 30
+  description: About 2 days of matching per bank account per month reduced to reviewing the exceptions.
+maturity: ready

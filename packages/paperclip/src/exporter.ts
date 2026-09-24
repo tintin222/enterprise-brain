@@ -1,0 +1,312 @@
+import { slugify, type Archetype, type Kpi, type ProcessStep, type TriggerSpec } from "@enterprise-brain/core";
+import { enterpriseBrainSkill } from "./skill.ts";
+import { markdownWithFrontmatter, toYaml, type YamlValue } from "./yaml.ts";
+
+/**
+ * Export Enterprise Brain departments, processes and agents as an Agent
+ * Companies package (agentcompanies/v1) that Paperclip imports with
+ * `paperclipai company import <dir>` or `npx companies.sh add <dir>`.
+ *
+ * Mapping:
+ *   department  → PROJECT.md (process map in the body) + a department lead agent
+ *   agent       → AGENTS.md hired through Paperclip's `hermes_gateway` adapter,
+ *                 so Paperclip heartbeats execute the agent in Enterprise Brain
+ *   scheduled process → recurring TASK.md + routine trigger in .paperclip.yaml
+ *   everything  → the `enterprise-brain` skill (how to use EB tools via MCP/REST)
+ */
+
+export interface ExportDepartment {
+  id: string;
+  name: string;
+  summary: string;
+  mission?: string;
+  kpis?: Kpi[];
+}
+
+export interface ExportProcess {
+  id: string;
+  department: string;
+  name: string;
+  summary: string;
+  description?: string;
+  trigger: { type: string; description: string };
+  frequency?: string;
+  steps: ProcessStep[];
+  /** Agent template ids or slugs. */
+  agents: string[];
+  kpis?: Kpi[];
+}
+
+export interface ExportAgent {
+  /** Template id (e.g. "hr.cv-screener") or the agent's slug. */
+  id: string;
+  slug: string;
+  name: string;
+  title?: string;
+  department?: string;
+  process?: string;
+  summary: string;
+  instructions: string;
+  archetype: Archetype;
+  triggers?: TriggerSpec[];
+}
+
+export interface ExportOptions {
+  company: { name: string; slug: string; description?: string };
+  enterpriseBrain: {
+    /** Public base URL Paperclip can reach, e.g. https://brain.acme.com */
+    url: string;
+    companySlug: string;
+  };
+  /** Include a CEO agent (for a new company). Default true. */
+  includeCeo?: boolean;
+  /** Adapter for Enterprise Brain agents. "none" leaves adapters to be chosen at import. */
+  adapter?: "hermes_gateway" | "none";
+  timezone?: string;
+}
+
+export interface ExportResult {
+  files: Record<string, string>;
+  warnings: string[];
+  agentSlugs: string[];
+  /** Specialist agents: Paperclip slug → Enterprise Brain agent slug (for adapter overrides). */
+  specialists: { paperclipSlug: string; ebSlug: string }[];
+  summary: { departments: number; agents: number; routines: number };
+}
+
+const FREQUENCY_CRON: [RegExp, string][] = [
+  [/hour/i, "0 * * * 1-5"],
+  [/daily|every day|her gün/i, "0 8 * * 1-5"],
+  [/week/i, "0 8 * * 1"],
+  [/month|month-end|ay sonu/i, "0 8 1 * *"],
+  [/quarter/i, "0 8 1 1,4,7,10 *"],
+];
+
+export function cronForFrequency(frequency: string | undefined): string {
+  return FREQUENCY_CRON.find(([pattern]) => pattern.test(frequency ?? ""))?.[1] ?? "0 8 * * 1";
+}
+
+function paperclipSlug(value: string): string {
+  return slugify(value.replace(/\./g, "-"), 60);
+}
+
+function actorLabel(actor: string, agentsById: Map<string, ExportAgent>): string {
+  const [kind, ref] = actor.split(":") as [string, string];
+  if (kind === "agent") return agentsById.get(ref)?.name ?? ref;
+  if (kind === "human") return `${ref.replace(/-/g, " ")} (human)`;
+  return `${ref.toUpperCase()} system`;
+}
+
+export function exportCompanyPackage(
+  model: { departments: ExportDepartment[]; processes: ExportProcess[]; agents: ExportAgent[] },
+  options: ExportOptions,
+): ExportResult {
+  const files: Record<string, string> = {};
+  const warnings: string[] = [];
+  const includeCeo = options.includeCeo ?? true;
+  const adapter = options.adapter ?? "hermes_gateway";
+  const timezone = options.timezone ?? "Europe/Istanbul";
+  const hermesBase = `${options.enterpriseBrain.url.replace(/\/$/, "")}/api/hermes`;
+  const agentsById = new Map<string, ExportAgent>();
+  for (const agent of model.agents) {
+    agentsById.set(agent.id, agent);
+    agentsById.set(agent.slug, agent);
+  }
+  const usedSlugs = new Set<string>();
+  const unique = (slug: string) => {
+    let candidate = slug;
+    for (let i = 2; usedSlugs.has(candidate); i++) candidate = `${slug}-${i}`;
+    usedSlugs.add(candidate);
+    return candidate;
+  };
+  const ceoSlug = "ceo";
+  usedSlugs.add(ceoSlug);
+
+  const extension: { schema: string; agents: Record<string, YamlValue>; projects: Record<string, YamlValue>; routines: Record<string, YamlValue> } = {
+    schema: "paperclip/v1",
+    agents: {},
+    projects: {},
+    routines: {},
+  };
+
+  files["COMPANY.md"] = markdownWithFrontmatter(
+    {
+      schema: "agentcompanies/v1",
+      name: options.company.name,
+      slug: options.company.slug,
+      description: options.company.description ?? `${options.company.name} — departments, processes and agents from Enterprise Brain`,
+    },
+    [
+      `# ${options.company.name}`,
+      "",
+      "This organisation was generated by **Enterprise Brain**, the enterprise layer for agentic AI transformation.",
+      "Department leads coordinate work in Paperclip; specialist agents are executed by Enterprise Brain (connectors, knowledge base, approval gates) through the `hermes_gateway` adapter.",
+      "",
+      "## Departments",
+      ...model.departments.map((d) => `- **${d.name}** — ${d.summary}`),
+    ].join("\n"),
+  );
+
+  if (includeCeo) {
+    files[`agents/${ceoSlug}/AGENTS.md`] = markdownWithFrontmatter(
+      { name: "CEO", title: "Chief Executive Officer", slug: ceoSlug, role: "ceo", reportsTo: null, skills: ["enterprise-brain"] },
+      [
+        `You lead ${options.company.name}'s AI workforce. Each department has a lead who owns its processes and specialist agents.`,
+        "Set priorities, review department progress, resolve cross-department blockers and escalate decisions that need the board.",
+        "Use the enterprise-brain skill to look up company knowledge and run specialist agents when you need facts.",
+      ].join("\n\n"),
+    );
+  }
+
+  const agentSlugs: string[] = [];
+  const specialists: ExportResult["specialists"] = [];
+  let routines = 0;
+  for (const department of model.departments) {
+    const leadSlug = unique(`${paperclipSlug(department.id)}-lead`);
+    const projectSlug = paperclipSlug(department.id);
+    const processes = model.processes.filter((p) => p.department === department.id);
+    const departmentAgents = model.agents.filter((a) => a.department === department.id);
+    const specialistSlugs = new Map<string, string>();
+    for (const agent of departmentAgents) specialistSlugs.set(agent.id, unique(paperclipSlug(agent.slug)));
+
+    files[`agents/${leadSlug}/AGENTS.md`] = markdownWithFrontmatter(
+      {
+        name: `${department.name} Lead`,
+        title: `Head of ${department.name} Operations`,
+        slug: leadSlug,
+        role: "general",
+        reportsTo: ceoSlug,
+        skills: ["enterprise-brain"],
+      },
+      [
+        `You run the ${department.name} department's AI operations. Mission: ${department.mission ?? department.summary}`,
+        "",
+        "Your team:",
+        ...departmentAgents.map((a) => `- ${a.name} (${specialistSlugs.get(a.id)}): ${a.summary}`),
+        "",
+        "Triage incoming work, break it into tasks and assign each to the specialist that fits. Review their results, escalate anything that needs a human decision, and keep the department's KPIs on track:",
+        ...(department.kpis ?? []).map((k) => `- ${k.name}${k.target ? ` (target ${k.target})` : ""}`),
+      ].join("\n"),
+    );
+    agentSlugs.push(leadSlug);
+    extension.agents[leadSlug] = {
+      capabilities: `Coordinates the ${department.name} department: triage, delegation to specialists, review and escalation.`,
+      metadata: { enterpriseBrain: { department: department.id, role: "department-lead" } },
+    };
+
+    for (const agent of departmentAgents) {
+      const slug = specialistSlugs.get(agent.id)!;
+      agentSlugs.push(slug);
+      specialists.push({ paperclipSlug: slug, ebSlug: agent.slug });
+      files[`agents/${slug}/AGENTS.md`] = markdownWithFrontmatter(
+        {
+          name: agent.name,
+          title: agent.title ?? agent.name,
+          slug,
+          role: "general",
+          reportsTo: leadSlug,
+          skills: ["enterprise-brain"],
+        },
+        [
+          agent.instructions,
+          "",
+          "## How you run",
+          `You are executed by Enterprise Brain (agent \`${agent.slug}\`), which provides your tools, enterprise connectors, knowledge base and human approval gates. When a task is assigned to you, Enterprise Brain works on it and reports the result back to the task. Actions that change other systems or send email wait for human approval in Enterprise Brain.`,
+        ].join("\n"),
+      );
+      const agentExtension: Record<string, YamlValue> = {
+        capabilities: agent.summary,
+        metadata: { enterpriseBrain: { agent: agent.slug, template: agent.id, archetype: agent.archetype } },
+      };
+      if (adapter === "hermes_gateway") {
+        agentExtension.adapter = {
+          type: "hermes_gateway",
+          config: {
+            apiBaseUrl: hermesBase,
+            sessionKeyStrategy: "issue",
+            timeoutSec: 900,
+            payloadTemplate: { agent: agent.slug, company: options.enterpriseBrain.companySlug },
+          },
+        };
+      }
+      extension.agents[slug] = agentExtension;
+    }
+
+    const processMap = processes.flatMap((p) => [
+      `### ${p.name}`,
+      "",
+      p.summary,
+      "",
+      `**Trigger:** ${p.trigger.description}${p.frequency ? ` (${p.frequency})` : ""}`,
+      "",
+      ...p.steps.map((s, i) => `${i + 1}. **${s.name}** — ${actorLabel(s.actor, agentsById)}${s.approval ? " _(approval)_" : ""}${s.description ? `: ${s.description}` : ""}`),
+      "",
+      ...(p.kpis?.length ? [`**KPIs:** ${p.kpis.map((k) => `${k.name}${k.target ? ` (${k.target})` : ""}`).join(", ")}`, ""] : []),
+    ]);
+    files[`projects/${projectSlug}/PROJECT.md`] = markdownWithFrontmatter(
+      { name: department.name, slug: projectSlug, description: department.summary, owner: leadSlug },
+      [`# ${department.name}`, "", department.mission ?? department.summary, "", "## Processes", "", ...processMap].join("\n"),
+    );
+    extension.projects[projectSlug] = { leadAgentSlug: leadSlug };
+
+    for (const process of processes) {
+      if (process.trigger.type !== "schedule") continue;
+      const assigneeId = process.agents.find((id) => specialistSlugs.has(id));
+      if (!assigneeId) {
+        warnings.push(`Process ${process.id} is scheduled but none of its agents is exported; skipped the routine.`);
+        continue;
+      }
+      const taskSlug = unique(paperclipSlug(process.id));
+      files[`tasks/${taskSlug}/TASK.md`] = markdownWithFrontmatter(
+        { name: process.name, slug: taskSlug, assignee: specialistSlugs.get(assigneeId)!, project: projectSlug, recurring: true },
+        [process.description ?? process.summary, "", "Steps:", ...process.steps.map((s, i) => `${i + 1}. ${s.name}`)].join("\n"),
+      );
+      extension.routines[taskSlug] = {
+        status: "paused",
+        priority: "medium",
+        concurrencyPolicy: "skip_if_active",
+        catchUpPolicy: "skip_missed",
+        triggers: [{ kind: "schedule", cronExpression: cronForFrequency(process.frequency ?? process.trigger.description), timezone }],
+      };
+      routines++;
+    }
+  }
+
+  const orphanAgents = model.agents.filter((a) => !a.department || !model.departments.some((d) => d.id === a.department));
+  for (const agent of orphanAgents) warnings.push(`Agent ${agent.slug} has no exported department and was skipped.`);
+
+  const skill = enterpriseBrainSkill({ url: options.enterpriseBrain.url, companySlug: options.enterpriseBrain.companySlug });
+  files["skills/enterprise-brain/SKILL.md"] = skill;
+  files[".paperclip.yaml"] = toYaml(extension as unknown as Record<string, YamlValue>);
+  files["README.md"] = [
+    `# ${options.company.name} — Paperclip package`,
+    "",
+    "Generated by Enterprise Brain.",
+    "",
+    "## Import",
+    "",
+    "```bash",
+    `paperclipai company import ./<this-folder> --include company,agents,projects,issues,skills`,
+    "# or",
+    "npx companies.sh add ./<this-folder>",
+    "```",
+    "",
+    "Paperclip imports agents with heartbeats disabled and routines paused; enable them when you're ready.",
+    "",
+    "## Connect the Enterprise Brain agents",
+    "",
+    `Each specialist agent uses the \`hermes_gateway\` adapter pointing at \`${hermesBase}\`. Set its **API key** to your Enterprise Brain Hermes key (\`EB_HERMES_API_KEY\`) after import — or push the package from Enterprise Brain, which sets it automatically through Paperclip's import API.`,
+    "",
+    options.enterpriseBrain.url.startsWith("http://") && !/localhost|127\.0\.0\.1/.test(options.enterpriseBrain.url)
+      ? "> Paperclip requires HTTPS for remote Hermes gateways. Serve Enterprise Brain over HTTPS or enable the adapter's dev-only remote HTTP escape hatch."
+      : "",
+  ].join("\n");
+
+  return {
+    files,
+    warnings,
+    agentSlugs,
+    specialists,
+    summary: { departments: model.departments.length, agents: agentSlugs.length + (includeCeo ? 1 : 0), routines },
+  };
+}

@@ -1,0 +1,71 @@
+id: it
+name: Information Technology
+icon: monitor
+summary: >-
+  Runs the IT services the company depends on: service desk, identity and access management,
+  business applications, infrastructure, information security and the integrations that connect
+  business systems and AI agents.
+mission: >-
+  Resolve issues fast, grant access securely and connect systems safely, so employees stay productive
+  and AI agents work with exactly the least privilege they need.
+kpis:
+  - id: first-contact-resolution
+    name: First-contact resolution
+    unit: "%"
+    target: "> 70"
+  - id: mttr
+    name: Mean time to resolve incidents
+    unit: hours
+    target: "< 8"
+  - id: sla-compliance
+    name: Tickets resolved within SLA
+    unit: "%"
+    target: "> 95"
+  - id: access-lead-time
+    name: Access request lead time
+    unit: hours
+    target: "< 24"
+  - id: integration-lead-time
+    name: Integration request lead time
+    unit: business days
+    target: "< 5"
+roles:
+  - id: it-director
+    title: IT Director (CIO)
+    description: Owns IT strategy, architecture decisions and approves new integrations and their risks.
+  - id: service-desk-lead
+    title: Service Desk Lead
+    description: Runs the service desk, its SLAs and the IT knowledge base.
+  - id: service-desk-analyst
+    title: Service Desk Analyst
+    description: First-level support; resolves or routes tickets and approves replies to users.
+  - id: system-owner
+    title: System Owner
+    description: Business or IT owner of an application who approves access to it.
+  - id: security-officer
+    title: Information Security Officer (CISO)
+    description: Owns information security, handles security incidents and reviews privileged access and integrations.
+  - id: integration-architect
+    title: Integration Architect
+    description: Designs and implements integrations, connectors, service accounts and API access.
+systems:
+  - category: itsm
+    examples: [ServiceNow, Jira Service Management, ManageEngine ServiceDesk Plus, Freshservice]
+    purpose: Incidents, service requests, access requests, changes and the asset inventory.
+  - category: other
+    examples: [Microsoft Entra ID, Okta, CyberArk, SAP GRC Access Control, Microsoft Intune]
+    purpose: Identity, privileged access, segregation-of-duties checks and endpoint management.
+  - category: mail
+    examples: [Microsoft 365 (Exchange Online)]
+    purpose: IT support mailbox (e.g. it-support@).
+  - category: messaging
+    examples: [Microsoft Teams, Slack]
+    purpose: Employee support channel and on-call notifications.
+  - category: dms
+    examples: [Confluence, SharePoint]
+    purpose: IT knowledge base, security policies and integration standards.
+processes:
+  - it.helpdesk-triage
+  - it.access-requests
+  - it.integration-requests
+tags: [it-service-management, service-desk, identity-access, security, integrations, bilgi teknolojileri, BT]

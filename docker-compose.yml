@@ -1,0 +1,34 @@
+# Production-like setup: Enterprise Brain + PostgreSQL with pgvector.
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: brain
+      POSTGRES_PASSWORD: brain
+      POSTGRES_DB: enterprise_brain
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U brain -d enterprise_brain"]
+      interval: 5s
+      retries: 10
+  brain:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://brain:brain@db:5432/enterprise_brain
+      EB_PUBLIC_URL: ${EB_PUBLIC_URL:-http://localhost:3200}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      EB_API_KEY: ${EB_API_KEY:-}
+      EB_HERMES_API_KEY: ${EB_HERMES_API_KEY:-}
+      EB_MASTER_KEY: ${EB_MASTER_KEY:-change-me-to-a-long-random-string}
+    ports:
+      - "3200:3200"
+    volumes:
+      - braindata:/data
+volumes:
+  pgdata:
+  braindata:

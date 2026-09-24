@@ -1,0 +1,78 @@
+id: hr.onboarding
+department: hr
+name: Employee Onboarding
+summary: >-
+  Turns an accepted offer into a ready first day: employee record in the HRIS, IT equipment and
+  access requests, a personal onboarding plan and a welcome message.
+description: >-
+  Onboarding touches HR, IT, facilities and the hiring manager, and a missed hand-over means a new
+  hire without a laptop on day one. The Onboarding Coordinator assembles the plan from the company's
+  onboarding playbook, prepares the HRIS record and the IT request, and drafts the welcome email; HR
+  operations approves the package before anything is created.
+trigger:
+  type: event
+  description: A candidate accepts an offer (ATS stage "hired") or HR operations submits the new-hire form.
+frequency: Per new hire; typically 5-30 per month
+steps:
+  - id: intake
+    name: Submit new-hire details
+    actor: human:hr-operations-specialist
+    description: Start date, position, manager, work location, equipment and system access needs.
+  - id: plan
+    name: Prepare the onboarding package
+    actor: agent:hr.onboarding-coordinator
+    description: >-
+      Builds the pre-boarding checklist, first-week agenda and 30/60/90-day plan from the playbook and
+      drafts the IT request and the welcome email.
+  - id: approve
+    name: Approve the onboarding package
+    actor: human:hr-operations-specialist
+    approval: true
+    sla: 1 business day
+  - id: employee-record
+    name: Create the employee record
+    actor: system:hris
+    description: Employee created in the HRIS and linked to the manager; SGK entry notification prepared by HR.
+  - id: it-request
+    name: Equipment and accounts
+    actor: system:itsm
+    description: A ticket for laptop, accounts and access is raised with the IT service desk.
+  - id: welcome
+    name: Welcome the new hire
+    actor: human:line-manager
+    description: The manager receives the plan and welcomes the new hire on day one.
+agents:
+  - hr.onboarding-coordinator
+kpis:
+  - id: day-one-readiness
+    name: Day-one readiness
+    unit: "%"
+    target: "> 95"
+  - id: onboarding-lead-time
+    name: Offer acceptance to ready-to-start
+    unit: days
+    target: "< 5"
+  - id: new-hire-satisfaction
+    name: New-hire onboarding satisfaction
+    unit: score (1-5)
+    target: ">= 4.5"
+integrations:
+  - category: hris
+    purpose: Create the employee record and read the manager.
+    required: true
+  - category: itsm
+    purpose: Raise equipment and account requests with IT.
+    required: true
+  - category: mail
+    purpose: Send the welcome email.
+    required: false
+  - category: dms
+    purpose: Onboarding playbook and checklists.
+    required: false
+useCases: [knowledge-base]
+value:
+  hoursSavedPerMonth: 40
+  description: >-
+    Coordinating 10 new hires a month across HR, IT and managers (about 4 hours each) becomes a
+    20-minute review of a prepared package, and nothing is forgotten before day one.
+maturity: ready

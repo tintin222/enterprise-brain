@@ -1,0 +1,58 @@
+id: procurement.rfq-comparison
+department: procurement
+name: RFQ & Supplier Quote Comparison
+summary: >-
+  Supplier quotes in different formats (PDF, Excel, email) are normalised into one comparison matrix
+  with total cost, delivery, payment terms and deviations, scored against the RFQ, and turned into an
+  award recommendation.
+description: >-
+  Comparing quotes means re-typing prices from PDFs and spreadsheets and spotting the deviations
+  hidden in footnotes. The Quote Comparator reads every quote, normalises units, currencies and terms,
+  checks each offer against the RFQ requirements and the policy (number of offers, approved
+  suppliers), writes the comparison matrix and recommends an award that the category manager decides.
+trigger:
+  type: manual
+  description: The buyer uploads the quotes received for an RFQ.
+frequency: On demand; 20-100 RFQs per month
+steps:
+  - id: collect
+    name: Collect the quotes
+    actor: human:buyer
+  - id: compare
+    name: Normalise, compare and recommend
+    actor: agent:procurement.quote-comparator
+    sla: 30 minutes
+  - id: award
+    name: Award decision
+    actor: human:category-manager
+    approval: true
+    sla: 2 business days
+  - id: order
+    name: Purchase order to the awarded supplier
+    actor: system:erp
+agents:
+  - procurement.quote-comparator
+kpis:
+  - id: comparison-time
+    name: Quotes-to-recommendation time
+    unit: hours
+    target: "< 4"
+  - id: three-quote-compliance
+    name: Awards with the required number of offers
+    unit: "%"
+    target: "100"
+  - id: savings
+    name: Savings vs. highest comparable offer
+    unit: "%"
+integrations:
+  - category: erp
+    purpose: Supplier master (approved and blocked suppliers).
+    required: false
+  - category: mail
+    purpose: Quotes received by email.
+    required: false
+useCases: [document-processing, excel-automation]
+value:
+  hoursSavedPerMonth: 35
+  description: 40 RFQs a month with 3-5 quotes each; about an hour of re-typing and comparison saved per RFQ.
+maturity: ready

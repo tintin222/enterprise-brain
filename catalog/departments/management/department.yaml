@@ -1,0 +1,59 @@
+id: management
+name: Management
+icon: briefcase
+summary: >-
+  Steers the company: strategy, performance management, executive decisions and reporting to the
+  board, supported by one trusted view of the business.
+mission: >-
+  Give leadership a timely, trusted view of performance and the essentials of each day, so decisions
+  are taken on facts rather than on the latest spreadsheet.
+kpis:
+  - id: reporting-lead-time
+    name: Management pack available after month end
+    unit: business days
+    target: "<= 3"
+  - id: automated-kpis
+    name: KPIs produced without manual consolidation
+    unit: "%"
+    target: "> 80"
+  - id: restatements
+    name: Figures corrected after release
+    unit: count per quarter
+    target: "0"
+  - id: briefing-usage
+    name: Executives using the daily briefing
+    unit: "%"
+    target: "> 80"
+roles:
+  - id: ceo
+    title: Chief Executive Officer
+    description: Leads the company and the executive team.
+  - id: executive-team-member
+    title: Executive Team Member
+    description: Member of the executive committee (CFO, COO, CCO, CHRO...), owner of a set of company KPIs.
+  - id: chief-of-staff
+    title: Chief of Staff / Strategy Office
+    description: Runs the management cadence, releases management reporting and follows up on decisions.
+  - id: bi-analyst
+    title: BI Analyst
+    description: Owns KPI definitions, data quality and dashboards.
+systems:
+  - category: bi
+    examples: [Microsoft Power BI, Tableau, Qlik Sense]
+    purpose: Dashboards and KPI definitions.
+  - category: erp
+    examples: [SAP S/4HANA, Microsoft Dynamics 365, Logo Tiger, Netsis]
+    purpose: Financials, receivables and operations data.
+  - category: crm
+    examples: [Salesforce, Microsoft Dynamics 365 Sales, HubSpot]
+    purpose: Pipeline and customer escalations.
+  - category: storage
+    examples: [SharePoint, OneDrive]
+    purpose: Budget files, board packs and management reports.
+  - category: calendar
+    examples: [Microsoft 365 Outlook Calendar]
+    purpose: Executive agenda.
+processes:
+  - management.kpi-reporting
+  - management.executive-briefing
+tags: [leadership, performance-management, reporting, yönetim]

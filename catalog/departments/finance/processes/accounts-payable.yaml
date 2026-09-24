@@ -1,0 +1,84 @@
+id: finance.accounts-payable
+department: finance
+name: Accounts Payable (Invoice Processing)
+summary: >-
+  Supplier invoices arriving by email or e-invoice are read with OCR, validated against the supplier
+  master and the purchase order (3-way match with the goods receipt), approved and posted in the ERP.
+description: >-
+  Accounts payable teams re-key invoice headers and lines, chase purchase orders and goods receipts,
+  and catch duplicates and bank-detail fraud by hand. The Invoice Processor reads each invoice, finds
+  the supplier and the purchase order in the ERP, checks arithmetic, prices and received quantities
+  against the AP policy, detects duplicates and changed bank details, and presents the AP clerk a
+  one-screen decision. Approved invoices are posted; the ERP's 3-way match blocks variances for payment.
+trigger:
+  type: mail
+  description: >-
+    A supplier invoice arrives in the AP mailbox (e.g. invoices@company.com) as PDF, scan or e-invoice
+    (UBL-TR) forwarded by the integrator.
+frequency: Continuous; 500-5,000 invoices per month
+steps:
+  - id: receive
+    name: Receive the invoice
+    actor: system:mail
+    description: PDF and scanned invoices from the AP mailbox; e-invoices from the GİB integrator.
+  - id: capture
+    name: Capture, validate and match
+    actor: agent:finance.invoice-processor
+    description: >-
+      OCR and extraction, supplier look-up, duplicate check, PO and goods-receipt match, AP policy
+      tolerances and bank-detail check.
+    sla: 10 minutes
+  - id: review
+    name: Review and approve posting
+    actor: human:ap-clerk
+    approval: true
+    description: The AP clerk reviews the checks and variances and approves posting.
+    sla: 1 business day
+  - id: exceptions
+    name: Approve exceptions
+    actor: human:finance-manager
+    approval: true
+    description: Invoices above the approval limit or with variances beyond tolerance.
+    sla: 2 business days
+  - id: post
+    name: Post and schedule payment
+    actor: system:erp
+    description: The invoice is posted; price or quantity variances are blocked for payment until resolved.
+agents:
+  - finance.invoice-processor
+kpis:
+  - id: cycle-time
+    name: Receipt-to-posting time
+    unit: days
+    target: "< 3"
+  - id: first-pass-match
+    name: First-pass match rate
+    unit: "%"
+    target: "> 85"
+  - id: touchless-rate
+    name: Invoices without manual keying
+    unit: "%"
+    target: "> 70"
+  - id: duplicates-prevented
+    name: Duplicate or fraudulent payments prevented
+    unit: count per month
+integrations:
+  - category: mail
+    purpose: Read the AP mailbox.
+    required: true
+  - category: erp
+    purpose: Supplier master, purchase orders and goods receipts; post supplier invoices.
+    required: true
+  - category: other
+    purpose: E-invoice (e-Fatura) integrator for UBL-TR invoices.
+    required: false
+  - category: dms
+    purpose: Invoice archive (10-year retention under VUK).
+    required: false
+useCases: [document-processing, mail-triage]
+value:
+  hoursSavedPerMonth: 160
+  description: >-
+    2,000 invoices a month at about 6 minutes of keying and matching each; people handle only the
+    exceptions, and duplicate or redirected payments are stopped before they happen.
+maturity: ready

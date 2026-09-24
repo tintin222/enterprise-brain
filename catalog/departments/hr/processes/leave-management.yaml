@@ -1,0 +1,67 @@
+id: hr.leave-management
+department: hr
+name: Leave & Time-off Management
+summary: >-
+  Checks leave requests against balance, leave policy and existing requests, records them in the
+  HRIS and routes them to the line manager for a one-click decision.
+description: >-
+  Leave requests arrive by form, email or chat and are checked by hand against balances and the
+  leave policy (statutory annual leave under Labour Law No. 4857: 14, 20 or 26 working days by
+  seniority). The Leave Assistant validates the request, records it as pending in the HRIS, gives
+  the manager a short decision note and books the decision.
+trigger:
+  type: form
+  description: An employee submits a leave request (self-service form or HR mailbox).
+frequency: Continuous; peaks before public holidays and in summer
+steps:
+  - id: request
+    name: Submit a leave request
+    actor: human:employee
+    description: Leave type, dates, reason and hand-over.
+  - id: check
+    name: Check balance and policy
+    actor: agent:hr.leave-assistant
+    description: >-
+      Balance, overlapping requests, notice period and documentation per the leave policy; records the
+      request as pending in the HRIS.
+  - id: decide
+    name: Manager decision
+    actor: human:line-manager
+    approval: true
+    sla: 2 business days
+  - id: book
+    name: Book the decision
+    actor: system:hris
+    description: The request is approved or rejected in the HRIS and the balance updated.
+agents:
+  - hr.leave-assistant
+kpis:
+  - id: decision-time
+    name: Request-to-decision time
+    unit: hours
+    target: "< 24"
+  - id: policy-exceptions
+    name: Requests needing a policy exception
+    unit: "%"
+    target: "< 5"
+  - id: balance-disputes
+    name: Leave balance disputes
+    unit: per month
+    target: "0"
+integrations:
+  - category: hris
+    purpose: Read employees, balances and requests; create and decide leave requests.
+    required: true
+  - category: dms
+    purpose: Leave policy and public holiday calendar.
+    required: false
+  - category: calendar
+    purpose: Team absence calendar.
+    required: false
+useCases: [knowledge-base]
+value:
+  hoursSavedPerMonth: 25
+  description: >-
+    300 requests a month no longer need HR to check balances and rules by hand; managers decide on a
+    prepared note instead of chasing information.
+maturity: ready

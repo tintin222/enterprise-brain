@@ -1,0 +1,27 @@
+{
+  "name": "@enterprise-brain/paperclip-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Paperclip plugin that brings Enterprise Brain into Paperclip: tools for every agent (knowledge search, run specialist agents, approvals) and an Enterprise Brain page (Agent Builder, catalog, approvals) inside the Paperclip UI.",
+  "paperclipPlugin": {
+    "manifest": "./dist/manifest.js",
+    "worker": "./dist/worker.js",
+    "ui": "./dist/ui/"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@paperclipai/plugin-sdk": "2026.916.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "esbuild": "^0.28.2",
+    "react": "^19.2.8"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  }
+}

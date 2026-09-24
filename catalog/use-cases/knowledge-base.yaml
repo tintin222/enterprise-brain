@@ -1,0 +1,23 @@
+id: knowledge-base
+name: Knowledge Base
+icon: book-open
+archetype: conversational
+summary: >-
+  A curated, governed company knowledge base (policies, procedures, product documentation, FAQs)
+  that every assistant and agent answers from, with owners, versions and citations.
+description: >-
+  Upload or connect the documents that define how the company works, organise them into collections
+  with owners (HR policies, IT knowledge, product manuals, legal playbooks), and every agent answers
+  from the current, approved version with citations. Unanswered questions show the knowledge owners
+  exactly which content is missing.
+capabilities: [knowledge.search, documents.read]
+connectors: [dms, storage, web]
+defaultAgent: shared-services.company-assistant
+app: /knowledge
+examples:
+  - Upload the employee handbook, the travel policy and the IT security policy as the "Company policies" collection.
+  - Which questions could the assistant not answer last month, and which collection should cover them?
+  - "Ürün kataloğu ve teknik föyleri müşteri hizmetleri bilgi bankasına ekle."
+  - Answer only from the ISO 9001 quality manual collection, citing the section.
+triggers:
+  - type: chat

@@ -1,0 +1,24 @@
+{
+  "name": "@enterprise-brain/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Database schema, migrations and client factory (embedded PGlite for local/dev, PostgreSQL + pgvector in production).",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.8",
+    "@electric-sql/pglite-pgvector": "0.0.9",
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.0",
+    "drizzle-kit": "^0.31.11"
+  }
+}

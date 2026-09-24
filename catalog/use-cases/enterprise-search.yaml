@@ -1,0 +1,23 @@
+id: enterprise-search
+name: Enterprise Search
+icon: search
+archetype: search
+summary: >-
+  One search box over the company's documents and business systems: find the contract, the policy,
+  the customer, the open order or the ticket, and get a direct answer with sources.
+description: >-
+  Information is scattered across SharePoint, file shares, the ERP, the CRM and the service desk.
+  Enterprise search combines the knowledge base with live, read-only look-ups in connected systems,
+  answers the question directly and shows where every fact comes from, respecting the permissions
+  of the connected systems.
+capabilities: [knowledge.search, documents.read]
+connectors: [dms, storage, erp, crm, itsm, hris]
+defaultAgent: shared-services.search-assistant
+app: /search
+examples:
+  - Which purchase orders are still open for Kaya Çelik, and what is their delivery date?
+  - Find the latest signed framework agreement with Hansa Pumpen and its payment terms.
+  - Who is our contact at Petrokim Rafineri and what are their open service cases?
+  - "Gebze fabrikası için geçerli iş güvenliği talimatı hangisi?"
+triggers:
+  - type: chat

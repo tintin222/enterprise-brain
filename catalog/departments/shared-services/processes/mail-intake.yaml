@@ -1,0 +1,60 @@
+id: shared-services.mail-intake
+department: shared-services
+name: Shared Mailbox Triage
+summary: >-
+  Emails to general shared mailboxes (info@, contact@) are classified, summarised, routed to the
+  owning department and answered with an approved draft reply.
+description: >-
+  General mailboxes mix sales inquiries, supplier offers, job applications, invoices, complaints and
+  spam, and often wait days for someone to sort them. The Mail Assistant classifies each email,
+  identifies the owning department, extracts the request and drafts a reply from company knowledge;
+  a shared services specialist approves replies and hands the request to the right team.
+trigger:
+  type: mail
+  description: An email arrives in a general shared mailbox (e.g. info@company.com).
+frequency: Continuous; 50-300 emails per day
+steps:
+  - id: receive
+    name: Receive email
+    actor: system:mail
+  - id: triage
+    name: Classify, route and draft
+    actor: agent:shared-services.mail-assistant
+    description: Category, owning department, urgency, summary and a reply draft grounded in the knowledge base.
+    sla: 5 minutes
+  - id: approve
+    name: Approve the reply
+    actor: human:shared-services-specialist
+    approval: true
+    sla: 4 hours
+  - id: follow-up
+    name: Owning team follows up
+    actor: human:employee
+    description: The routed department handles requests that need more than a reply.
+agents:
+  - shared-services.mail-assistant
+kpis:
+  - id: first-response
+    name: First response time
+    unit: hours
+    target: "< 4"
+  - id: routing-accuracy
+    name: Correctly routed emails
+    unit: "%"
+    target: "> 95"
+  - id: backlog
+    name: Unprocessed emails older than one day
+    unit: count
+    target: "0"
+integrations:
+  - category: mail
+    purpose: Read shared mailboxes and send approved replies.
+    required: true
+  - category: crm
+    purpose: Look up senders who are existing customers.
+    required: false
+useCases: [mail-triage]
+value:
+  hoursSavedPerMonth: 60
+  description: 3,000 emails a month sorted and answered with about one minute of review instead of four minutes of handling each.
+maturity: ready

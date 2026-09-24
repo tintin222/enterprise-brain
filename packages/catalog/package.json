@@ -1,0 +1,16 @@
+{
+  "name": "@enterprise-brain/catalog",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Department, process, agent and use-case templates (YAML + Markdown) with a validating loader.",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "validate": "tsx src/cli.ts validate"
+  },
+  "dependencies": {
+    "@enterprise-brain/core": "workspace:*",
+    "yaml": "^2.8.0"
+  }
+}

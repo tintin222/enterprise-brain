@@ -1,0 +1,72 @@
+id: procurement
+name: Procurement
+icon: shopping-cart
+summary: >-
+  Buys the goods and services the company needs at the right price, quality and time: purchase
+  requisitions, sourcing and RFQ comparison, supplier onboarding and order follow-up.
+mission: >-
+  Make buying easy for employees and compliant for the company: every requisition checked against
+  budget and policy, every award based on comparable offers, every supplier properly onboarded and
+  every late order chased before it hurts production.
+kpis:
+  - id: requisition-to-po
+    name: Requisition-to-PO cycle time
+    unit: days
+    target: "< 3"
+  - id: savings
+    name: Negotiated savings vs. first offer
+    unit: "%"
+    target: "> 5"
+  - id: on-time-delivery
+    name: Supplier on-time delivery
+    unit: "%"
+    target: "> 95"
+  - id: spend-under-management
+    name: Spend under management
+    unit: "%"
+    target: "> 85"
+  - id: supplier-onboarding-time
+    name: Supplier onboarding time
+    unit: days
+    target: "< 5"
+roles:
+  - id: procurement-manager
+    title: Procurement Manager
+    description: Owns procurement policy, approves new suppliers and awards above the buyer's limit.
+  - id: category-manager
+    title: Category Manager
+    description: Owns sourcing strategy and supplier relationships for a spend category; decides awards.
+  - id: buyer
+    title: Buyer
+    description: Converts requisitions into purchase orders, runs RFQs and follows up orders.
+  - id: budget-holder
+    title: Budget Holder
+    description: Cost center or project owner who approves requisitions against the budget.
+  - id: vendor-master-data-specialist
+    title: Vendor Master Data Specialist
+    description: Maintains supplier master data and verifies bank details (segregated from buyers and AP).
+systems:
+  - category: erp
+    examples: [SAP S/4HANA (MM), SAP Ariba, Coupa, Microsoft Dynamics 365 Supply Chain Management, Logo Tiger, Netsis]
+    purpose: Requisitions, purchase orders, goods receipts and the supplier master.
+  - category: scm
+    examples: [SAP Ariba Supplier Lifecycle, supplier portals, EDI]
+    purpose: Supplier collaboration, order confirmations and delivery schedules.
+  - category: mail
+    examples: [Microsoft 365 (Outlook)]
+    purpose: Supplier correspondence, quotes and order confirmations.
+  - category: dms
+    examples: [SharePoint]
+    purpose: Procurement policy, framework agreements and supplier documents.
+  - category: esign
+    examples: [DocuSign, e-İmza]
+    purpose: Signing framework agreements and supplier declarations.
+  - category: other
+    examples: [Dun & Bradstreet, Findeks, sanctions screening services]
+    purpose: Supplier credit and compliance checks.
+processes:
+  - procurement.purchase-requisition
+  - procurement.rfq-comparison
+  - procurement.supplier-onboarding
+  - procurement.order-follow-up
+tags: [purchasing, sourcing, suppliers, satın alma, tedarik]

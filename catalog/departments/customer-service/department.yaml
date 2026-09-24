@@ -1,0 +1,67 @@
+id: customer-service
+name: Customer Service
+icon: headphones
+summary: >-
+  Resolves customer requests across email, phone and portal: order and delivery status, technical
+  questions, returns and warranty claims, complaints and billing questions.
+mission: >-
+  Answer every customer quickly, correctly and in their language, with every request tracked as a
+  case and a person approving what the company says.
+kpis:
+  - id: first-response-time
+    name: First response time
+    unit: hours
+    target: "< 4"
+  - id: first-contact-resolution
+    name: First-contact resolution
+    unit: "%"
+    target: "> 70"
+  - id: csat
+    name: Customer satisfaction (CSAT)
+    unit: score (1-5)
+    target: ">= 4.5"
+  - id: complaint-resolution-time
+    name: Complaint resolution time
+    unit: days
+    target: "< 5"
+  - id: backlog
+    name: Open cases older than SLA
+    unit: count
+    target: "0"
+roles:
+  - id: customer-service-manager
+    title: Customer Service Manager
+    description: Owns service levels, escalations and the support knowledge base.
+  - id: support-team-lead
+    title: Support Team Lead
+    description: Handles escalations, key accounts and difficult cases; coaches the team.
+  - id: support-specialist
+    title: Customer Support Specialist
+    description: Answers customer requests and approves replies prepared by agents.
+  - id: returns-specialist
+    title: Returns & Warranty Specialist
+    description: Decides on returns, replacements, repairs and credit notes within the policy.
+systems:
+  - category: crm
+    examples: [Salesforce Service Cloud, Zendesk, Microsoft Dynamics 365 Customer Service, Freshdesk]
+    purpose: Cases, contacts, SLAs and service history.
+  - category: mail
+    examples: [Microsoft 365 shared mailboxes, Google Workspace]
+    purpose: Support mailbox (e.g. support@, destek@).
+  - category: erp
+    examples: [SAP S/4HANA (SD), Logo Tiger, Netsis]
+    purpose: Orders, deliveries, invoices, returns and credit notes.
+  - category: ecommerce
+    examples: [Shopify, Trendyol, Hepsiburada, Amazon.com.tr]
+    purpose: Marketplace orders and customer messages.
+  - category: messaging
+    examples: [WhatsApp Business, Microsoft Teams]
+    purpose: Customer messaging and internal escalation.
+  - category: dms
+    examples: [SharePoint, Confluence]
+    purpose: FAQs, product manuals, delivery, return and warranty terms.
+processes:
+  - customer-service.email-triage
+  - customer-service.support-knowledge
+  - customer-service.returns-complaints
+tags: [customer-support, service, customer-experience, müşteri hizmetleri, destek]

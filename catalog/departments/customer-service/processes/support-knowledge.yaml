@@ -1,0 +1,60 @@
+id: customer-service.support-knowledge
+department: customer-service
+name: Support Knowledge & Agent Assist
+summary: >-
+  Support specialists ask the Support Assistant instead of searching manuals, past cases and the ERP:
+  answers come with sources, order and case status is looked up live, and reply drafts are prepared.
+description: >-
+  New support specialists need months to know the products, the terms and where to find what. The
+  Support Assistant answers their questions from product manuals, FAQs and resolved cases, looks up
+  orders and cases in real time and drafts replies, so every specialist answers like the most
+  experienced one. Unanswered questions become knowledge articles.
+trigger:
+  type: chat
+  description: A support specialist asks a question while handling a customer.
+frequency: Continuous
+steps:
+  - id: ask
+    name: Ask a question
+    actor: human:support-specialist
+  - id: answer
+    name: Answer from knowledge, orders and cases
+    actor: agent:customer-service.support-assistant
+    sla: 30 seconds
+  - id: handoff
+    name: Handle unanswered questions
+    actor: human:support-team-lead
+  - id: curate
+    name: Update knowledge articles
+    actor: human:customer-service-manager
+    description: Recurring questions without a good answer become new or updated articles.
+agents:
+  - customer-service.support-assistant
+kpis:
+  - id: handle-time
+    name: Average handle time
+    unit: minutes
+    target: "-30%"
+  - id: answer-rate
+    name: Questions answered with sources
+    unit: "%"
+    target: "> 85"
+  - id: onboarding-time
+    name: Time for a new specialist to work independently
+    unit: weeks
+    target: "< 4"
+integrations:
+  - category: dms
+    purpose: Product manuals, FAQs, delivery, return and warranty terms.
+    required: true
+  - category: crm
+    purpose: Cases and contacts (read-only).
+    required: false
+  - category: erp
+    purpose: Order and delivery status (read-only).
+    required: false
+useCases: [conversational-ai, knowledge-base, enterprise-search]
+value:
+  hoursSavedPerMonth: 80
+  description: A 10-person support team saves about 2 minutes on each of 2,500 look-ups per month and ramps up new colleagues faster.
+maturity: ready

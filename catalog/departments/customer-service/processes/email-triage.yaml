@@ -1,0 +1,72 @@
+id: customer-service.email-triage
+department: customer-service
+name: Support Email Triage & Response
+summary: >-
+  Every customer email is classified, enriched with the customer's record and order status, logged
+  as a CRM case with the right priority, and answered with a knowledge-based draft that a support
+  specialist approves.
+description: >-
+  Support mailboxes mix order-status questions, technical questions, warranty claims, complaints,
+  invoices and data protection requests. The Mail Triage agent classifies each email, extracts the
+  order number, product and urgency, looks up the contact in the CRM and the order in the ERP,
+  creates the case, and drafts a reply in the customer's language from the support knowledge base.
+  A support specialist approves every reply; data protection requests go to the DPO.
+trigger:
+  type: mail
+  description: A customer email arrives in the support mailbox (e.g. support@company.com).
+frequency: Continuous; 1,000-5,000 emails per month
+steps:
+  - id: receive
+    name: Receive the email
+    actor: system:mail
+  - id: triage
+    name: Classify, look up and draft
+    actor: agent:customer-service.mail-triage
+    description: Category, urgency, contact and order look-up, CRM case, reply draft from the knowledge base.
+    sla: 5 minutes
+  - id: case
+    name: Case created in the CRM
+    actor: system:crm
+    description: Every customer email becomes a case with priority and SLA.
+  - id: approve
+    name: Approve the reply
+    actor: human:support-specialist
+    approval: true
+    sla: Within the case SLA (4-72 hours by priority)
+  - id: escalate
+    name: Handle escalations
+    actor: human:support-team-lead
+    description: Complaints from key accounts, legal threats, safety issues and press inquiries.
+agents:
+  - customer-service.mail-triage
+kpis:
+  - id: first-response-time
+    name: First response time
+    unit: hours
+    target: "< 4"
+  - id: draft-acceptance
+    name: Replies approved without edits
+    unit: "%"
+    target: "> 70"
+  - id: misclassification
+    name: Emails re-classified by people
+    unit: "%"
+    target: "< 5"
+integrations:
+  - category: mail
+    purpose: Read the support mailbox and send approved replies.
+    required: true
+  - category: crm
+    purpose: Contacts and cases.
+    required: true
+  - category: erp
+    purpose: Order and delivery status.
+    required: false
+  - category: dms
+    purpose: Support knowledge base (FAQs, manuals, terms).
+    required: false
+useCases: [mail-triage, knowledge-base]
+value:
+  hoursSavedPerMonth: 150
+  description: 3,000 emails a month with triage, look-ups and drafting done in advance save about 3 minutes each.
+maturity: ready

@@ -1,0 +1,56 @@
+id: sales.account-research
+department: sales
+name: Account Research & Meeting Preparation
+summary: >-
+  Before a customer meeting, the account executive gets a one-page brief: relationship history,
+  open opportunities, service cases, receivables, recent public news and suggested talking points.
+description: >-
+  Good meetings start with preparation that nobody has time for. The Account Researcher pulls the
+  account, contacts, opportunities and open cases from the CRM, the open receivables from the ERP and
+  recent public information from the web, and writes a concise brief with hypotheses and questions
+  for the meeting.
+trigger:
+  type: manual
+  description: An account executive requests a brief before a meeting or call.
+frequency: On demand
+steps:
+  - id: request
+    name: Request a brief
+    actor: human:account-executive
+  - id: research
+    name: Research the account
+    actor: agent:sales.account-researcher
+    description: CRM relationship data, ERP receivables and public web research.
+    sla: 10 minutes
+  - id: prepare
+    name: Prepare the meeting
+    actor: human:account-executive
+    description: Adds personal knowledge and decides the meeting goals.
+  - id: log
+    name: Log the meeting
+    actor: system:crm
+agents:
+  - sales.account-researcher
+kpis:
+  - id: prep-time
+    name: Meeting preparation time
+    unit: minutes
+    target: "< 15"
+  - id: meeting-to-opportunity
+    name: Meetings leading to a next step
+    unit: "%"
+integrations:
+  - category: crm
+    purpose: Accounts, contacts, opportunities and cases.
+    required: true
+  - category: erp
+    purpose: Customer receivables and credit status.
+    required: false
+  - category: web
+    purpose: Public news and company information.
+    required: false
+useCases: [enterprise-search]
+value:
+  hoursSavedPerMonth: 25
+  description: 50 meeting briefs a month at 30-45 minutes of research each.
+maturity: ready

@@ -1,0 +1,68 @@
+id: sales.lead-qualification
+department: sales
+name: Inbound Lead Qualification
+summary: >-
+  Every inbound inquiry (sales mailbox or website form) is classified, enriched with CRM context,
+  scored against the ideal customer profile, created as a CRM lead and answered with an approved reply.
+description: >-
+  Inbound leads go cold while they wait in a shared mailbox. The Lead Qualifier separates real
+  buying intent from partnership offers, job applications and vendor pitches, extracts company,
+  contact, need, budget and timeline, checks whether the company is already a customer, scores the
+  lead against the ideal customer profile with evidence and creates the CRM lead. The SDR approves
+  the first reply, which proposes the next step.
+trigger:
+  type: mail
+  description: An inquiry arrives in the sales mailbox (e.g. sales@company.com) or through the website's demo or contact form.
+frequency: Continuous
+steps:
+  - id: receive
+    name: Receive the inquiry
+    actor: system:mail
+    description: Emails to the sales mailbox and website form submissions.
+  - id: qualify
+    name: Classify, enrich and score
+    actor: agent:sales.lead-qualifier
+    description: Intent, lead data, CRM look-up, ICP score with evidence and CRM lead creation.
+    sla: 5 minutes
+  - id: reply
+    name: Approve the first reply
+    actor: human:sales-development-rep
+    approval: true
+    sla: 1 hour
+  - id: record
+    name: Lead and activity in the CRM
+    actor: system:crm
+  - id: discovery
+    name: Discovery call
+    actor: human:account-executive
+    description: Qualified leads get a discovery call and, if confirmed, an opportunity.
+agents:
+  - sales.lead-qualifier
+kpis:
+  - id: speed-to-lead
+    name: Speed to lead
+    unit: minutes
+    target: "< 60"
+  - id: lead-coverage
+    name: Inbound inquiries logged in the CRM
+    unit: "%"
+    target: "100"
+  - id: mql-to-sql
+    name: Qualified leads accepted by sales
+    unit: "%"
+    target: "> 60"
+integrations:
+  - category: mail
+    purpose: Read the sales mailbox and send approved replies.
+    required: true
+  - category: crm
+    purpose: Look up accounts and contacts; create leads and log activities.
+    required: true
+  - category: web
+    purpose: Website demo and contact forms (webhook).
+    required: false
+useCases: [mail-triage]
+value:
+  hoursSavedPerMonth: 50
+  description: 400 inbound emails a month are sorted, logged and answered within the hour instead of the next day, lifting conversion of hot leads.
+maturity: ready

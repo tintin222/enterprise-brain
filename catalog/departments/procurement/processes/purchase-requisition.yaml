@@ -1,0 +1,65 @@
+id: procurement.purchase-requisition
+department: procurement
+name: Purchase Requisition to Purchase Order
+summary: >-
+  Employees describe what they need in plain words; the request is turned into a structured
+  requisition, checked against stock, suppliers, budget and the purchasing policy, approved by the
+  budget holder and converted into a purchase order.
+description: >-
+  Requisition forms are hard to fill in, so requests arrive incomplete by email and buyers chase the
+  details. The Requisition Agent structures the request (items, quantities, prices, supplier, cost
+  center), checks internal stock and the supplier master, applies the purchasing policy (approval
+  limits, number of quotes, preferred suppliers, split orders) and prepares the approval; after
+  approval the purchase order is created in the ERP.
+trigger:
+  type: form
+  description: An employee submits a purchase request (form, chat or email with attached quotes).
+frequency: Continuous; 200-1,000 requisitions per month
+steps:
+  - id: request
+    name: Describe the need
+    actor: human:employee
+  - id: structure
+    name: Structure and check the requisition
+    actor: agent:procurement.requisition-agent
+    description: Items, quantities, prices, supplier, stock check, policy and budget check.
+    sla: 15 minutes
+  - id: approve
+    name: Budget approval
+    actor: human:budget-holder
+    approval: true
+    sla: 1 business day
+  - id: order
+    name: Create the purchase order
+    actor: system:erp
+  - id: buyer
+    name: Send and confirm the order
+    actor: human:buyer
+    description: Sends the PO, negotiates where needed and records the order confirmation.
+agents:
+  - procurement.requisition-agent
+kpis:
+  - id: requisition-to-po
+    name: Requisition-to-PO time
+    unit: days
+    target: "< 3"
+  - id: first-time-right
+    name: Requisitions complete at first submission
+    unit: "%"
+    target: "> 90"
+  - id: maverick-spend
+    name: Spend outside policy
+    unit: "%"
+    target: "< 5"
+integrations:
+  - category: erp
+    purpose: Stock, supplier master and purchase order creation.
+    required: true
+  - category: dms
+    purpose: Purchasing policy and approval limits.
+    required: false
+useCases: [document-processing, conversational-ai]
+value:
+  hoursSavedPerMonth: 30
+  description: 400 requisitions a month without back-and-forth for missing details, at about 5 minutes saved each for requesters and buyers.
+maturity: ready

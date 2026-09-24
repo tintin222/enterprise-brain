@@ -1,0 +1,23 @@
+{
+  "name": "@enterprise-brain/runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent runtime and platform services: workflow engine with approval gates, autonomous tool loops, chat, files, encrypted secrets, connector service (with sandbox fallback), mail, scheduler, catalog installation.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@enterprise-brain/catalog": "workspace:*",
+    "@enterprise-brain/connectors": "workspace:*",
+    "@enterprise-brain/core": "workspace:*",
+    "@enterprise-brain/db": "workspace:*",
+    "@enterprise-brain/documents": "workspace:*",
+    "@enterprise-brain/knowledge": "workspace:*",
+    "@enterprise-brain/llm": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  }
+}

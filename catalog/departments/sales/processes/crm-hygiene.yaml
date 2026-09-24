@@ -1,0 +1,55 @@
+id: sales.crm-hygiene
+department: sales
+name: CRM Data Hygiene
+summary: >-
+  A weekly scan of leads, accounts and opportunities for duplicates, missing fields, invalid values
+  and stale records, with a fix list and approved safe fixes applied automatically.
+description: >-
+  Forecasts and campaigns are only as good as the CRM data behind them. The CRM Data Steward scans
+  the CRM every week, finds duplicates, missing mandatory fields, invalid e-mails and phone numbers,
+  opportunities with close dates in the past and leads nobody worked on, and prepares a fix list per
+  owner. Safe fixes are applied after sales operations approves them.
+trigger:
+  type: schedule
+  description: Every Monday morning before the pipeline meeting.
+frequency: Weekly (Monday 07:00)
+steps:
+  - id: scan
+    name: Scan the CRM
+    actor: agent:sales.crm-data-steward
+    description: Duplicates, missing fields, invalid values, stale leads and overdue close dates.
+  - id: review
+    name: Approve safe fixes
+    actor: human:sales-ops-analyst
+    approval: true
+  - id: fix
+    name: Apply approved fixes
+    actor: system:crm
+  - id: owners
+    name: Owners complete their records
+    actor: human:account-executive
+    description: Each owner receives the list of their records that need attention.
+agents:
+  - sales.crm-data-steward
+kpis:
+  - id: completeness
+    name: Mandatory fields complete
+    unit: "%"
+    target: "> 95"
+  - id: duplicates
+    name: Duplicate accounts and leads
+    unit: count
+    target: "0"
+  - id: stale-opportunities
+    name: Opportunities with a close date in the past
+    unit: count
+    target: "0"
+integrations:
+  - category: crm
+    purpose: Read leads, accounts and opportunities; apply approved fixes.
+    required: true
+useCases: [excel-automation]
+value:
+  hoursSavedPerMonth: 20
+  description: Sales operations no longer builds the weekly data-quality list by hand, and the forecast is based on current data.
+maturity: ready

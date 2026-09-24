@@ -1,0 +1,62 @@
+id: hr.employee-helpdesk
+department: hr
+name: Employee HR Helpdesk
+summary: >-
+  Answers employees' HR questions (leave rules, benefits, payroll calendar, travel, remote work, HR
+  documents) instantly from the HR knowledge base, and hands sensitive cases to an HR business partner.
+description: >-
+  Most HR tickets are questions whose answer is already written down in a policy. The HR Policy
+  Assistant answers them in the employee's language with citations, looks up the employee's own
+  leave balance when asked, and hands over anything sensitive (health, grievances, disciplinary
+  matters, pay disputes) to a person.
+trigger:
+  type: chat
+  description: An employee asks a question in the HR assistant (intranet or Microsoft Teams).
+frequency: Continuous; 300-1,000 questions per month in a 1,000-employee company
+steps:
+  - id: ask
+    name: Ask a question
+    actor: human:employee
+  - id: answer
+    name: Answer from HR policies
+    actor: agent:hr.policy-assistant
+    description: Searches the HR knowledge base, answers with citations and personal data only for the asking employee.
+    sla: 1 minute
+  - id: handover
+    name: Handle sensitive or unresolved cases
+    actor: human:hr-business-partner
+    description: Grievances, health, disciplinary topics and anything the policies do not cover.
+  - id: improve
+    name: Improve HR knowledge
+    actor: human:hr-manager
+    description: Unanswered questions become new FAQ entries or policy clarifications.
+agents:
+  - hr.policy-assistant
+kpis:
+  - id: self-service-rate
+    name: Questions resolved without HR
+    unit: "%"
+    target: "> 60"
+  - id: answer-accuracy
+    name: Answer accuracy (sampled)
+    unit: "%"
+    target: "> 95"
+  - id: handover-rate
+    name: Hand-over rate
+    unit: "%"
+    target: "< 20"
+integrations:
+  - category: dms
+    purpose: HR policies, employee handbook and benefits documents.
+    required: true
+  - category: hris
+    purpose: The asking employee's own leave balance and requests.
+    required: false
+  - category: messaging
+    purpose: Offer the assistant inside Microsoft Teams or Slack.
+    required: false
+useCases: [conversational-ai, knowledge-base]
+value:
+  hoursSavedPerMonth: 60
+  description: About 600 routine questions a month answered in seconds instead of 6 minutes of HR time each.
+maturity: ready

@@ -1,0 +1,62 @@
+id: finance.collections
+department: finance
+name: Collections & Dunning
+summary: >-
+  Finds overdue receivables in the ERP, prioritises customers by amount, age and credit risk, and
+  prepares tone-appropriate payment reminders for the AR team to approve and send.
+description: >-
+  Dunning is often late and generic because building the list and writing reminders takes a day each
+  week. The Collections Agent pulls the overdue open items, groups them by customer, chooses the
+  dunning level from the age of the oldest item and the customer's history, drafts reminders in the
+  customer's language and prepares a prioritised worklist; the AR specialist approves what is sent.
+trigger:
+  type: schedule
+  description: Every Monday morning, and on demand for a single customer.
+frequency: Weekly (Monday 08:00) and on demand
+steps:
+  - id: extract
+    name: Pull overdue open items
+    actor: system:erp
+  - id: prioritise
+    name: Prioritise and draft reminders
+    actor: agent:finance.collections-agent
+    description: Ages items per customer, chooses the dunning level, drafts reminders and a worklist.
+  - id: approve
+    name: Approve and send reminders
+    actor: human:ar-specialist
+    approval: true
+    sla: 1 business day
+  - id: escalate
+    name: Escalate critical accounts
+    actor: human:finance-manager
+    description: Credit hold, payment plans or legal collection (icra takibi) for items more than 90 days overdue.
+agents:
+  - finance.collections-agent
+kpis:
+  - id: dso
+    name: Days sales outstanding
+    unit: days
+    target: "< 45"
+  - id: overdue-share
+    name: Receivables more than 30 days overdue
+    unit: "%"
+    target: "< 10"
+  - id: reminder-coverage
+    name: Overdue customers reminded within a week
+    unit: "%"
+    target: "100"
+integrations:
+  - category: erp
+    purpose: Open items, customer balances and credit limits.
+    required: true
+  - category: mail
+    purpose: Send approved reminders.
+    required: true
+  - category: crm
+    purpose: Log reminders on the customer account.
+    required: false
+useCases: [mail-triage, excel-automation]
+value:
+  hoursSavedPerMonth: 40
+  description: The weekly dunning list and 100-200 reminders are prepared automatically; consistent follow-up typically lowers DSO by 3-5 days.
+maturity: ready

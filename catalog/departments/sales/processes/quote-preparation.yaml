@@ -1,0 +1,69 @@
+id: sales.quote-preparation
+department: sales
+name: Quote Preparation
+summary: >-
+  Customer requests for quotation (email, PDF or Excel) are turned into a priced quote draft with
+  stock availability and credit check, approved by the sales manager and linked to the opportunity.
+description: >-
+  Preparing a quote means reading the customer's request, finding products and prices, checking stock
+  and delivery dates, checking the customer's credit and applying discount rules. The Quote Assistant
+  does this groundwork from the ERP, CRM and the price lists in the knowledge base and hands the
+  account executive a complete draft; discounts beyond the delegation go to the sales manager.
+trigger:
+  type: mail
+  description: A customer RFQ arrives by email, or an account executive requests a quote for an opportunity.
+frequency: Continuous; 50-300 quotes per month
+steps:
+  - id: request
+    name: Receive the request for quotation
+    actor: human:account-executive
+    description: Forwards the customer's RFQ or describes the request.
+  - id: prepare
+    name: Prepare the quote draft
+    actor: agent:sales.quote-assistant
+    description: Reads the request, checks customer credit and stock, prices lines from the price list, drafts the quote.
+    sla: 30 minutes
+  - id: approve
+    name: Approve price and terms
+    actor: human:sales-manager
+    approval: true
+    description: Discounts, payment terms and delivery commitments beyond the account executive's delegation.
+    sla: 4 business hours
+  - id: send
+    name: Send and follow up
+    actor: human:account-executive
+  - id: pipeline
+    name: Update the opportunity
+    actor: system:crm
+agents:
+  - sales.quote-assistant
+kpis:
+  - id: quote-turnaround
+    name: Request-to-quote time
+    unit: hours
+    target: "< 24"
+  - id: quote-accuracy
+    name: Quotes sent without corrections
+    unit: "%"
+    target: "> 95"
+  - id: discount-leakage
+    name: Average discount beyond list price
+    unit: "%"
+integrations:
+  - category: erp
+    purpose: Customers, credit exposure and stock availability.
+    required: true
+  - category: crm
+    purpose: Accounts and opportunities.
+    required: true
+  - category: dms
+    purpose: Price lists and discount approval matrix.
+    required: false
+  - category: esign
+    purpose: Customer signature of the quote.
+    required: false
+useCases: [document-processing, enterprise-search]
+value:
+  hoursSavedPerMonth: 45
+  description: 150 quotes a month at about 45 minutes of research and formatting each become a 25-minute review.
+maturity: ready

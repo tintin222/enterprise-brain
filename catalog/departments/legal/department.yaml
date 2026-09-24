@@ -1,0 +1,64 @@
+id: legal
+name: Legal & Compliance
+icon: scale
+summary: >-
+  Protects the company and enables the business: contract review and negotiation support, NDAs,
+  regulatory compliance (KVKK/GDPR, anti-bribery, competition, sanctions) and legal questions.
+mission: >-
+  Give the business fast, consistent legal answers and contract reviews based on the company's own
+  playbook, so lawyers spend their time on judgement and negotiation instead of reading boilerplate.
+kpis:
+  - id: contract-review-turnaround
+    name: Contract review turnaround
+    unit: business days
+    target: "< 3"
+  - id: nda-turnaround
+    name: NDA turnaround
+    unit: hours
+    target: "< 24"
+  - id: playbook-deviations
+    name: Signed contracts with unapproved playbook deviations
+    unit: count
+    target: "0"
+  - id: compliance-self-service
+    name: Compliance questions answered without a lawyer
+    unit: "%"
+    target: "> 60"
+  - id: dsr-on-time
+    name: Data subject requests answered within 30 days
+    unit: "%"
+    target: "100"
+roles:
+  - id: general-counsel
+    title: General Counsel
+    description: Head of legal; approves high-risk contracts and red-line deviations.
+  - id: legal-counsel
+    title: Legal Counsel
+    description: Reviews and negotiates contracts and advises the business.
+  - id: contract-manager
+    title: Contract Manager
+    description: Manages NDAs and standard contracts, the contract register and signatures.
+  - id: compliance-officer
+    title: Compliance Officer
+    description: Owns the compliance programme (anti-bribery, competition, sanctions, code of conduct) and investigations.
+  - id: dpo
+    title: Data Protection Officer
+    description: Owns KVKK/GDPR compliance, VERBİS registration, data subject requests and privacy impact assessments.
+systems:
+  - category: dms
+    examples: [iManage, NetDocuments, SharePoint]
+    purpose: Contract repository, playbooks, templates and policies.
+  - category: esign
+    examples: [DocuSign, Adobe Acrobat Sign, e-İmza (KamuSM, e-Tuğra)]
+    purpose: Signing contracts and NDAs.
+  - category: other
+    examples: [Ironclad, Icertis, SAP Ariba Contracts, VERBİS, UYAP]
+    purpose: Contract lifecycle management, the KVKK data controller registry and court filings.
+  - category: mail
+    examples: [Microsoft 365 (Outlook)]
+    purpose: Legal request mailbox (e.g. legal@) and counterparty correspondence.
+processes:
+  - legal.contract-review
+  - legal.nda-processing
+  - legal.compliance-qa
+tags: [legal, contracts, compliance, data-protection, hukuk, uyum]

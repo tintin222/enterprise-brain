@@ -1,0 +1,61 @@
+id: marketing.campaign-reporting
+department: marketing
+name: Campaign Performance Reporting
+summary: >-
+  Channel exports (Google Ads, Meta, LinkedIn, marketing automation) are consolidated into one
+  performance view with spend, leads, CPL, pipeline and ROAS, anomalies and budget recommendations.
+description: >-
+  Campaign reporting usually means copying numbers from five platforms into a spreadsheet every week.
+  The Campaign Analyst consolidates the export, computes the KPIs per channel and campaign, relates
+  them to CRM leads, flags anomalies and proposes budget shifts; the marketing director reviews the
+  recommendations before budgets change.
+trigger:
+  type: schedule
+  description: Every Monday for the previous week, and at month end for the monthly report.
+frequency: Weekly (Monday 09:00) and monthly
+steps:
+  - id: export
+    name: Export channel data
+    actor: human:campaign-manager
+    description: Campaign exports from ad platforms and the marketing automation tool.
+  - id: analyse
+    name: Consolidate and analyse
+    actor: agent:marketing.campaign-analyst
+    description: KPIs per channel and campaign, lead and pipeline attribution, anomalies, recommendations.
+  - id: review
+    name: Review recommendations
+    actor: human:marketing-director
+    approval: true
+    description: Budget shifts above 10% of a channel budget are approved by the marketing director.
+  - id: act
+    name: Adjust campaigns and budgets
+    actor: human:campaign-manager
+agents:
+  - marketing.campaign-analyst
+kpis:
+  - id: report-turnaround
+    name: Report available after period end
+    unit: business days
+    target: "<= 1"
+  - id: cost-per-lead
+    name: Cost per lead
+    unit: TRY
+  - id: roas
+    name: Return on ad spend
+    unit: ratio
+    target: "> 4"
+integrations:
+  - category: other
+    purpose: Exports from Google Ads, Meta Ads and LinkedIn Campaign Manager.
+    required: true
+  - category: crm
+    purpose: Leads and opportunities for attribution.
+    required: false
+  - category: bi
+    purpose: Publish the consolidated data to dashboards.
+    required: false
+useCases: [excel-automation]
+value:
+  hoursSavedPerMonth: 24
+  description: Weekly consolidation and commentary (about 6 hours a week) reduced to a review.
+maturity: ready

@@ -1,0 +1,27 @@
+id: document-processing
+name: Document & OCR Processing
+icon: file-text
+archetype: document-processing
+summary: >-
+  Reads documents of any format (PDF, Word, scans, photos, Excel), recognises the document type,
+  extracts the data you need and triggers the follow-up: a check, a system entry or an approval.
+description: >-
+  Invoices, delivery notes (irsaliye), CVs, contracts, certificates and forms still arrive as files.
+  Document processing combines OCR with language understanding: it classifies the document, extracts
+  the fields as structured data with confidence, validates them against business systems and rules,
+  and prepares the action (posting, record creation, approval) for a person to confirm.
+capabilities: [documents.read, excel.write, knowledge.search]
+connectors: [erp, dms, storage, mail]
+defaultAgent: shared-services.document-processor
+app: /documents
+examples:
+  - Extract supplier, invoice number, amounts and PO number from scanned supplier invoices into Excel.
+  - Read delivery notes (irsaliye) and compare the delivered quantities with the purchase order.
+  - "Gelen vergi levhası, imza sirküleri ve faaliyet belgesinden tedarikçi bilgilerini çıkar."
+  - Pull parties, term, renewal and liability cap out of 200 legacy contracts into a register.
+triggers:
+  - type: manual
+  - type: mailbox
+    mailbox: documents@company.com
+    filter:
+      hasAttachment: true

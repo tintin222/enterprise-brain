@@ -1,0 +1,53 @@
+id: procurement.order-follow-up
+department: procurement
+name: Purchase Order Follow-up (Expediting)
+summary: >-
+  Open purchase orders are checked every day for overdue or at-risk deliveries; the buyer gets a
+  prioritised expediting list and ready-to-send follow-up emails to suppliers.
+description: >-
+  Late deliveries are often noticed only when production is waiting. The Order Expediter scans the
+  open and partially received purchase orders, identifies overdue and soon-due lines, prioritises
+  them by impact and drafts follow-up emails in the supplier's language asking for confirmation of
+  delivery dates; the buyer approves what is sent.
+trigger:
+  type: schedule
+  description: Every working day at 09:00, and on demand for a single supplier.
+frequency: Daily (working days)
+steps:
+  - id: scan
+    name: Scan open purchase orders
+    actor: system:erp
+  - id: prioritise
+    name: Prioritise and draft follow-ups
+    actor: agent:procurement.order-expediter
+  - id: approve
+    name: Approve and send follow-ups
+    actor: human:buyer
+    approval: true
+  - id: escalate
+    name: Escalate critical delays
+    actor: human:category-manager
+    description: Delays that threaten production are escalated to the supplier's management.
+agents:
+  - procurement.order-expediter
+kpis:
+  - id: on-time-delivery
+    name: Supplier on-time delivery
+    unit: "%"
+    target: "> 95"
+  - id: unchased-late-orders
+    name: Late orders without a follow-up
+    unit: count
+    target: "0"
+integrations:
+  - category: erp
+    purpose: Open purchase orders, delivery dates and suppliers.
+    required: true
+  - category: mail
+    purpose: Send approved follow-ups to suppliers.
+    required: true
+useCases: [mail-triage, excel-automation]
+value:
+  hoursSavedPerMonth: 30
+  description: Daily expediting list and 100+ follow-up emails a month prepared automatically.
+maturity: ready

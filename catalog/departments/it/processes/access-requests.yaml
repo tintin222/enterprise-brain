@@ -1,0 +1,69 @@
+id: it.access-requests
+department: it
+name: Access Request Management
+summary: >-
+  Requests for access to business systems are checked against the employee's role, the access policy
+  and segregation-of-duties rules, approved by the line manager and the system owner, and handed to
+  identity and access management.
+description: >-
+  Access requests are a security control and a productivity bottleneck at the same time. The Access
+  Request Agent verifies that the requester is an active employee, that the requested role fits the
+  job and the least-privilege principle, and that it creates no segregation-of-duties conflict; after
+  the line manager's approval the request is created in the ITSM, which routes it to the system owner
+  and to identity and access management for provisioning.
+trigger:
+  type: form
+  description: An employee requests access in the portal (or by email to the service desk).
+frequency: Continuous; 200-800 requests per month
+steps:
+  - id: request
+    name: Request access
+    actor: human:employee
+  - id: check
+    name: Check role, policy and segregation of duties
+    actor: agent:it.access-request-agent
+    sla: 10 minutes
+  - id: manager
+    name: Line manager approval
+    actor: human:line-manager
+    approval: true
+    sla: 1 business day
+  - id: owner
+    name: System owner approval
+    actor: human:system-owner
+    approval: true
+    description: The ITSM routes the request to the owner of the system.
+  - id: provision
+    name: Provision access
+    actor: system:itsm
+    description: Identity and access management provisions the role and closes the ticket.
+agents:
+  - it.access-request-agent
+kpis:
+  - id: lead-time
+    name: Request-to-access time
+    unit: hours
+    target: "< 24"
+  - id: sod-conflicts
+    name: Access granted with an unapproved SoD conflict
+    unit: count
+    target: "0"
+  - id: complete-requests
+    name: Requests complete at first submission
+    unit: "%"
+    target: "> 90"
+integrations:
+  - category: hris
+    purpose: Verify the employee, position, department and manager.
+    required: true
+  - category: itsm
+    purpose: Create the access request and provisioning ticket.
+    required: true
+  - category: dms
+    purpose: Access control policy and SoD matrix.
+    required: false
+useCases: [mail-triage, knowledge-base]
+value:
+  hoursSavedPerMonth: 35
+  description: 400 requests a month without back-and-forth for missing justification or wrong roles; consistent SoD checks for auditors.
+maturity: ready

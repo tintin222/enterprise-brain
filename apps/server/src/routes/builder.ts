@@ -1,0 +1,150 @@
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+import { StakeholderRole } from "@enterprise-brain/core";
+import type { AppContext } from "../context.ts";
+import { HttpError, companyOf, readMultipart } from "../http.ts";
+
+const StartBody = z.object({
+  description: z.string().min(3),
+  formDescription: z.string().optional(),
+  requesterName: z.string().optional(),
+  requesterEmail: z.string().optional(),
+  requesterRole: z.string().optional(),
+  department: z.string().optional(),
+  language: z.string().optional(),
+  roundSize: z.number().int().min(1).max(10).optional(),
+});
+
+const ReplyBody = z.object({
+  text: z.string().optional(),
+  answers: z
+    .array(
+      z.object({
+        nodeId: z.string(),
+        action: z.enum(["answer", "accept", "delegate", "skip"]).optional(),
+        value: z.unknown().optional(),
+        delegateTo: StakeholderRole.optional(),
+      }),
+    )
+    .optional(),
+  fileIds: z.array(z.string()).optional(),
+});
+
+export async function builderRoutes(app: FastifyInstance, ctx: AppContext) {
+  const { platform, builder } = ctx;
+
+  app.get("/api/companies/:company/builder/sessions", async (request) => {
+    const company = await companyOf(platform, request);
+    const sessions = await builder.list(company.id);
+    return sessions.map((s) => ({
+      id: s.id,
+      title: s.title,
+      status: s.status,
+      archetype: s.archetype,
+      templateId: s.templateId,
+      department: s.department,
+      requesterName: s.requesterName,
+      requesterRole: s.requesterRole,
+      agentId: s.agentId,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+    }));
+  });
+
+  app.post("/api/companies/:company/builder/sessions", async (request) => {
+    const company = await companyOf(platform, request);
+    return builder.start(company.id, StartBody.parse(request.body));
+  });
+
+  app.get("/api/companies/:company/builder/sessions/:id", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    return builder.get(company.id, id);
+  });
+
+  app.post("/api/companies/:company/builder/sessions/:id/reply", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    if (request.isMultipart()) {
+      const { fields, files } = await readMultipart(platform, company.id, request, "builder");
+      return builder.reply(company.id, id, { text: fields.text, fileIds: files.map((f) => f.id) });
+    }
+    return builder.reply(company.id, id, ReplyBody.parse(request.body));
+  });
+
+  app.post("/api/companies/:company/builder/sessions/:id/samples", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    if (!request.isMultipart()) throw new HttpError(400, "Upload samples as multipart/form-data");
+    const { files } = await readMultipart(platform, company.id, request, "builder");
+    return builder.reply(company.id, id, { fileIds: files.map((f) => f.id) });
+  });
+
+  app.post("/api/companies/:company/builder/sessions/:id/reference", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    if (!request.isMultipart()) throw new HttpError(400, "Upload documents as multipart/form-data");
+    const { files } = await readMultipart(platform, company.id, request, "knowledge");
+    return builder.addReference(company.id, id, files.map((f) => f.id));
+  });
+
+  app.post("/api/companies/:company/builder/sessions/:id/proceed", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    return builder.proceedWithAssumptions(company.id, id);
+  });
+
+  app.post("/api/companies/:company/builder/sessions/:id/confirm", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    return builder.confirm(company.id, id);
+  });
+
+  app.post("/api/companies/:company/builder/sessions/:id/activate", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    return builder.activate(company.id, id);
+  });
+
+  app.post("/api/companies/:company/builder/sessions/:id/reopen", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    const { nodeId } = z.object({ nodeId: z.string() }).parse(request.body);
+    return builder.reopenNode(company.id, id, nodeId);
+  });
+
+  app.put("/api/companies/:company/builder/requests/:id", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    const body = z
+      .object({ recipientName: z.string().optional(), recipientEmail: z.string().optional(), subject: z.string().optional(), body: z.string().optional() })
+      .parse(request.body);
+    return builder.updateRequest(company.id, id, body);
+  });
+
+  app.post("/api/companies/:company/builder/requests/:id/send", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    const { via } = z.object({ via: z.enum(["mail", "manual"]).default("manual") }).parse(request.body ?? {});
+    return builder.sendRequest(company.id, id, { via });
+  });
+
+  // Public stakeholder answer page API (the link in the request email; the token is the credential).
+  app.get("/api/public/requests/:token", async (request) => {
+    const { token } = request.params as { token: string };
+    return builder.requestByToken(token);
+  });
+
+  app.post("/api/public/requests/:token/answers", async (request) => {
+    const { token } = request.params as { token: string };
+    const body = z
+      .object({
+        answers: z.array(z.object({ nodeId: z.string(), answer: z.string() })).min(1),
+        answeredBy: z.string().optional(),
+        note: z.string().optional(),
+      })
+      .parse(request.body);
+    await builder.answerRequest(token, body);
+    return { ok: true };
+  });
+}

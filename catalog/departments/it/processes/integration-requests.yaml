@@ -1,0 +1,70 @@
+id: it.integration-requests
+department: it
+name: Integration Requests (Agent Builder)
+summary: >-
+  When the Agent Builder needs a system that is not connected yet (for example, HR wants the careers
+  mailbox connected), the request is assessed for scope, security and feasibility, turned into an
+  implementation plan and approved before IT configures the connector.
+description: >-
+  Every new agent may need access to a mailbox, an ERP, an HR system or a file share. Unmanaged, these
+  requests create shadow integrations with too much access. The Integration Analyst reviews each
+  request raised by the Agent Builder: exact scope, least-privilege permissions, authentication method,
+  personal data involved and whether writes are approval-gated. It proposes a concrete implementation
+  plan (e.g. an Entra ID app registration restricted to one mailbox) that the IT director approves.
+trigger:
+  type: api
+  description: The Agent Builder raises an integration request for a requester (delegated IT question) or IT logs one manually.
+frequency: On demand; 5-30 requests per month
+steps:
+  - id: raise
+    name: Request a system connection
+    actor: human:employee
+    description: The business requester asks for the connection in the Agent Builder, which drafts the IT request.
+  - id: assess
+    name: Assess scope, security and feasibility
+    actor: agent:it.integration-analyst
+    description: Least privilege, authentication, personal data, write governance, implementation plan.
+  - id: security-review
+    name: Security review
+    actor: human:security-officer
+    approval: true
+    description: Required for write access, personal data or external systems.
+  - id: approve
+    name: Approve the integration
+    actor: human:it-director
+    approval: true
+    sla: 3 business days
+  - id: implement
+    name: Configure the connector
+    actor: human:integration-architect
+    description: App registration or service user, secrets in the secret store, connector test, owner and review date.
+  - id: track
+    name: Track in the ITSM
+    actor: system:itsm
+agents:
+  - it.integration-analyst
+kpis:
+  - id: lead-time
+    name: Request-to-connected time
+    unit: business days
+    target: "< 5"
+  - id: least-privilege
+    name: Integrations limited to the requested scope
+    unit: "%"
+    target: "100"
+  - id: owned-connectors
+    name: Connectors with a named owner and review date
+    unit: "%"
+    target: "100"
+integrations:
+  - category: itsm
+    purpose: Log the approved integration request and track implementation.
+    required: true
+  - category: dms
+    purpose: Integration standards and the connector catalog.
+    required: false
+useCases: [knowledge-base]
+value:
+  hoursSavedPerMonth: 20
+  description: Each request arrives assessed and with an implementation plan, saving about 2 hours of clarification and design per request and preventing over-privileged integrations.
+maturity: ready

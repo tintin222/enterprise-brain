@@ -1,0 +1,71 @@
+id: sales
+name: Sales
+icon: trending-up
+summary: >-
+  Turns demand into revenue: qualifies inbound leads, researches accounts before meetings, prepares
+  accurate quotes and keeps the CRM pipeline trustworthy.
+mission: >-
+  Let sellers spend their time with customers: every lead answered within the hour, every quote
+  accurate and approved, every CRM record complete and current.
+kpis:
+  - id: speed-to-lead
+    name: Speed to lead
+    unit: minutes
+    target: "< 60"
+    description: Time from an inbound inquiry to the first qualified reply.
+  - id: lead-to-opportunity
+    name: Lead-to-opportunity conversion
+    unit: "%"
+    target: "> 25"
+  - id: quote-turnaround
+    name: Quote turnaround
+    unit: hours
+    target: "< 24"
+  - id: win-rate
+    name: Win rate
+    unit: "%"
+  - id: crm-data-quality
+    name: CRM data completeness
+    unit: "%"
+    target: "> 95"
+roles:
+  - id: sales-director
+    title: Sales Director
+    description: Owns revenue targets, pricing policy and the sales organisation.
+  - id: sales-manager
+    title: Sales Manager
+    description: Leads a sales team; approves discounts and non-standard terms within the delegation.
+  - id: account-executive
+    title: Account Executive
+    description: Owns customer relationships, opportunities and quotes.
+  - id: sales-development-rep
+    title: Sales Development Representative
+    description: Qualifies inbound leads and books first meetings.
+  - id: sales-ops-analyst
+    title: Sales Operations Analyst
+    description: Owns CRM data quality, pipeline reporting and sales tooling.
+systems:
+  - category: crm
+    examples: [Salesforce Sales Cloud, HubSpot CRM, Microsoft Dynamics 365 Sales, Zoho CRM]
+    purpose: Leads, accounts, contacts, opportunities and activities.
+  - category: erp
+    examples: [SAP S/4HANA (SD), Microsoft Dynamics 365 Finance & Operations, Logo Tiger, Netsis]
+    purpose: Customers, prices, stock availability, credit limits and orders.
+  - category: mail
+    examples: [Microsoft 365 (Outlook), Google Workspace (Gmail)]
+    purpose: Sales mailbox and customer correspondence.
+  - category: web
+    examples: [Company website forms, LinkedIn Sales Navigator]
+    purpose: Inbound demo and contact requests; public account research.
+  - category: esign
+    examples: [DocuSign, Adobe Acrobat Sign]
+    purpose: Signing quotes and contracts.
+  - category: bi
+    examples: [Microsoft Power BI, Tableau]
+    purpose: Pipeline and forecast reporting.
+processes:
+  - sales.lead-qualification
+  - sales.quote-preparation
+  - sales.crm-hygiene
+  - sales.account-research
+tags: [revenue, pipeline, crm, satış]

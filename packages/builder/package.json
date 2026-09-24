@@ -1,0 +1,22 @@
+{
+  "name": "@enterprise-brain/builder",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent Builder: a requirements analyst that interviews non-technical users (grilling rounds over a requirement design tree), analyses sample files, drafts stakeholder requests (e.g. to IT), and generates, tests and deploys agents.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@enterprise-brain/catalog": "workspace:*",
+    "@enterprise-brain/core": "workspace:*",
+    "@enterprise-brain/db": "workspace:*",
+    "@enterprise-brain/documents": "workspace:*",
+    "@enterprise-brain/llm": "workspace:*",
+    "@enterprise-brain/runtime": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  }
+}

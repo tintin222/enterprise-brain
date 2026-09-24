@@ -1,0 +1,54 @@
+id: shared-services.spreadsheet-automation
+department: shared-services
+name: Spreadsheet Automation
+summary: >-
+  Employees upload a workbook and describe the analysis or clean-up they need; the Excel Analyst
+  returns a result workbook, the anomalies it found and the formulas to reproduce it.
+description: >-
+  Every department spends hours on spreadsheet chores: consolidating exports, totalling by dimension,
+  finding duplicates and errors, comparing versions. The Excel Analyst performs the task on the
+  uploaded workbook and explains its steps; tasks that recur are turned into scheduled agents by the
+  automation lead.
+trigger:
+  type: manual
+  description: An employee uploads a workbook (Excel or CSV) and describes the task.
+frequency: On demand
+steps:
+  - id: upload
+    name: Upload workbook and describe the task
+    actor: human:employee
+  - id: analyse
+    name: Analyse and transform
+    actor: agent:shared-services.excel-analyst
+    description: Reads all sheets, performs the task, flags anomalies, writes a result workbook.
+  - id: review
+    name: Review the result
+    actor: human:employee
+    description: The requester checks the result workbook and the stated assumptions.
+  - id: automate
+    name: Automate recurring tasks
+    actor: human:automation-lead
+    description: Tasks requested every week or month become scheduled agents.
+agents:
+  - shared-services.excel-analyst
+kpis:
+  - id: turnaround
+    name: Turnaround per task
+    unit: minutes
+    target: "< 5"
+  - id: recurring-automations
+    name: Recurring tasks automated
+    unit: count per quarter
+    target: "> 10"
+integrations:
+  - category: storage
+    purpose: Read source workbooks from shared folders and store results.
+    required: false
+  - category: bi
+    purpose: Hand over recurring reports to BI dashboards.
+    required: false
+useCases: [excel-automation]
+value:
+  hoursSavedPerMonth: 100
+  description: 200 spreadsheet tasks a month at 30-60 minutes each reduced to a few minutes of review.
+maturity: ready

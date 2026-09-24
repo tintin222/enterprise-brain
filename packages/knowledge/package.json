@@ -1,0 +1,15 @@
+{
+  "name": "@enterprise-brain/knowledge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Knowledge base: collections, chunking, embeddings, hybrid (vector + full-text) retrieval with reciprocal rank fusion.",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc -p tsconfig.json" },
+  "dependencies": {
+    "@enterprise-brain/core": "workspace:*",
+    "@enterprise-brain/db": "workspace:*",
+    "@enterprise-brain/llm": "workspace:*",
+    "drizzle-orm": "^0.45.2"
+  }
+}

@@ -1,0 +1,84 @@
+id: hr
+name: Human Resources
+icon: users
+summary: >-
+  Attracts, onboards, supports and retains the workforce: recruitment and CV screening, onboarding,
+  leave and time-off, and the everyday HR questions of employees.
+mission: >-
+  Give every candidate and employee a fast, fair and compliant HR experience, and free HR
+  professionals from repetitive administration so they can focus on decisions about people.
+kpis:
+  - id: time-to-hire
+    name: Time to hire
+    unit: days
+    target: "< 30"
+    description: Days from approved requisition to accepted offer.
+  - id: screening-time
+    name: Recruiter time per application
+    unit: minutes
+    target: "< 2"
+    description: Recruiter effort to screen one application, down from 10-15 minutes of manual reading.
+  - id: day-one-readiness
+    name: Day-one readiness
+    unit: "%"
+    target: "> 95"
+    description: New hires whose equipment, accounts and onboarding plan are ready on their first day.
+  - id: hr-first-response
+    name: HR helpdesk first response
+    unit: hours
+    target: "< 4"
+  - id: self-service-rate
+    name: Self-service resolution rate
+    unit: "%"
+    target: "> 60"
+    description: Employee HR questions answered without an HR specialist.
+roles:
+  - id: hr-director
+    title: HR Director
+    description: Owns people strategy, HR policies and the HR budget; final escalation point.
+  - id: hr-manager
+    title: HR Manager
+    description: Runs HR operations, approves policy exceptions and HR communication.
+  - id: recruiter
+    title: Recruiter (Talent Acquisition Specialist)
+    description: Owns requisitions, screens and shortlists candidates and manages candidate communication.
+  - id: hiring-manager
+    title: Hiring Manager
+    description: Line manager who opened the position; interviews candidates and makes the hiring decision.
+  - id: hr-operations-specialist
+    title: HR Operations Specialist
+    description: Maintains employee master data, contracts, SGK notifications and onboarding paperwork.
+  - id: hr-business-partner
+    title: HR Business Partner
+    description: Advises managers and employees on policies, employee relations and sensitive cases.
+  - id: line-manager
+    title: Line Manager
+    description: Approves leave for the team and owns the onboarding of new team members.
+systems:
+  - category: hris
+    examples: [SAP SuccessFactors Employee Central, Workday HCM, Oracle HCM Cloud, Logo j-HR]
+    purpose: Employee master data, organisation, positions, leave balances and requests.
+  - category: ats
+    examples: [SAP SuccessFactors Recruiting, Workday Recruiting, Greenhouse, Kariyer.net, LinkedIn Recruiter]
+    purpose: Job requisitions, applications, candidate pipeline and interviews.
+  - category: mail
+    examples: [Microsoft 365 (Outlook), Google Workspace (Gmail)]
+    purpose: Careers and HR mailboxes (e.g. careers@, ik@) and candidate communication.
+  - category: calendar
+    examples: [Microsoft 365 Outlook Calendar, Google Calendar]
+    purpose: Interviewer availability and interview invitations.
+  - category: dms
+    examples: [SharePoint, Google Drive]
+    purpose: HR policies, employee handbook, onboarding playbooks and job descriptions.
+  - category: itsm
+    examples: [ServiceNow, Jira Service Management]
+    purpose: Equipment and account requests for new hires.
+  - category: messaging
+    examples: [Microsoft Teams, Slack]
+    purpose: Where employees ask HR questions.
+processes:
+  - hr.recruitment
+  - hr.onboarding
+  - hr.leave-management
+  - hr.employee-helpdesk
+tags: [people, talent-acquisition, employee-experience, insan kaynakları, İK]

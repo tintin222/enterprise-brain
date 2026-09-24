@@ -1,0 +1,52 @@
+id: management.executive-briefing
+department: management
+name: Daily Executive Briefing
+summary: >-
+  Every working morning, executives receive a one-page briefing: deals about to close, customer
+  escalations, overdue receivables and the market news that matters, with the decisions needed today.
+description: >-
+  Executives spend their first hour collecting status from people and systems. The Executive Assistant
+  compiles it before they arrive: late-stage opportunities from the CRM, open high-priority customer
+  cases, overdue receivables from the ERP and relevant public news, condensed into the few things
+  that need attention or a decision today.
+trigger:
+  type: schedule
+  description: Every working day at 07:00 (Europe/Istanbul), or on demand.
+frequency: Daily (working days, 07:00)
+steps:
+  - id: compile
+    name: Compile the briefing
+    actor: agent:management.executive-assistant
+    description: Pipeline, escalations, receivables and news, condensed into one page.
+  - id: read
+    name: Read and decide
+    actor: human:ceo
+  - id: follow-up
+    name: Follow up on actions
+    actor: human:chief-of-staff
+agents:
+  - management.executive-assistant
+kpis:
+  - id: read-rate
+    name: Briefings read before 09:00
+    unit: "%"
+    target: "> 80"
+  - id: time-saved
+    name: Executive time saved per day
+    unit: minutes
+    target: "> 30"
+integrations:
+  - category: crm
+    purpose: Late-stage opportunities and customer escalations.
+    required: true
+  - category: erp
+    purpose: Overdue receivables.
+    required: true
+  - category: web
+    purpose: Public news for the company's markets.
+    required: false
+useCases: [enterprise-search, conversational-ai]
+value:
+  hoursSavedPerMonth: 20
+  description: Five executives save about 15-30 minutes each per working day on collecting status.
+maturity: beta

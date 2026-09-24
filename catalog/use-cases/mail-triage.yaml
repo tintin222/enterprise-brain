@@ -1,0 +1,25 @@
+id: mail-triage
+name: Mail Reading, Classification & Replies
+icon: inbox
+archetype: mail-triage
+summary: >-
+  Reads shared mailboxes, classifies every email, extracts the key facts, routes it to the right
+  team or system and drafts a reply grounded in company knowledge for a person to approve.
+description: >-
+  Shared mailboxes (info@, support@, invoices@, careers@) are where requests wait longest. Mail
+  triage reads each incoming email and its attachments, decides what it is and how urgent, pulls the
+  related records (customer, order, ticket), drafts a reply in the sender's language from the
+  knowledge base, and creates or updates the case in the right system. Replies are sent only after
+  approval.
+capabilities: [knowledge.search, documents.read, mail.draft, mail.send]
+connectors: [mail, crm, itsm, erp]
+defaultAgent: shared-services.mail-assistant
+app: /inbox
+examples:
+  - Sort info@ into sales inquiries, supplier offers, job applications, invoices and spam, and route each to its team.
+  - Draft replies to delivery-status questions using the order status from the ERP.
+  - "Destek kutusuna gelen şikayetleri önceliklendir ve müşteri temsilcisine taslak yanıt hazırla."
+  - Flag every email that mentions KVKK/GDPR or a legal threat for immediate review.
+triggers:
+  - type: mailbox
+    mailbox: info@company.com

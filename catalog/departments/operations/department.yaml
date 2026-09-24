@@ -1,0 +1,68 @@
+id: operations
+name: Operations
+icon: factory
+summary: >-
+  Makes and moves the product: goods receipt and warehousing, production support, quality management
+  and logistics.
+mission: >-
+  Receive exactly what was ordered, keep production running and quality high, and handle every
+  discrepancy and quality incident within hours instead of days.
+kpis:
+  - id: dock-to-stock
+    name: Dock-to-stock time
+    unit: hours
+    target: "< 24"
+  - id: gr-accuracy
+    name: Goods receipt accuracy
+    unit: "%"
+    target: "> 99.5"
+  - id: supplier-discrepancy-rate
+    name: Deliveries with discrepancies
+    unit: "%"
+  - id: containment-time
+    name: Quality incident containment time
+    unit: hours
+    target: "< 24"
+  - id: customer-ppm
+    name: Customer complaints (defective parts per million)
+    unit: ppm
+    target: "< 500"
+roles:
+  - id: operations-manager
+    title: Operations Manager
+    description: Owns production, warehouse and logistics performance.
+  - id: warehouse-supervisor
+    title: Warehouse Supervisor
+    description: Runs receiving and warehousing; confirms goods receipts and discrepancies.
+  - id: goods-receipt-clerk
+    title: Goods Receipt Clerk
+    description: Unloads, counts and inspects deliveries and scans delivery notes.
+  - id: quality-manager
+    title: Quality Manager
+    description: Owns the quality management system (ISO 9001), 8D and CAPA decisions.
+  - id: quality-engineer
+    title: Quality Engineer
+    description: Investigates non-conformances, leads containment and root-cause analysis.
+  - id: production-supervisor
+    title: Production Supervisor
+    description: Runs a production line or shift and reports non-conformances.
+systems:
+  - category: erp
+    examples: [SAP S/4HANA (MM, QM, PP), Microsoft Dynamics 365 Supply Chain Management, Logo Tiger, Netsis]
+    purpose: Purchase orders, goods receipts, stock, batches, quality notifications and production orders.
+  - category: scm
+    examples: [SAP EWM, Manhattan WMS, Logo WMS]
+    purpose: Warehouse operations and shipping.
+  - category: other
+    examples: [GİB e-İrsaliye, ETQ Reliance, carrier tracking portals]
+    purpose: Electronic delivery notes, quality management system and shipment tracking.
+  - category: dms
+    examples: [SharePoint]
+    purpose: Specifications, control plans, FMEAs and past 8D reports.
+  - category: messaging
+    examples: [Microsoft Teams]
+    purpose: Shift and escalation communication.
+processes:
+  - operations.delivery-documents
+  - operations.quality-incidents
+tags: [manufacturing, warehouse, quality, logistics, operasyon, üretim, kalite]
