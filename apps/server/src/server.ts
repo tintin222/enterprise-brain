@@ -20,6 +20,7 @@ import { mailRoutes } from "./routes/mail.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
 import { paperclipRoutes } from "./routes/paperclip.ts";
 import { peopleRoutes } from "./routes/people.ts";
+import { taskRoutes } from "./routes/tasks.ts";
 
 /** Routes reachable without signing in (they carry their own credentials, or are the sign-in itself). */
 const PUBLIC_PREFIXES = ["/api/health", "/api/info", "/api/public/", "/api/hermes/", "/api/auth/"];
@@ -102,6 +103,7 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   await coreRoutes(app, ctx);
   await catalogRoutes(app, ctx);
   await agentRoutes(app, ctx);
+  await taskRoutes(app, ctx);
   await knowledgeRoutes(app, ctx);
   await connectorRoutes(app, ctx);
   await mailRoutes(app, ctx);

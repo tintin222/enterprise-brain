@@ -11,6 +11,7 @@ import {
   runKnowledgeSearch,
   runMailSend,
   runOutput,
+  runWait,
 } from "./io-steps.ts";
 import { runLlmClassify, runLlmEvaluate, runLlmExtract, runLlmGenerate } from "./llm-steps.ts";
 
@@ -40,6 +41,8 @@ export async function executeStep(step: WorkflowStep, scope: ExecutionScope, dep
       return runExcelWrite(step, scope, deps);
     case "agent":
       return runAgentStep(step, scope, deps);
+    case "wait":
+      return runWait(step, scope);
     case "output":
       return runOutput(step, scope);
   }

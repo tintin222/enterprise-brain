@@ -102,6 +102,7 @@ export type WorkflowStep = StepBase &
     | { type: "excel.read"; from: string; sheet?: string }
     | { type: "excel.write"; data: string; fileName?: string }
     | { type: "agent"; task: string; tools: string[]; maxTurns?: number }
+    | { type: "wait"; for: "reply" | "time"; days?: number; until?: string }
     | { type: "output"; value: Record<string, unknown> }
   );
 
@@ -244,7 +245,7 @@ export interface Employment {
 // Runs & approvals
 // ---------------------------------------------------------------------------
 
-export type RunStatus = "queued" | "running" | "waiting_approval" | "succeeded" | "failed" | "cancelled";
+export type RunStatus = "queued" | "running" | "waiting_approval" | "waiting" | "succeeded" | "failed" | "cancelled";
 
 export interface Usage {
   calls?: number;
@@ -267,6 +268,8 @@ export interface RunRow {
   error: string | null;
   usage: Usage;
   isTest: boolean;
+  /** The task this run works on (none for test runs). */
+  taskId?: string | null;
   currentStep: string | null;
   startedAt: string | null;
   finishedAt: string | null;

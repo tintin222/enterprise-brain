@@ -27,6 +27,7 @@ export async function executeAction(
         body: action.body,
         inReplyTo: action.inReplyTo,
         mailbox: action.mailbox,
+        taskId: action.taskId,
       });
       return { sent: true, messageId: sent.messageId, delivery: sent.delivery, to: action.to, subject: action.subject };
     }

@@ -93,6 +93,7 @@ export function toHermesStatus(run: EbRunSnapshot): HermesStatus {
       return "running";
     case "succeeded":
     case "waiting_approval":
+    case "waiting":
       return "completed";
     case "cancelled":
       return "cancelled";
@@ -105,6 +106,9 @@ export function hermesOutput(run: EbRunSnapshot): string {
   if (run.status === "failed") return run.error ?? "The Enterprise Brain run failed.";
   if (run.status === "waiting_approval") {
     return `Waiting for human approval in Enterprise Brain${run.pendingApproval ? `: "${run.pendingApproval.title}"` : ""}. ${run.approvalsUrl ? `Approve or reject it at ${run.approvalsUrl}; ` : ""}the work continues automatically once it is approved.`;
+  }
+  if (run.status === "waiting") {
+    return "Waiting in Enterprise Brain for a reply or a date; the work continues there on its own and its task shows each step.";
   }
   const output = run.output ?? {};
   const text = [output.text, output.result, output.summary, output.answer].find((v) => typeof v === "string" && v.trim());

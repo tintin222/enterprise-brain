@@ -4,6 +4,7 @@ import { buildContext } from "@enterprise-brain/knowledge";
 import type { LlmUsage } from "@enterprise-brain/llm";
 import { toFileIds } from "../files.ts";
 import type { ExecutionScope, StepOutcome } from "../run-types.ts";
+import { withTaskRef } from "../tasks.ts";
 import { approvalCheck, type ToolDeps } from "../tools.ts";
 import { mergeUsage } from "./llm-steps.ts";
 
@@ -126,12 +127,15 @@ export function runApproval(step: Step<"approval">, scope: ExecutionScope): Step
 }
 
 export async function runMailSend(step: Step<"mail.send">, scope: ExecutionScope, deps: ToolDeps): Promise<StepOutcome> {
+  const subject = renderTemplate(step.subject, scope.context);
   const action = {
     type: "mail.send" as const,
     to: renderTemplate(step.to, scope.context),
-    subject: renderTemplate(step.subject, scope.context),
+    // Replies find their way back to the task through its reference.
+    subject: scope.task ? withTaskRef(subject, scope.task.ref) : subject,
     body: renderTemplate(step.body, scope.context),
     inReplyTo: step.inReplyTo ? renderTemplate(step.inReplyTo, scope.context) || undefined : undefined,
+    ...(scope.task ? { taskId: scope.task.id } : {}),
   };
   if (!action.to) throw new Error(`Step "${step.id}": no recipient`);
   const check = await approvalCheck(deps, scope, { type: "mail.send", to: action.to }, step.requiresApproval);
@@ -204,4 +208,31 @@ export async function runExcelWrite(step: Step<"excel.write">, scope: ExecutionS
 
 export function runOutput(step: Step<"output">, scope: ExecutionScope): StepOutcome {
   return { kind: "done", result: resolveTemplate(step.value, scope.context) };
+}
+
+/**
+ * Wait for a reply to the task's emails (at most `days`), or for a time. Outside a task (test runs)
+ * nothing waits: the step completes at once as if the time had passed.
+ */
+export function runWait(step: Step<"wait">, scope: ExecutionScope): StepOutcome {
+  let until: Date | undefined;
+  if (step.until) {
+    const resolved = renderTemplate(step.until, scope.context).trim();
+    const parsed = resolved ? new Date(resolved) : undefined;
+    if (parsed && !Number.isNaN(parsed.getTime())) until = parsed;
+  }
+  if (!until && step.days) until = new Date(Date.now() + step.days * 86_400_000);
+  if (step.for === "time" && !until) throw new Error(`Step "${step.id}": a time wait needs days or a date in until`);
+  if (!scope.task) {
+    return {
+      kind: "done",
+      result: step.for === "reply" ? { replied: false, timedOut: true, skipped: true } : { waited: true, skipped: true },
+      message: "Not waiting outside a task (test run)",
+    };
+  }
+  const title =
+    step.for === "reply"
+      ? `Waiting for a reply${until ? ` until ${until.toISOString().slice(0, 10)}` : ""}`
+      : `Waiting until ${until!.toISOString().slice(0, 16).replace("T", " ")}`;
+  return { kind: "wait", title, for: step.for, until, days: step.days };
 }

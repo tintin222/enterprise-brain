@@ -69,11 +69,31 @@ Template shapes are defined in `packages/core/src/catalog.ts` (`DepartmentTempla
 | POST | `/api/companies/:company/runs/:run/cancel` | Cancel |
 | GET | `/api/companies/:company/runs/:run/stream` | *SSE*: `event` (run event), `delta` ({delta} streamed text), `end` ({status}) |
 
-A run row: `{ id, agentId, agentVersion, trigger, triggerRef, status (running/waiting_approval/succeeded/failed/cancelled), input, output, error, usage {calls, inputTokens, outputTokens, costUsd}, isTest, currentStep, startedAt, finishedAt, createdAt }`.
+A run row: `{ id, agentId, agentVersion, taskId, trigger, triggerRef, status (running/waiting_approval/waiting/succeeded/failed/cancelled), input, output, error, usage {calls, inputTokens, outputTokens, costUsd}, isTest, currentStep, startedAt, finishedAt, createdAt }`. `waiting`: held at a `wait` step, or because its task was paused.
 
 **Probation levels** decide which changes (an email sent, a connector write) wait for a person. A workflow step's own `requiresApproval` always wins (`false` means a person approved it earlier in the workflow). Otherwise *shadow* and *supervised* send every change to a person, and *trusted* acts alone unless the change is above its limits (the largest amount in the action, an amount in another currency, the number of changes made alone today, email recipients outside `mailDomains`) or its guardrails name that system or action. An AI employee with a `monthlyBudgetUsd` refuses new runs (409) once this month's model cost reaches it; its email waits, and the activity log records `agent.budget_reached` once a month. Test runs are not limited.
 
 `AgentDefinition` (see `packages/core/src/agent.ts`): `slug, name, title, summary, department, archetype, instructions, inputs: FieldSpec[], outputs: FieldSpec[], workflow: WorkflowStep[], tools[], triggers[], knowledge {collections}, connectors[], guardrails {approvalRequiredFor[], personalData, retentionDays, notes}, ui {layout: form-results|chat|inbox|table|none, title, description, submitLabel, resultView, highlight[]}, kpis[], tests[]`. `FieldSpec`: `{ key, label?, type (string|text|number|integer|boolean|date|email|phone|url|select|multiselect|file|files|list|object), required?, options?[{value,label}], description?, accept?[], fields? }`.
+
+## Tasks
+
+A task is one piece of work from start to finish: a duty's email, a schedule, a form, or a request a person gives. It can last days: it waits for a reply or a date and wakes up on its own. Every run except test runs belongs to a task; each working session is a run.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/companies/:company/tasks?status=&agent=&limit=` | Tasks of the AI employees the viewer may see, newest activity first: `{ id, ref (EB-7K2Q9), title, status, source, sourceRef, requestedBy, input, waitingFor, nextCheckAt, outcome, wakeups, createdAt, updatedAt, closedAt, agent {id, slug, name, departmentId} }`. `status`: one or more of `working`, `waiting`, `needs_person`, `paused`, `done`, `stopped`, `failed` (comma-separated), or `open` for the first four |
+| GET | `/api/companies/:company/tasks/:task` | `{ task, agent, events[] {type, message, actor, runId, data, createdAt}, runs[], mails[] {direction, from, to, subject, body, receivedAt}, approvals[], canManage }` (`:task` = id or ref) |
+| POST | `/api/companies/:company/tasks` | Give an AI employee work in plain words: `{ agent, text, wait? }` → `{ task, run }` |
+| POST | `/api/companies/:company/tasks/:task/pause` | Managers: no wake-ups; a run on it holds at its next step. Replies are kept for when it resumes |
+| POST | `/api/companies/:company/tasks/:task/resume` | Managers: back to where it was |
+| POST | `/api/companies/:company/tasks/:task/stop` | Managers: cancels its runs and withdraws its open approvals |
+
+How tasks move:
+
+* Emails sent in a task carry its reference in the subject (`Delivery date for PO-4500031 [EB-7K2Q9]`). An inbound email with the reference, or in a thread that already belongs to a task, goes back to that task instead of starting new work, and wakes it when it waits (or reopens it when done).
+* A workflow's `wait` step (`{ type: "wait", for: "reply" | "time", days?, until? }`) holds the run (status `waiting`) until a reply arrives or the time passes; the step's result is `{ replied: true, reply: {from, subject, body, …} }` or `{ replied: false, timedOut: true }` (reply waits) and `{ waited: true }` (time waits), for the next steps' `when` conditions.
+* Autonomous AI employees plan with task tools: `task_note`, `task_wait_for_reply` (`days`), `task_follow_up` (`days` or `date`) and `task_complete` (`outcome`). When a run ends the task follows that plan, unless a person still has to decide on one of its changes (`needs_person`). Once everything is decided, a rejection wakes it to rethink; otherwise it follows the plan.
+* The scheduler wakes waiting tasks whose next check has come, every minute. A task that wakes continues from a brief of what happened so far and why it woke.
 
 ## Approvals (human in the loop)
 

@@ -181,6 +181,13 @@ function StepConfig({ step }: { step: WorkflowStep }) {
           {step.fileName ? ` → ${step.fileName}` : ""}
         </Meta>
       );
+    case "wait":
+      return (
+        <Meta label={step.for === "reply" ? "Waits for" : "Waits"}>
+          {step.for === "reply" ? "a reply to the task's emails" : step.until ? <Code>{step.until}</Code> : "the set time"}
+          {step.days ? ` · at most ${step.days} day${step.days === 1 ? "" : "s"}` : ""}
+        </Meta>
+      );
     case "agent":
       return (
         <div className="space-y-1.5">

@@ -13,6 +13,16 @@ export const TOOL_GUIDANCE = [
   "- Finish with a concise answer or summary of what you did and what is pending.",
 ].join("\n");
 
+/** How to work on a task that can last days: wait for people instead of guessing, and close it when done. */
+export function taskGuidance(ref: string): string {
+  return [
+    `This work is task ${ref}. It can take days; you are woken up when something happens.`,
+    "- Emails you send carry the task's reference, so replies come back to this task.",
+    "- When you need someone's answer, email them and call task_wait_for_reply; to check something later, call task_follow_up.",
+    "- Record findings and decisions with task_note. When the work is finished, call task_complete with the outcome.",
+  ].join("\n");
+}
+
 /** Autonomous tool-use loop (Claude) for open-ended steps. */
 export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps: ToolDeps): Promise<StepOutcome> {
   const task = renderTemplate(step.task, scope.context);
@@ -25,6 +35,7 @@ export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps:
     employment: scope.employment,
     citations: [],
     emit: scope.emit,
+    task: scope.task,
   };
 
   if (!deps.llm.available) {
@@ -57,7 +68,7 @@ export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps:
   const byName = new Map(tools.map((t) => [t.definition.name, t]));
   const result = await deps.llm.runTools({
     purpose: `runtime.agent:${scope.definition.slug}.${step.id}`,
-    system: `${scope.definition.instructions}\n\n${TOOL_GUIDANCE}`,
+    system: `${scope.definition.instructions}\n\n${TOOL_GUIDANCE}${scope.task ? `\n\n${taskGuidance(scope.task.ref)}` : ""}`,
     messages: [{ role: "user", content: task }],
     tools: tools.map((t) => t.definition),
     serverTools,

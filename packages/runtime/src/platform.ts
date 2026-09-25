@@ -17,6 +17,7 @@ import { FileService } from "./files.ts";
 import { MailService } from "./mail.ts";
 import { PeopleService } from "./people.ts";
 import { SecretBox } from "./secrets.ts";
+import { TaskService } from "./tasks.ts";
 import { TriggerService } from "./triggers.ts";
 
 export type CompanyRow = typeof companies.$inferSelect;
@@ -50,6 +51,7 @@ export class Platform {
   readonly triggers: TriggerService;
   readonly people: PeopleService;
   readonly employment: EmploymentService;
+  readonly tasks: TaskService;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -64,6 +66,7 @@ export class Platform {
     this.knowledge = new KnowledgeService(this.handle, this.embedder);
     this.mail = new MailService(this.handle, this.files, this.connectors);
     this.agents = new AgentService(this.handle);
+    this.tasks = new TaskService(this.handle);
     this.engine = new RunEngine({
       handle: this.handle,
       llm: this.llm,
@@ -73,10 +76,11 @@ export class Platform {
       mail: this.mail,
       agents: this.agents,
       activity: this.activity,
+      tasks: this.tasks,
     });
     this.chat = new ChatService(this.handle, this.llm, this.agents, this.knowledge, this.engine.toolDeps);
     this.catalog = new CatalogService(this.handle, options.catalog, this.agents, this.knowledge, this.activity);
-    this.triggers = new TriggerService(this.handle, this.agents, this.engine, this.mail);
+    this.triggers = new TriggerService(this.handle, this.agents, this.engine, this.mail, this.tasks);
     this.employment = new EmploymentService(this.agents, this.people, this.engine, this.activity);
   }
 

@@ -26,6 +26,8 @@ export interface OutboundMail {
   body: string;
   inReplyTo?: string;
   cc?: string[];
+  /** The task it is sent for. */
+  taskId?: string;
 }
 
 /** The email object agents receive as `input.email` for mailbox-triggered runs. */
@@ -181,6 +183,7 @@ export class MailService {
         status,
         inReplyTo: original?.id ?? null,
         threadId: original?.threadId ?? null,
+        taskId: mail.taskId ?? null,
       })
       .returning();
     return row!;

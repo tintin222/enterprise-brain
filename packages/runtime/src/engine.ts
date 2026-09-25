@@ -10,6 +10,7 @@ import {
 import { activityLog, approvals, runEvents, runs, type DatabaseHandle } from "@enterprise-brain/db";
 import type { LlmUsage } from "@enterprise-brain/llm";
 import { describeAction, executeAction } from "./actions.ts";
+import { MailService } from "./mail.ts";
 import type { ActivityService } from "./activity.ts";
 import { employmentOf, type AgentRecord, type AgentService } from "./agents.ts";
 import type {
@@ -23,15 +24,17 @@ import type {
   StepOutcome,
 } from "./run-types.ts";
 import { executeStep, mergeUsage } from "./steps/index.ts";
+import { wakeText, type TaskPlan, type TaskRow, type TaskService, type TaskWait, type WakeReason } from "./tasks.ts";
 import type { DeferredApprovalRequest, ToolDeps } from "./tools.ts";
 
 export type RunRow = typeof runs.$inferSelect;
 export type ApprovalRow = typeof approvals.$inferSelect;
 
-export interface EngineDeps extends Omit<ToolDeps, "requestApproval"> {
+export interface EngineDeps extends Omit<ToolDeps, "requestApproval" | "tasks"> {
   handle: DatabaseHandle;
   agents: AgentService;
   activity: ActivityService;
+  tasks: TaskService;
 }
 
 export interface StartRunOptions {
@@ -41,8 +44,14 @@ export interface StartRunOptions {
   /** Await completion (or the first approval pause). Default true. */
   wait?: boolean;
   actor?: string;
-  /** Run a free-form task with the agent's tools instead of its workflow (used for Paperclip tasks). */
+  /** Run a free-form task with the agent's tools instead of its workflow (requests, Paperclip tasks, wake-ups). */
   task?: string;
+  /** Continue this task (a wake-up); otherwise a new task is opened for the run (none for test runs). */
+  taskId?: string;
+  /** The task's title; derived from the request, the email or the input otherwise. */
+  title?: string;
+  /** Who asked for the work (a person's name, an email address). */
+  requestedBy?: string | null;
 }
 
 export interface Decision {
@@ -101,6 +110,7 @@ export class RunEngine {
       ...deps,
       requestApproval: (companyId, request) => this.requestDeferredApproval(companyId, request),
       changesToday: (agentId) => this.changesToday(agentId),
+      tasks: deps.tasks,
     };
   }
 
@@ -118,6 +128,23 @@ export class RunEngine {
       .map((f) => f.label ?? f.key);
     if (missing.length && trigger !== "mailbox") throw new RunError(`Missing required input: ${missing.join(", ")}`);
 
+    // Every piece of real work is a task (test runs aren't): a new one, or the one being continued.
+    let taskId = options.isTest ? null : (options.taskId ?? null);
+    if (!options.isTest && !taskId) {
+      const task = await this.deps.tasks.create(companyId, {
+        agentId: agent.row.id,
+        title: options.title ?? taskTitle(agent.definition, input, trigger, options.task),
+        source: trigger === "manual" ? "request" : trigger,
+        sourceRef: options.triggerRef ?? null,
+        requestedBy: options.requestedBy ?? (trigger === "manual" || trigger === "request" ? (options.actor ?? null) : null),
+        input: options.task ? { ...input, request: options.task } : input,
+      });
+      taskId = task.id;
+      await this.deps.tasks.record(companyId, task.id, { type: "created", message: `${SOURCE_TEXT[trigger] ?? "Started"}: ${task.title}`, actor: options.actor ?? "system" });
+    } else if (taskId) {
+      await this.deps.tasks.update(taskId, { status: "working" });
+    }
+
     const state: PersistedRunState = { steps: {}, completed: [], ...(options.task ? { task: options.task } : {}) };
     const [run] = await this.deps.handle.db
       .insert(runs)
@@ -131,6 +158,7 @@ export class RunEngine {
         input,
         context: state as unknown as Record<string, unknown>,
         isTest: options.isTest ?? false,
+        taskId,
         startedAt: new Date(),
       })
       .returning();
@@ -239,12 +267,14 @@ export class RunEngine {
     let agentName = "Agent";
     let agentSlug = "agent";
     let employment;
+    let task: TaskRow | undefined;
     try {
       definition = await this.deps.agents.definitionAt(run.agentId, run.agentVersion);
       agentName = definition.name;
       agentSlug = definition.slug;
       // The level and limits as the manager set them now (a run resumed after a change follows the change).
       employment = employmentOf((await this.deps.agents.get(companyId, run.agentId)).row);
+      task = run.taskId ? await this.deps.tasks.byId(run.taskId) : undefined;
     } catch (error) {
       await this.fail(run, error);
       return;
@@ -264,6 +294,7 @@ export class RunEngine {
       agentId: run.agentId,
       definition,
       employment,
+      ...(task ? { task: { id: task.id, ref: task.ref } } : {}),
       context,
       emit: (event) => this.emit(runId, event),
       onText: (delta) => this.textListeners.get(runId)?.forEach((fn) => fn(delta)),
@@ -275,8 +306,12 @@ export class RunEngine {
         : [defaultAgentStep(definition)];
     let usage = (run.usage && "calls" in run.usage ? run.usage : undefined) as LlmUsage | undefined;
 
+    let first = true;
     for (const step of workflow) {
       if (state.completed.includes(step.id)) continue;
+      // Between steps: stop when the run was cancelled (its task stopped), hold when its task was paused.
+      if (!first && (await this.holdAtBoundary(run))) return;
+      first = false;
       let shouldRun: boolean;
       try {
         shouldRun = evaluateCondition(step.when, context);
@@ -356,6 +391,29 @@ export class RunEngine {
           entityId: approval!.id,
           summary: `${agentName}: ${outcome.title}`,
         });
+        if (run.taskId) {
+          await this.deps.tasks.update(run.taskId, { status: "needs_person" });
+          await this.deps.tasks.record(companyId, run.taskId, {
+            type: "needs_person",
+            message: `Asked a person to decide: ${outcome.title}${outcome.reason ? ` (${outcome.reason})` : ""}`,
+            actor: `agent:${run.agentId}`,
+            runId,
+            data: { approvalId: approval!.id },
+          });
+        }
+        return;
+      }
+
+      if (outcome.kind === "wait") {
+        // The task waits for a reply or a time; waking it completes this step with what happened.
+        state.pending = { stepId: step.id, kind: "wait" };
+        await this.persist(runId, { status: "waiting", context: state as unknown as Record<string, unknown>, usage: (usage ?? {}) as Record<string, unknown> });
+        await this.emit(runId, { type: "task.waiting", stepId: step.id, message: outcome.title, data: { for: outcome.for, until: outcome.until?.toISOString() ?? null } });
+        if (run.taskId) {
+          const wait: TaskWait = { kind: outcome.for, since: new Date().toISOString(), days: outcome.days, runId, stepId: step.id };
+          await this.deps.tasks.update(run.taskId, { status: "waiting", waitingFor: wait as unknown as Record<string, unknown>, nextCheckAt: outcome.until ?? null });
+          await this.deps.tasks.record(companyId, run.taskId, { type: "waiting", message: outcome.title, actor: `agent:${run.agentId}`, runId });
+        }
         return;
       }
 
@@ -392,12 +450,229 @@ export class RunEngine {
       summary: `${agentName} finished`,
     });
     await this.afterRun(companyId, run.agentId).catch(() => undefined);
+    if (run.taskId) await this.settleTask(companyId, run.taskId, runId, outputText(output));
+  }
+
+  /**
+   * Between steps: a cancelled run stops; a run whose task was paused holds (status "waiting") and
+   * continues from the next step when the task is resumed.
+   */
+  private async holdAtBoundary(run: RunRow): Promise<boolean> {
+    const [current] = await this.deps.handle.db.select({ status: runs.status }).from(runs).where(eq(runs.id, run.id));
+    if (current?.status !== "running") return true;
+    if (!run.taskId) return false;
+    const task = await this.deps.tasks.byId(run.taskId);
+    if (task?.status !== "paused") return false;
+    await this.persist(run.id, { status: "waiting" });
+    await this.emit(run.id, { type: "task.paused", message: "Holding: its task was paused" });
+    const wait = { ...((task.waitingFor ?? {}) as Record<string, unknown>), pausedFrom: "working", runId: run.id };
+    await this.deps.tasks.update(task.id, { waitingFor: wait });
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Tasks
+  // -------------------------------------------------------------------------
+
+  /** After a run: a person is still needed, or the task follows its plan (wait, follow up, done). */
+  private async settleTask(companyId: string, taskId: string, runId: string, outcome: string) {
+    const task = await this.deps.tasks.byId(taskId);
+    if (!task || task.status !== "working") return;
+    const pending = await this.deps.tasks.approvalsOf(taskId, "pending");
+    if (pending.length) {
+      await this.deps.tasks.update(taskId, { status: "needs_person" });
+      await this.deps.tasks.record(companyId, taskId, {
+        type: "needs_person",
+        message: `Waiting for a person to decide: ${pending.map((a) => a.title).join("; ")}`,
+        actor: `agent:${task.agentId}`,
+        runId,
+      });
+      return;
+    }
+    await this.followPlan(task, runId, outcome);
+  }
+
+  /** No person is needed any more: wait for a reply, follow up later, or close the task. */
+  private async followPlan(task: TaskRow, runId: string | null, fallbackOutcome: string) {
+    const plan = task.plan as TaskPlan | null;
+    const now = new Date();
+    const actor = `agent:${task.agentId}`;
+    // A reply that came in while it was busy or waiting on a person: look at it right away.
+    const replyMessageId = (task.waitingFor as { replyMessageId?: string } | null)?.replyMessageId;
+    if (plan?.next === "wait_reply") {
+      const wait = { kind: "reply", since: now.toISOString(), days: plan.days, note: plan.note, ...(replyMessageId ? { replyMessageId } : {}) };
+      const until = new Date(now.getTime() + plan.days * 86_400_000);
+      await this.deps.tasks.update(task.id, { status: "waiting", plan: null, waitingFor: wait, nextCheckAt: replyMessageId ? now : until });
+      await this.deps.tasks.record(task.companyId, task.id, {
+        type: "waiting",
+        message: `Waiting for a reply until ${until.toISOString().slice(0, 10)}${plan.note ? `: ${plan.note}` : ""}`,
+        actor,
+        runId,
+      });
+    } else if (plan?.next === "follow_up") {
+      const wait: TaskWait = { kind: "time", since: now.toISOString(), note: plan.note };
+      await this.deps.tasks.update(task.id, { status: "waiting", plan: null, waitingFor: wait as unknown as Record<string, unknown>, nextCheckAt: new Date(plan.at) });
+      await this.deps.tasks.record(task.companyId, task.id, {
+        type: "waiting",
+        message: `Will look again on ${plan.at.slice(0, 10)}${plan.note ? `: ${plan.note}` : ""}`,
+        actor,
+        runId,
+      });
+    } else {
+      const outcome = plan?.next === "complete" ? plan.outcome : fallbackOutcome;
+      await this.deps.tasks.update(task.id, { status: "done", plan: null, waitingFor: null, nextCheckAt: null, outcome, closedAt: now });
+      await this.deps.tasks.record(task.companyId, task.id, { type: "done", message: `Done: ${truncate(outcome, 400)}`, actor, runId });
+    }
+  }
+
+  /**
+   * Wake a task: a reply arrived, its time came, people decided, or its manager resumed it. A workflow
+   * waiting at a wait step continues there; otherwise a new run continues from a brief of the task.
+   */
+  async wakeTask(companyId: string, ref: string, reason: WakeReason, options: { wait?: boolean; actor?: string } = {}): Promise<TaskRow> {
+    const task = await this.deps.tasks.get(companyId, ref);
+    const wait = (task.waitingFor ?? null) as (TaskWait & { pausedFrom?: string }) | null;
+    await this.deps.tasks.record(companyId, task.id, { type: "woke", message: `Woke up: ${truncate(wakeText(reason, task).split("\n")[0]!, 300)}`, actor: options.actor ?? "system", data: { reason: reason.kind } });
+    await this.deps.tasks.update(task.id, { status: "working", wakeups: task.wakeups + 1, waitingFor: null, nextCheckAt: null, closedAt: null });
+    try {
+      if (wait?.runId) {
+        const result =
+          reason.kind === "reply"
+            ? { replied: true, reply: reason.email }
+            : wait.kind === "reply"
+              ? { replied: false, timedOut: true }
+              : { waited: true };
+        await this.continueRun(companyId, wait.runId, wait.stepId, result, options.wait ?? false);
+      } else {
+        await this.start(companyId, task.agentId, task.input, {
+          taskId: task.id,
+          trigger: "wake",
+          triggerRef: reason.kind,
+          task: await this.deps.tasks.brief(task, reason),
+          wait: options.wait ?? false,
+          actor: options.actor,
+        });
+      }
+    } catch (error) {
+      // It can't work now (paused, over its budget): keep waiting and look again in an hour.
+      if (!(error instanceof RunError)) throw error;
+      await this.deps.tasks.update(task.id, { status: "waiting", waitingFor: (wait ?? { kind: "time", since: new Date().toISOString() }) as unknown as Record<string, unknown>, nextCheckAt: new Date(Date.now() + 3_600_000) });
+      await this.deps.tasks.record(companyId, task.id, { type: "blocked", message: `Couldn't continue: ${error.message}`, actor: "system" });
+    }
+    return this.deps.tasks.get(companyId, task.id);
+  }
+
+  /** Continue a run held at a wait step (with what happened) or at a step boundary (paused task). */
+  private async continueRun(companyId: string, runId: string, stepId: string | undefined, result: unknown, wait: boolean) {
+    const run = await this.getRow(companyId, runId);
+    if (run.status !== "waiting") return;
+    const state = normalizeState(run.context);
+    if (stepId && state.pending?.kind === "wait" && state.pending.stepId === stepId) {
+      state.steps[stepId] = result;
+      state.completed.push(stepId);
+      state.pending = undefined;
+      const replied = isRecord(result) && result.replied === true;
+      await this.emit(runId, { type: "step.completed", stepId, message: replied ? "A reply arrived" : "The wait is over", data: { preview: truncate(stringify(result), 600) } });
+    }
+    await this.persist(runId, { status: "running", context: state as unknown as Record<string, unknown> });
+    const execution = this.execute(runId);
+    if (wait) await execution;
+  }
+
+  /** Wake every waiting task whose time has come (the scheduler calls this every minute). */
+  async wakeDueTasks(now = new Date()): Promise<number> {
+    const due = await this.deps.tasks.due(now);
+    for (const task of due) {
+      const wait = (task.waitingFor ?? {}) as { replyMessageId?: string };
+      const reply = wait.replyMessageId ? await this.deps.mail.get(task.companyId, wait.replyMessageId).catch(() => undefined) : undefined;
+      await this.wakeTask(task.companyId, task.id, reply ? { kind: "reply", email: MailService.toEmailInput(reply) } : { kind: "time" }).catch((error) =>
+        console.error(`[tasks] could not wake ${task.ref}:`, error),
+      );
+    }
+    return due.length;
+  }
+
+  /** Hold a task: no wake-ups, and a run working on it holds at its next step. */
+  async pauseTask(companyId: string, ref: string, by: string): Promise<TaskRow> {
+    const task = await this.deps.tasks.get(companyId, ref);
+    if (!["working", "waiting", "needs_person"].includes(task.status)) throw new RunError(`Task ${task.ref} is ${task.status}`, 409);
+    const wait = { ...((task.waitingFor ?? {}) as Record<string, unknown>), pausedFrom: task.status };
+    await this.deps.tasks.update(task.id, { status: "paused", waitingFor: wait });
+    await this.deps.tasks.record(companyId, task.id, { type: "paused", message: `${by} paused the task`, actor: by });
+    return this.deps.tasks.get(companyId, task.id);
+  }
+
+  /** Pick a paused task up again where it was. */
+  async resumeTask(companyId: string, ref: string, by: string, options: { wait?: boolean } = {}): Promise<TaskRow> {
+    const task = await this.deps.tasks.get(companyId, ref);
+    if (task.status !== "paused") throw new RunError(`Task ${task.ref} is not paused`, 409);
+    const { pausedFrom, ...wait } = (task.waitingFor ?? {}) as unknown as Partial<TaskWait> & { pausedFrom?: string; replyMessageId?: string };
+    await this.deps.tasks.record(companyId, task.id, { type: "resumed", message: `${by} resumed the task`, actor: by });
+    const restored = Object.keys(wait).length ? (wait as unknown as Record<string, unknown>) : null;
+    if (pausedFrom === "waiting") {
+      // Waits whose time passed meanwhile wake on the next check; one that got its reply, right away.
+      await this.deps.tasks.update(task.id, { status: "waiting", waitingFor: restored, ...(wait.replyMessageId ? { nextCheckAt: new Date() } : {}) });
+    } else if (pausedFrom === "needs_person") {
+      await this.deps.tasks.update(task.id, { status: "needs_person", waitingFor: restored });
+      await this.afterDecisions(companyId, task.id);
+    } else if (wait.runId) {
+      await this.deps.tasks.update(task.id, { status: "working", waitingFor: null });
+      await this.continueRun(companyId, wait.runId, undefined, undefined, options.wait ?? false);
+    } else {
+      await this.deps.tasks.update(task.id, { status: "waiting", waitingFor: null });
+      await this.wakeTask(companyId, task.id, { kind: "resumed", by }, { wait: options.wait, actor: by });
+    }
+    return this.deps.tasks.get(companyId, task.id);
+  }
+
+  /** End a task for good: its runs are cancelled and its open approvals withdrawn. */
+  async stopTask(companyId: string, ref: string, by: string): Promise<TaskRow> {
+    const task = await this.deps.tasks.get(companyId, ref);
+    if (["done", "stopped", "failed"].includes(task.status)) throw new RunError(`Task ${task.ref} is already ${task.status}`, 409);
+    await this.deps.tasks.update(task.id, { status: "stopped", waitingFor: null, nextCheckAt: null, plan: null, closedAt: new Date() });
+    for (const run of await this.deps.tasks.runsOf(task.id)) {
+      if (["running", "waiting", "waiting_approval", "queued"].includes(run.status)) await this.cancel(companyId, run.id);
+    }
+    for (const approval of await this.deps.tasks.approvalsOf(task.id, "pending")) {
+      await this.deps.handle.db.update(approvals).set({ status: "cancelled", decidedAt: new Date(), decidedBy: by }).where(eq(approvals.id, approval.id));
+    }
+    await this.deps.tasks.record(companyId, task.id, { type: "stopped", message: `${by} stopped the task`, actor: by });
+    return this.deps.tasks.get(companyId, task.id);
+  }
+
+  /**
+   * After people decided on a task's changes: once nothing is pending, a rejection wakes the AI employee
+   * to rethink; otherwise the task follows its plan.
+   */
+  private async afterDecisions(companyId: string, taskId: string) {
+    const task = await this.deps.tasks.byId(taskId);
+    if (!task || task.status !== "needs_person") return;
+    if ((await this.deps.tasks.approvalsOf(taskId, "pending")).length) return;
+    const runsOfTask = await this.deps.tasks.runsOf(taskId);
+    // A workflow run still waiting on its own approval step resumes by itself.
+    if (runsOfTask.some((r) => r.status === "waiting_approval" || r.status === "running")) return;
+    const latest = runsOfTask.at(-1);
+    const since = latest?.startedAt ?? latest?.createdAt ?? new Date(0);
+    const decided = (await this.deps.tasks.approvalsOf(taskId)).filter((a) => a.origin === "deferred" && a.decidedAt && a.createdAt >= since);
+    if (decided.some((a) => a.status === "rejected")) {
+      await this.wakeTask(companyId, taskId, {
+        kind: "decisions",
+        decisions: decided.map((a) => ({ title: a.title, approved: a.status === "approved", note: a.decisionNote, decidedBy: a.decidedBy })),
+      });
+      return;
+    }
+    await this.deps.tasks.update(taskId, { status: "working" });
+    await this.followPlan({ ...task, status: "working" }, latest?.id ?? null, latest?.output ? outputText(latest.output) : "Done after approval");
   }
 
   private async fail(run: RunRow, error: unknown, stepId?: string) {
     const message = errorMessage(error);
     await this.persist(run.id, { status: "failed", error: message, finishedAt: new Date() });
     await this.emit(run.id, { type: "run.failed", stepId: stepId ?? null, message });
+    if (run.taskId) {
+      await this.deps.tasks.update(run.taskId, { status: "failed", nextCheckAt: null, closedAt: new Date() });
+      await this.deps.tasks.record(run.companyId, run.taskId, { type: "failed", message: `Failed: ${truncate(message, 300)}`, runId: run.id });
+    }
     await this.deps.activity.record(run.companyId, {
       actor: `agent:${run.agentId}`,
       action: "run.failed",
@@ -421,6 +696,13 @@ export class RunEngine {
       .set({ status: "cancelled", decidedAt: new Date() })
       .where(and(eq(approvals.runId, runId), eq(approvals.status, "pending")));
     await this.emit(runId, { type: "run.cancelled", message: "Run cancelled" });
+    if (run.taskId) {
+      const task = await this.deps.tasks.byId(run.taskId);
+      if (task && ["working", "waiting", "needs_person", "paused"].includes(task.status)) {
+        await this.deps.tasks.update(task.id, { status: "stopped", nextCheckAt: null, waitingFor: null, closedAt: new Date() });
+        await this.deps.tasks.record(companyId, task.id, { type: "stopped", message: "Its run was cancelled", runId });
+      }
+    }
     return this.getRow(companyId, runId);
   }
 
@@ -569,6 +851,22 @@ export class RunEngine {
           message: `${approval.title} — ${decision.approved ? "approved" : "rejected"}`,
           data: { preview: truncate(stringify(result), 600) },
         });
+        const task = run.taskId ? await this.deps.tasks.byId(run.taskId) : undefined;
+        if (task) {
+          await this.deps.tasks.record(companyId, task.id, {
+            type: "decided",
+            message: `${decidedBy} ${decision.approved ? "approved" : "rejected"}: ${approval.title}${decision.note ? ` (${decision.note})` : ""}`,
+            actor: decidedBy,
+            runId: run.id,
+          });
+        }
+        if (task?.status === "paused") {
+          // Decided while paused: the run holds until the task is resumed.
+          await this.persist(run.id, { status: "waiting" });
+          await this.deps.tasks.update(task.id, { waitingFor: { ...((task.waitingFor ?? {}) as Record<string, unknown>), pausedFrom: "working", runId: run.id } });
+          return this.approvalRow(approvalId);
+        }
+        if (task) await this.deps.tasks.update(task.id, { status: "working" });
         const continuation = this.execute(run.id);
         if (options.wait ?? true) await continuation;
       }
@@ -603,6 +901,16 @@ export class RunEngine {
         message: `${decision.approved ? "Approved" : "Rejected"} by ${decidedBy}${decision.note ? `: ${decision.note}` : ""}`,
         data: { approvalId, approved: decision.approved, deferred: true },
       });
+    }
+    const [run] = approval.runId ? await this.deps.handle.db.select().from(runs).where(eq(runs.id, approval.runId)) : [];
+    if (run?.taskId) {
+      await this.deps.tasks.record(companyId, run.taskId, {
+        type: "decided",
+        message: `${decidedBy} ${decision.approved ? "approved" : "rejected"}: ${approval.title}${decision.note ? ` (${decision.note})` : ""}`,
+        actor: decidedBy,
+        runId: run.id,
+      });
+      await this.afterDecisions(companyId, run.taskId);
     }
     return this.approvalRow(approvalId);
   }
@@ -701,6 +1009,38 @@ export function taskStep(definition: AgentDefinition, task: string): WorkflowSte
     tools: [...new Set([...definition.tools, "knowledge.search", ...definition.connectors.map((c) => `connector:${c.ref}`)])],
     maxTurns: 16,
   };
+}
+
+const SOURCE_TEXT: Record<string, string> = {
+  manual: "New request",
+  request: "New request",
+  mailbox: "New email",
+  schedule: "Scheduled work",
+  form: "Form submitted",
+  webhook: "Called by another system",
+  paperclip: "Assigned in Paperclip",
+  "connector-event": "Event in a connected system",
+  chat: "Asked in chat",
+};
+
+/** A task's title: the request's first line, the email's subject, or the AI employee and its input. */
+export function taskTitle(definition: AgentDefinition, input: Record<string, unknown>, trigger: string, request?: string): string {
+  if (request?.trim()) return truncate(request.trim().split("\n")[0]!.replace(/^#+\s*/, ""), 120);
+  const email = isRecord(input.email) ? input.email : undefined;
+  if (email && typeof email.subject === "string") return truncate(email.subject || `Email from ${String(email.from ?? "?")}`, 120);
+  if (trigger === "schedule") return `${definition.name}: scheduled work`;
+  const first = definition.inputs.map((f) => input[f.key]).find((v) => typeof v === "string" && v.trim() && v.length < 200) as string | undefined;
+  return truncate(first ? `${definition.name}: ${first.trim()}` : definition.name, 120);
+}
+
+/** A short outcome from a run's output: its text, summary or fields. */
+function outputText(output: unknown): string {
+  if (!isRecord(output)) return "Finished";
+  for (const key of ["summary", "text", "result", "answer", "reply"]) {
+    const value = output[key];
+    if (typeof value === "string" && value.trim()) return truncate(value.trim(), 600);
+  }
+  return truncate(stringify(output), 600) || "Finished";
 }
 
 function stepLabel(step: WorkflowStep): string {

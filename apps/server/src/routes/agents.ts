@@ -45,6 +45,8 @@ const RUN_STATUS_AFTER: Record<string, string> = {
   "run.failed": "failed",
   "run.cancelled": "cancelled",
   "approval.requested": "waiting_approval",
+  "task.waiting": "waiting",
+  "task.paused": "waiting",
 };
 
 export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -199,7 +201,15 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
       isTest = body.test;
       trigger = body.trigger ?? "manual";
     }
-    const run = await platform.engine.start(company.id, agent.row.id, input, { trigger, isTest, wait, task, actor: "user" });
+    const viewer = viewerOf(request);
+    const run = await platform.engine.start(company.id, agent.row.id, input, {
+      trigger,
+      isTest,
+      wait,
+      task,
+      actor: actorOf(viewer),
+      requestedBy: viewer.kind === "session" ? viewer.name : null,
+    });
     return { ...run, context: undefined };
   });
 

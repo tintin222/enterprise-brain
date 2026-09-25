@@ -9,6 +9,7 @@ import type { FileService } from "./files.ts";
 import type { MailService } from "./mail.ts";
 import { checkApproval, DEFAULT_EMPLOYMENT, type ApprovalCheck, type Employment, type WriteAction } from "./policy.ts";
 import type { ApprovalAction, RunEventInput } from "./run-types.ts";
+import { withTaskRef, type TaskPlan, type TaskService } from "./tasks.ts";
 
 export interface DeferredApprovalRequest {
   runId?: string;
@@ -30,6 +31,7 @@ export interface ToolDeps {
   requestApproval: (companyId: string, request: DeferredApprovalRequest) => Promise<{ id: string }>;
   /** Changes the AI employee made alone today (for its daily limit when trusted). */
   changesToday?: (agentId: string) => Promise<number>;
+  tasks?: TaskService;
 }
 
 export interface ToolScope {
@@ -43,6 +45,8 @@ export interface ToolScope {
   citations: SearchHit[];
   /** Records changes made without a person in the run's history. */
   emit?: (event: RunEventInput) => Promise<void>;
+  /** The task the run works on: its emails carry the reference, and the task tools act on it. */
+  task?: { id: string; ref: string };
 }
 
 export interface RuntimeTool {
@@ -265,9 +269,11 @@ export async function buildTools(
             const action: ApprovalAction = {
               type: "mail.send",
               to: String(input.to),
-              subject: String(input.subject),
+              // Replies find their way back to the task through its reference.
+              subject: scope.task ? withTaskRef(String(input.subject), scope.task.ref) : String(input.subject),
               body: String(input.body),
               inReplyTo: input.in_reply_to ? String(input.in_reply_to) : undefined,
+              ...(scope.task ? { taskId: scope.task.id } : {}),
             };
             const check = await approvalCheck(deps, scope, { type: "mail.send", to: action.to });
             if (check.needed) return deferred(`Send email to ${action.to}`, action, check.reason);
@@ -351,7 +357,62 @@ export async function buildTools(
       }
     }
   }
+  if (scope.task && deps.tasks) tools.push(...taskTools(deps.tasks, scope, scope.task));
   return { tools, serverTools, warnings };
+}
+
+/** Tools for working on a task over days: notes in its history, waiting for replies, follow-ups, closing it. */
+function taskTools(tasks: TaskService, scope: ToolScope, task: { id: string; ref: string }): RuntimeTool[] {
+  const plan = async (next: TaskPlan, text: string): Promise<ToolExecution> => {
+    await tasks.update(task.id, { plan: next as unknown as Record<string, unknown> });
+    return { content: text };
+  };
+  const tool = (name: string, description: string, properties: Record<string, JsonSchema>, required: string[], execute: RuntimeTool["execute"]): RuntimeTool => ({
+    capability: "task",
+    kind: "read",
+    definition: { name, description, inputSchema: { type: "object", properties, required } },
+    execute,
+  });
+  return [
+    tool(
+      "task_note",
+      `Write a note in the history of task ${task.ref}: a finding, a decision and why, or what you are waiting for. People read it on the task page.`,
+      { text: { type: "string" } },
+      ["text"],
+      async (input) => {
+        await tasks.record(scope.companyId, task.id, { type: "note", message: String(input.text), actor: `agent:${scope.agentId}`, runId: scope.runId });
+        return { content: "Noted in the task's history." };
+      },
+    ),
+    tool(
+      "task_wait_for_reply",
+      `Wait for a reply to the emails you sent in task ${task.ref} (their subject carries the reference). You are woken when a reply arrives, or after the given days if nobody answers, to remind them or decide. Call it last, then end your turn.`,
+      { days: { type: "number", description: "At most this many days (1–60)" }, note: { type: "string", description: "What you expect, for when you wake up" } },
+      ["days"],
+      async (input) => {
+        const days = Math.min(60, Math.max(0.01, Number(input.days) || 3));
+        return plan({ next: "wait_reply", days, note: input.note ? String(input.note) : undefined }, `Task ${task.ref} will wait for a reply for up to ${days} day(s). End your turn now.`);
+      },
+    ),
+    tool(
+      "task_follow_up",
+      `Look at task ${task.ref} again later, e.g. to check that a payment arrived or a delivery was made. Give days, or a date. Call it last, then end your turn.`,
+      { days: { type: "number" }, date: { type: "string", description: "YYYY-MM-DD" }, note: { type: "string", description: "What to check then" } },
+      [],
+      async (input) => {
+        const date = typeof input.date === "string" && !Number.isNaN(Date.parse(input.date)) ? new Date(input.date) : undefined;
+        const at = date ?? new Date(Date.now() + Math.min(365, Math.max(0.01, Number(input.days) || 1)) * 86_400_000);
+        return plan({ next: "follow_up", at: at.toISOString(), note: input.note ? String(input.note) : undefined }, `Task ${task.ref} will be looked at again on ${at.toISOString().slice(0, 10)}. End your turn now.`);
+      },
+    ),
+    tool(
+      "task_complete",
+      `Close task ${task.ref}: the work is finished. Give the outcome in one or two sentences for the people who read the task.`,
+      { outcome: { type: "string" } },
+      ["outcome"],
+      async (input) => plan({ next: "complete", outcome: String(input.outcome) }, `Task ${task.ref} will close as done. End your turn now.`),
+    ),
+  ];
 }
 
 export { buildContext };

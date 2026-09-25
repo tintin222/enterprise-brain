@@ -12,6 +12,7 @@ const STATUSES = [
   { value: "", label: "All" },
   { value: "running", label: "Running" },
   { value: "waiting_approval", label: "Waiting approval" },
+  { value: "waiting", label: "Waiting for a reply or a date" },
   { value: "succeeded", label: "Succeeded" },
   { value: "failed", label: "Failed" },
 ];

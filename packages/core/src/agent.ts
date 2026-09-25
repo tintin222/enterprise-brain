@@ -183,6 +183,18 @@ export const WorkflowStep = z.discriminatedUnion("type", [
   }),
   z.object({
     ...StepBase,
+    type: z.literal("wait"),
+    /**
+     * reply: until someone answers the task's emails, at most `days` (the result says whether they did);
+     * time: `days`, or until the date `until` resolves to. The task waits meanwhile, and wakes up here.
+     */
+    for: z.enum(["reply", "time"]),
+    days: z.number().positive().optional(),
+    /** Template resolving to a date or date-time (time waits), e.g. "{{ steps.order.delivery_date }}". */
+    until: z.string().optional(),
+  }),
+  z.object({
+    ...StepBase,
     type: z.literal("output"),
     /** Map of output field -> template. */
     value: z.record(z.string(), z.unknown()),

@@ -186,9 +186,17 @@ function describeStep(step: WorkflowStep): string {
       return "Produce an Excel file";
     case "agent":
       return step.name ?? "Work autonomously with its tools";
+    case "wait":
+      return waitText(step);
     case "output":
       return "Show the result";
   }
+}
+
+function waitText(step: Extract<WorkflowStep, { type: "wait" }>): string {
+  const days = step.days ? `${step.days} day${step.days === 1 ? "" : "s"}` : "";
+  if (step.for === "reply") return `Wait for a reply${days ? ` (at most ${days})` : ""}`;
+  return days ? `Wait ${days}` : "Wait until the set date";
 }
 
 export function describeDefinition(definition: AgentDefinition): string {

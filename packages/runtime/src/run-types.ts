@@ -2,7 +2,8 @@ import type { AgentDefinition } from "@enterprise-brain/core";
 import type { LlmUsage } from "@enterprise-brain/llm";
 import type { Employment } from "./policy.ts";
 
-export type RunStatus = "queued" | "running" | "waiting_approval" | "succeeded" | "failed" | "cancelled";
+/** waiting: paused at a workflow `wait` step until a reply arrives or a date comes (its task wakes it). */
+export type RunStatus = "queued" | "running" | "waiting_approval" | "waiting" | "succeeded" | "failed" | "cancelled";
 
 /** An action that a human approves before it runs (connector writes, outgoing mail). */
 export type ApprovalAction =
@@ -24,6 +25,8 @@ export type ApprovalAction =
       body: string;
       inReplyTo?: string;
       mailbox?: string;
+      /** The task it belongs to: the sent email joins the task's history, and replies find their way back. */
+      taskId?: string;
     };
 
 export interface RunContext {
@@ -39,7 +42,7 @@ export interface RunContext {
 export interface PersistedRunState {
   steps: Record<string, unknown>;
   completed: string[];
-  pending?: { stepId: string; approvalId: string; kind: "decision" | "gated" };
+  pending?: { stepId: string; approvalId?: string; kind: "decision" | "gated" | "wait" };
   warnings?: string[];
   /** Free-form task (e.g. a Paperclip issue): run one autonomous step instead of the workflow. */
   task?: string;
@@ -60,7 +63,9 @@ export interface RunEventRecord extends RunEventInput {
 
 export type StepOutcome =
   | { kind: "done"; result: unknown; usage?: LlmUsage; message?: string }
-  | { kind: "pause"; title: string; details: string; assigneeRole?: string; action: ApprovalAction; reason?: string };
+  | { kind: "pause"; title: string; details: string; assigneeRole?: string; action: ApprovalAction; reason?: string }
+  /** A workflow `wait` step: the task waits for a reply or a date, then this step completes with what happened. */
+  | { kind: "wait"; title: string; for: "reply" | "time"; until?: Date; days?: number };
 
 export interface ExecutionScope {
   companyId: string;
@@ -69,6 +74,8 @@ export interface ExecutionScope {
   definition: AgentDefinition;
   /** Its level and limits, read when the run (re)starts: the manager's latest decision applies. */
   employment: Employment;
+  /** The task the run works on (none in test runs). */
+  task?: { id: string; ref: string };
   context: RunContext;
   emit: (event: RunEventInput) => Promise<void>;
   onText?: (delta: string) => void;

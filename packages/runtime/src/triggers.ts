@@ -4,6 +4,7 @@ import { companies, type DatabaseHandle } from "@enterprise-brain/db";
 import type { AgentService } from "./agents.ts";
 import { RunError, type RunEngine, type RunRow } from "./engine.ts";
 import { MailService, type MailMessage } from "./mail.ts";
+import type { TaskRow, TaskService } from "./tasks.ts";
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
@@ -114,10 +115,19 @@ export class TriggerService {
     private readonly agents: AgentService,
     private readonly engine: RunEngine,
     private readonly mail: MailService,
+    private readonly tasks: TaskService,
   ) {}
 
-  /** Route an inbound message to every active agent whose mailbox trigger matches. */
+  /**
+   * Route an inbound message: a reply to a task goes back to that task (waking it); anything else goes
+   * to every active AI employee whose mailbox duty matches, as new work.
+   */
   async routeInboundMail(companyId: string, message: MailMessage, options: { wait?: boolean } = {}): Promise<RunRow[]> {
+    const task = await this.tasks.matchReply(companyId, message);
+    if (task && task.status !== "stopped" && task.status !== "failed") {
+      await this.replyToTask(companyId, task, message, options);
+      return [];
+    }
     const active = await this.agents.list(companyId, { status: "active" });
     const started: RunRow[] = [];
     for (const agent of active) {
@@ -148,11 +158,31 @@ export class TriggerService {
     return started;
   }
 
+  private async replyToTask(companyId: string, task: TaskRow, message: MailMessage, options: { wait?: boolean }) {
+    await this.tasks.linkMail(companyId, message.id, task.id);
+    await this.mail.update(companyId, message.id, { status: "triaged" });
+    await this.tasks.record(companyId, task.id, {
+      type: "email",
+      message: `Reply from ${message.fromName ? `${message.fromName} <${message.fromAddress}>` : message.fromAddress}: ${message.subject}`,
+      actor: message.fromAddress,
+      data: { mailId: message.id },
+    });
+    if (task.status === "waiting" || task.status === "done") {
+      await this.engine.wakeTask(companyId, task.id, { kind: "reply", email: MailService.toEmailInput(message) }, { wait: options.wait ?? false });
+      return;
+    }
+    // Busy, waiting on a person, or paused: keep the reply; the task wakes with it as soon as it can.
+    const wait = { ...((task.waitingFor ?? {}) as Record<string, unknown>), replyMessageId: message.id };
+    await this.tasks.update(task.id, { waitingFor: wait, ...(task.status === "paused" ? {} : { nextCheckAt: new Date() }) });
+  }
+
   /** Run every schedule trigger that matches the given minute (called once per minute). */
   async tick(now = new Date()): Promise<RunRow[]> {
     const minuteKey = now.toISOString().slice(0, 16);
     if (minuteKey === this.lastTick) return [];
     this.lastTick = minuteKey;
+    // Tasks whose follow-up time came, or whose reply didn't come in time.
+    await this.engine.wakeDueTasks(now).catch((error) => console.error("[tasks]", error));
     const started: RunRow[] = [];
     const companyRows = await this.handle.db.select({ id: companies.id }).from(companies);
     for (const company of companyRows) {

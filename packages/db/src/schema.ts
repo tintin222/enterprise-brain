@@ -293,6 +293,68 @@ export const knowledgeChunks = pgTable(
   ],
 );
 
+/**
+ * A task: one piece of work from start to finish, lasting minutes or days. It has a status, a history
+ * (task_events plus its runs) and, while it waits, a next check. Each working session is a run.
+ */
+export const tasks = pgTable(
+  "tasks",
+  {
+    id: id(),
+    companyId: companyId(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    /** Short reference people and emails use: EB-7K2Q9. */
+    ref: text("ref").notNull(),
+    title: text("title").notNull(),
+    /** working | waiting | needs_person | paused | done | stopped | failed */
+    status: text("status").notNull().default("working"),
+    /** What started it: request (a person), mailbox, schedule, form, webhook, paperclip, connector-event */
+    source: text("source").notNull().default("request"),
+    sourceRef: text("source_ref"),
+    requestedBy: text("requested_by"),
+    /** The work as it arrived: a request's text, an email, a form's fields. */
+    input: jsonb("input").$type<Record<string, unknown>>().notNull().default({}),
+    /** What it does when no person is needed any more: complete, wait for a reply, or follow up later. */
+    plan: jsonb("plan").$type<Record<string, unknown>>(),
+    /** What it waits for: a reply (by its reference or thread) or a time; a workflow run to resume. */
+    waitingFor: jsonb("waiting_for").$type<Record<string, unknown>>(),
+    /** When it looks at the task again on its own. */
+    nextCheckAt: timestamp("next_check_at", { withTimezone: true }),
+    outcome: text("outcome"),
+    wakeups: integer("wakeups").notNull().default(0),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("tasks_company_ref").on(t.companyId, t.ref),
+    index("tasks_company_status").on(t.companyId, t.status, t.updatedAt),
+    index("tasks_agent").on(t.agentId),
+    index("tasks_next_check").on(t.status, t.nextCheckAt),
+  ],
+);
+
+/** A task's history: what happened, who did it, and the run it happened in. */
+export const taskEvents = pgTable(
+  "task_events",
+  {
+    id: id(),
+    companyId: companyId(),
+    taskId: uuid("task_id")
+      .notNull()
+      .references(() => tasks.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    message: text("message").notNull().default(""),
+    actor: text("actor").notNull().default("system"),
+    runId: uuid("run_id"),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [index("task_events_task").on(t.taskId, t.createdAt)],
+);
+
 export const runs = pgTable(
   "runs",
   {
@@ -313,6 +375,8 @@ export const runs = pgTable(
     error: text("error"),
     usage: jsonb("usage").$type<Record<string, unknown>>().notNull().default({}),
     isTest: boolean("is_test").notNull().default(false),
+    /** The task this run works on (none for test runs, and for runs from before tasks existed). */
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
     startedAt: timestamp("started_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     createdAt: createdAt(),
@@ -387,6 +451,8 @@ export const mailMessages = pgTable(
     status: text("status").notNull().default("new"),
     classification: jsonb("classification").$type<Record<string, unknown>>(),
     runId: uuid("run_id").references(() => runs.id, { onDelete: "set null" }),
+    /** The task this email belongs to: sent while working on it, or a reply to it. */
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
     inReplyTo: uuid("in_reply_to"),
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: createdAt(),

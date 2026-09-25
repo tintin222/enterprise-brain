@@ -23,6 +23,7 @@ import {
   Handshake,
   Headphones,
   HeartPulse,
+  Hourglass,
   Inbox,
   Landmark,
   Layers,
@@ -146,6 +147,7 @@ export const STEP_ICONS: Record<WorkflowStep["type"], LucideIcon> = {
   "excel.read": FileSpreadsheet,
   "excel.write": FileSpreadsheet,
   agent: Bot,
+  wait: Hourglass,
   output: CircleCheckBig,
 };
 

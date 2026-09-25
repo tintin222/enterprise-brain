@@ -83,6 +83,7 @@ const STATUS: Record<string, StatusMeta> = {
   queued: { tone: "neutral", label: "Queued" },
   running: { tone: "blue", label: "Running", pulse: true },
   waiting_approval: { tone: "amber", label: "Waiting for approval" },
+  waiting: { tone: "violet", label: "Waiting" },
   succeeded: { tone: "green", label: "Succeeded" },
   failed: { tone: "red", label: "Failed" },
   cancelled: { tone: "neutral", label: "Cancelled" },

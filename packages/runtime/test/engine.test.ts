@@ -117,7 +117,8 @@ describe("run engine with Claude (scripted)", () => {
     expect(done.status).toBe("succeeded");
     expect(done.output).toMatchObject({ category: "complaint", sent: true });
     const outbox = await platform.mail.list(companyId, { direction: "outbound" });
-    expect(outbox.some((m) => m.toAddresses.includes(input.customer) && m.subject === "About your order")).toBe(true);
+    // The email carries its task's reference, so a reply finds its way back to the task.
+    expect(outbox.some((m) => m.toAddresses.includes(input.customer) && /^About your order \[EB-[2-9A-Z]{5}\]$/.test(m.subject))).toBe(true);
     expect(llm.calls.some((c) => c.purpose === "runtime.classify:complaint-desk.classify")).toBe(true);
   });
 

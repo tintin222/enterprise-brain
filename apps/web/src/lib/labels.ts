@@ -223,6 +223,9 @@ export function describeStep(step: WorkflowStep): string {
       return "Produce an Excel file";
     case "agent":
       return "Work autonomously with its tools";
+    case "wait":
+      if (step.for === "reply") return `Wait for a reply${step.days ? ` (at most ${step.days} day${step.days === 1 ? "" : "s"})` : ""}`;
+      return step.days ? `Wait ${step.days} day${step.days === 1 ? "" : "s"}` : "Wait until the set date";
     case "output":
       return "Show the result";
   }
@@ -241,6 +244,7 @@ export const STEP_TYPE_LABELS: Record<WorkflowStep["type"], string> = {
   "excel.read": "Read Excel",
   "excel.write": "Write Excel",
   agent: "Autonomous agent",
+  wait: "Wait",
   output: "Result",
 };
 
