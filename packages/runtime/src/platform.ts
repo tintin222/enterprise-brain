@@ -11,6 +11,7 @@ import { AgentService } from "./agents.ts";
 import { CatalogService } from "./catalog-service.ts";
 import { ChatService } from "./chat.ts";
 import { ConnectorService } from "./connectors.ts";
+import { EmploymentService } from "./employment.ts";
 import { RunEngine } from "./engine.ts";
 import { FileService } from "./files.ts";
 import { MailService } from "./mail.ts";
@@ -48,6 +49,7 @@ export class Platform {
   readonly catalog: CatalogService;
   readonly triggers: TriggerService;
   readonly people: PeopleService;
+  readonly employment: EmploymentService;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -75,6 +77,7 @@ export class Platform {
     this.chat = new ChatService(this.handle, this.llm, this.agents, this.knowledge, this.engine.toolDeps);
     this.catalog = new CatalogService(this.handle, options.catalog, this.agents, this.knowledge, this.activity);
     this.triggers = new TriggerService(this.handle, this.agents, this.engine, this.mail);
+    this.employment = new EmploymentService(this.agents, this.people, this.engine, this.activity);
   }
 
   /** Create a platform from the environment: embedded Postgres under dataDir unless DATABASE_URL is set. */

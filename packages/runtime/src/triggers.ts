@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import type { TriggerSpec } from "@enterprise-brain/core";
 import { companies, type DatabaseHandle } from "@enterprise-brain/db";
 import type { AgentService } from "./agents.ts";
-import type { RunEngine, RunRow } from "./engine.ts";
+import { RunError, type RunEngine, type RunRow } from "./engine.ts";
 import { MailService, type MailMessage } from "./mail.ts";
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -126,12 +126,22 @@ export class TriggerService {
       );
       if (!trigger) continue;
       await this.mail.update(companyId, message.id, { status: "processing" });
-      const run = await this.engine.start(
-        companyId,
-        agent.row.id,
-        { email: MailService.toEmailInput(message) },
-        { trigger: "mailbox", triggerRef: message.id, wait: options.wait ?? false },
-      );
+      let run: RunRow;
+      try {
+        run = await this.engine.start(
+          companyId,
+          agent.row.id,
+          { email: MailService.toEmailInput(message) },
+          { trigger: "mailbox", triggerRef: message.id, wait: options.wait ?? false },
+        );
+      } catch (error) {
+        // Stopped at its budget (or paused meanwhile): the email stays new, to be handled once it may work again.
+        if (error instanceof RunError) {
+          await this.mail.update(companyId, message.id, { status: "new" });
+          continue;
+        }
+        throw error;
+      }
       await this.mail.update(companyId, message.id, { runId: run.id, status: run.status === "failed" ? "error" : "triaged" });
       started.push(run);
     }
@@ -157,9 +167,12 @@ export class TriggerService {
             continue;
           }
           if (!due) continue;
-          started.push(
-            await this.engine.start(company.id, agent.row.id, {}, { trigger: "schedule", triggerRef: trigger.cron, wait: false }),
-          );
+          try {
+            started.push(await this.engine.start(company.id, agent.row.id, {}, { trigger: "schedule", triggerRef: trigger.cron, wait: false }));
+          } catch (error) {
+            // One AI employee that can't start (budget reached) doesn't hold up the others' schedules.
+            if (!(error instanceof RunError)) throw error;
+          }
         }
       }
     }

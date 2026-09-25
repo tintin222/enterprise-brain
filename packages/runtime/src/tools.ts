@@ -7,7 +7,8 @@ import { describeAction } from "./actions.ts";
 import type { ConnectorService } from "./connectors.ts";
 import type { FileService } from "./files.ts";
 import type { MailService } from "./mail.ts";
-import type { ApprovalAction } from "./run-types.ts";
+import { checkApproval, DEFAULT_EMPLOYMENT, type ApprovalCheck, type Employment, type WriteAction } from "./policy.ts";
+import type { ApprovalAction, RunEventInput } from "./run-types.ts";
 
 export interface DeferredApprovalRequest {
   runId?: string;
@@ -16,6 +17,8 @@ export interface DeferredApprovalRequest {
   title: string;
   details: string;
   action: ApprovalAction;
+  /** Why a person is asked, in plain words. */
+  reason?: string;
 }
 
 export interface ToolDeps {
@@ -25,6 +28,8 @@ export interface ToolDeps {
   knowledge: KnowledgeService;
   mail: MailService;
   requestApproval: (companyId: string, request: DeferredApprovalRequest) => Promise<{ id: string }>;
+  /** Changes the AI employee made alone today (for its daily limit when trusted). */
+  changesToday?: (agentId: string) => Promise<number>;
 }
 
 export interface ToolScope {
@@ -32,8 +37,12 @@ export interface ToolScope {
   agentId: string;
   runId?: string;
   definition: AgentDefinition;
+  /** Its level and limits; supervised when unknown (e.g. the default company assistant). */
+  employment?: Employment;
   /** Knowledge hits retrieved during the loop, used for citations. */
   citations: SearchHit[];
+  /** Records changes made without a person in the run's history. */
+  emit?: (event: RunEventInput) => Promise<void>;
 }
 
 export interface RuntimeTool {
@@ -43,22 +52,17 @@ export interface RuntimeTool {
   execute(input: Record<string, unknown>): Promise<ToolExecution>;
 }
 
-/** Does the agent's guardrail policy require a human approval for this action? */
-export function needsApproval(
-  definition: AgentDefinition,
-  action: { capability: "mail.send" } | { ref: string; operation: string; kind: "read" | "write" },
+/** Ask the policy, counting today's changes only when the AI employee has a daily limit. */
+export async function approvalCheck(
+  deps: Pick<ToolDeps, "changesToday">,
+  scope: { agentId: string; definition: AgentDefinition; employment?: Employment },
+  action: WriteAction,
   explicit?: boolean,
-): boolean {
-  if (explicit !== undefined) return explicit;
-  const policies = definition.guardrails.approvalRequiredFor;
-  if ("capability" in action) return policies.includes(action.capability);
-  return policies.some(
-    (p) =>
-      p === "connector:*" ||
-      (p === "connector:write" && action.kind === "write") ||
-      (p === `connector:${action.ref}` && action.kind === "write") ||
-      p === `connector:${action.ref}.${action.operation}`,
-  );
+): Promise<ApprovalCheck> {
+  const employment = scope.employment ?? DEFAULT_EMPLOYMENT;
+  const counted = explicit === undefined && employment.probation === "trusted" && employment.limits.maxActionsPerDay !== undefined;
+  const changesToday = counted ? await deps.changesToday?.(scope.agentId) : undefined;
+  return checkApproval(scope.definition, employment, action, { explicit, changesToday });
 }
 
 function json(value: unknown, max = 40_000): string {
@@ -89,7 +93,7 @@ export async function buildTools(
   const { companyId, definition } = scope;
   const unique = [...new Set(capabilities)];
 
-  const deferred = async (title: string, action: ApprovalAction): Promise<ToolExecution> => {
+  const deferred = async (title: string, action: ApprovalAction, reason: string): Promise<ToolExecution> => {
     const approval = await deps.requestApproval(companyId, {
       runId: scope.runId,
       agentId: scope.agentId,
@@ -97,6 +101,7 @@ export async function buildTools(
       title,
       details: describeAction(action),
       action,
+      reason,
     });
     return {
       content: `Submitted for human approval (approval id ${approval.id}). The action will be executed once approved; tell the user it is pending approval.`,
@@ -264,8 +269,15 @@ export async function buildTools(
               body: String(input.body),
               inReplyTo: input.in_reply_to ? String(input.in_reply_to) : undefined,
             };
-            if (needsApproval(definition, { capability: "mail.send" })) return deferred(`Send email to ${action.to}`, action);
+            const check = await approvalCheck(deps, scope, { type: "mail.send", to: action.to });
+            if (check.needed) return deferred(`Send email to ${action.to}`, action, check.reason);
             const sent = await deps.mail.send(companyId, action);
+            await scope.emit?.({
+              type: "action.executed",
+              stepId: "agent",
+              message: `Sent email to ${action.to}: ${action.subject}`,
+              data: { alone: check.alone ?? false, reason: check.reason, action: { type: "mail.send", to: action.to, subject: action.subject } },
+            });
             return { content: `Email sent (id ${sent.messageId}).` };
           },
         });
@@ -306,19 +318,32 @@ export async function buildTools(
               inputSchema: objectSchema(op.input),
             },
             async execute(input) {
-              if (op.kind === "write" && needsApproval(definition, { ref: binding.ref, operation: op.id, kind: "write" })) {
-                return deferred(`${op.name} in ${target.name}`, {
-                  type: "connector",
-                  ref: binding.ref,
-                  category: binding.category,
-                  instanceId: target.instanceId ?? undefined,
-                  operation: op.id,
-                  operationName: op.name,
-                  system: target.name,
-                  input,
-                });
+              const check = op.kind === "write" ? await approvalCheck(deps, scope, { type: "connector", ref: binding.ref, operation: op.id, input }) : undefined;
+              if (check?.needed) {
+                return deferred(
+                  `${op.name} in ${target.name}`,
+                  {
+                    type: "connector",
+                    ref: binding.ref,
+                    category: binding.category,
+                    instanceId: target.instanceId ?? undefined,
+                    operation: op.id,
+                    operationName: op.name,
+                    system: target.name,
+                    input,
+                  },
+                  check.reason,
+                );
               }
               const result = await deps.connectors.execute(companyId, target, op.id, input);
+              if (check) {
+                await scope.emit?.({
+                  type: "action.executed",
+                  stepId: "agent",
+                  message: `${op.name} in ${target.name}`,
+                  data: { alone: check.alone ?? false, reason: check.reason, action: { type: "connector", ref: binding.ref, operation: op.id } },
+                });
+              }
               return { content: json(result) };
             },
           });

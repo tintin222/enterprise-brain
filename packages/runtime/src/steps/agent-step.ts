@@ -22,7 +22,9 @@ export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps:
     agentId: scope.agentId,
     runId: scope.runId,
     definition: scope.definition,
+    employment: scope.employment,
     citations: [],
+    emit: scope.emit,
   };
 
   if (!deps.llm.available) {

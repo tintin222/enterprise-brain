@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { searchCatalog } from "@enterprise-brain/catalog";
-import { requireAdmin, requireAnyManager } from "../auth/viewer.ts";
+import { actorOf, requireAdmin, requireAnyManager } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf } from "../http.ts";
 
@@ -47,27 +47,30 @@ export async function catalogRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post("/api/companies/:company/catalog/departments/:department/install", async (request) => {
     const company = await companyOf(platform, request);
-    requireAdmin(request);
+    const viewer = requireAdmin(request);
     const { department } = request.params as { department: string };
     const body = z.object({ processes: z.array(z.string()).optional(), activate: z.boolean().optional() }).parse(request.body ?? {});
-    const result = await platform.catalog.installDepartment(company.id, department, { ...body, actor: "user" });
+    const result = await platform.catalog.installDepartment(company.id, department, { ...body, actor: actorOf(viewer) });
+    await platform.employment.assignDefaultManagers(company.id, { by: viewer.userId, agentIds: result.agents.map((a) => a.row.id) });
     return { department: result.department, processes: result.processes, agents: result.agents.map((a) => a.row) };
   });
 
   app.post("/api/companies/:company/catalog/agents/:template/install", async (request) => {
     const company = await companyOf(platform, request);
-    requireAnyManager(request);
+    const viewer = requireAnyManager(request);
     const { template } = request.params as { template: string };
     const body = z.object({ activate: z.boolean().optional() }).parse(request.body ?? {});
-    const agent = await platform.catalog.installAgentTemplate(company.id, template, { ...body, actor: "user" });
-    return agent.row;
+    const agent = await platform.catalog.installAgentTemplate(company.id, template, { ...body, actor: actorOf(viewer) });
+    await platform.employment.assignDefaultManagers(company.id, { by: viewer.userId, agentIds: [agent.row.id] });
+    return (await platform.agents.get(company.id, agent.row.id)).row;
   });
 
   app.post("/api/companies/:company/catalog/use-cases/:useCase/install", async (request) => {
     const company = await companyOf(platform, request);
-    requireAnyManager(request);
+    const viewer = requireAnyManager(request);
     const { useCase } = request.params as { useCase: string };
-    const result = await platform.catalog.installUseCase(company.id, useCase, { actor: "user" });
+    const result = await platform.catalog.installUseCase(company.id, useCase, { actor: actorOf(viewer) });
+    if (result.agent) await platform.employment.assignDefaultManagers(company.id, { by: viewer.userId, agentIds: [result.agent.row.id] });
     return { useCase: result.useCase, agent: result.agent?.row ?? null };
   });
 

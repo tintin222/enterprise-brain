@@ -30,6 +30,7 @@ import { Badge, StatusPill } from "../../components/Badge.tsx";
 import { Button, ButtonLink } from "../../components/Button.tsx";
 import { Card, CardHeader } from "../../components/Card.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
+import { EmploymentPanel } from "../../components/Employment.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Field } from "../../components/Form.tsx";
 import { KeyValue } from "../../components/KeyValue.tsx";
@@ -63,8 +64,13 @@ function Overview({ detail }: { detail: AgentDetailData }) {
   const connectors = useConnectors();
   const departmentName = useDepartmentName();
   const g = definition.guardrails;
+  // Blanket rules ("every email", "every change") predate probation levels: the level decides those now.
+  const alwaysAsks = g.approvalRequiredFor.filter((r) => !["mail.send", "connector:write", "connector:*"].includes(r));
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div className="lg:col-span-2">
+        <EmploymentPanel detail={detail} />
+      </div>
       <Section title="About" icon={Bot} className="lg:col-span-2">
         <KeyValue
           items={[
@@ -144,17 +150,17 @@ function Overview({ detail }: { detail: AgentDetailData }) {
       <Section title="Guardrails" icon={ShieldCheck}>
         <div className="space-y-3 text-sm">
           <div>
-            <p className="mb-1.5 text-xs font-medium text-muted">Human approval required for</p>
-            {g.approvalRequiredFor.length ? (
+            <p className="mb-1.5 text-xs font-medium text-muted">Always asks a person before, at every level</p>
+            {alwaysAsks.length ? (
               <div className="flex flex-wrap gap-1.5">
-                {g.approvalRequiredFor.map((r) => (
+                {alwaysAsks.map((r) => (
                   <Badge key={r} tone="amber">
                     {approvalRuleLabel(r)}
                   </Badge>
                 ))}
               </div>
             ) : (
-              <p className="text-muted">Nothing — fully automatic</p>
+              <p className="text-muted">Nothing beyond its probation level</p>
             )}
           </div>
           <p className="flex items-center gap-2 text-fg">

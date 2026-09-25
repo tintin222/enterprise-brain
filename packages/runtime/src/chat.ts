@@ -3,7 +3,7 @@ import { truncate, type AgentDefinition } from "@enterprise-brain/core";
 import { chatConversations, chatMessages, type DatabaseHandle } from "@enterprise-brain/db";
 import type { KnowledgeService, SearchHit } from "@enterprise-brain/knowledge";
 import type { LlmClient, LlmUsage, MessageParam } from "@enterprise-brain/llm";
-import type { AgentService } from "./agents.ts";
+import { employmentOf, type AgentService } from "./agents.ts";
 import { TOOL_GUIDANCE } from "./steps/index.ts";
 import { buildTools, type ToolDeps } from "./tools.ts";
 
@@ -107,7 +107,7 @@ export class ChatService {
       const capabilities = [...new Set([...definition.tools, "knowledge.search"])];
       const { tools, serverTools } = await buildTools(
         this.toolDeps,
-        { companyId, agentId: agent?.row.id ?? "company-assistant", definition, citations },
+        { companyId, agentId: agent?.row.id ?? "company-assistant", definition, employment: agent ? employmentOf(agent.row) : undefined, citations },
         capabilities,
       );
       const byName = new Map(tools.map((t) => [t.definition.name, t]));

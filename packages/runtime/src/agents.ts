@@ -1,8 +1,24 @@
 import { and, desc, eq, or } from "drizzle-orm";
-import { AgentDefinition, AgentStatus, type AgentDefinitionInput } from "@enterprise-brain/core";
+import { AgentDefinition, AgentStatus, Probation, TrustLimits, type AgentDefinitionInput } from "@enterprise-brain/core";
 import { agentVersions, agents, type DatabaseHandle } from "@enterprise-brain/db";
+import { defaultProbation, type Employment } from "./policy.ts";
 
 export type AgentRow = typeof agents.$inferSelect;
+
+/** An AI employee's level and limits from its row (supervised when the stored values don't parse). */
+export function employmentOf(row: Pick<AgentRow, "probation" | "limits">): Employment {
+  const probation = Probation.safeParse(row.probation);
+  const limits = TrustLimits.safeParse(row.limits ?? {});
+  return { probation: probation.success ? probation.data : "supervised", limits: limits.success ? limits.data : {} };
+}
+
+/** What a manager changes about an AI employee's employment (not versioned with its job). */
+export interface EmploymentPatch {
+  managerUserId?: string | null;
+  probation?: Probation;
+  limits?: TrustLimits;
+  monthlyBudgetUsd?: number | null;
+}
 
 export interface AgentRecord {
   row: AgentRow;
@@ -33,6 +49,9 @@ export class AgentService {
       processId?: string | null;
       builderSessionId?: string | null;
       createdBy?: string;
+      /** Default: trusted when its guardrails ask for no approvals, else supervised. */
+      probation?: Probation;
+      managerUserId?: string | null;
     },
   ): Promise<AgentRecord> {
     const definition = AgentDefinition.parse(input.definition);
@@ -54,6 +73,8 @@ export class AgentService {
         builderSessionId: input.builderSessionId ?? null,
         definition: finalDefinition as unknown as Record<string, unknown>,
         version: 1,
+        probation: input.probation ?? defaultProbation(finalDefinition),
+        managerUserId: input.managerUserId ?? null,
       })
       .returning();
     await this.handle.db.insert(agentVersions).values({
@@ -116,6 +137,17 @@ export class AgentService {
       .set({ status, updatedAt: new Date() })
       .where(eq(agents.id, current.row.id))
       .returning();
+    return { row: row!, definition: current.definition };
+  }
+
+  async setEmployment(companyId: string, ref: string, patch: EmploymentPatch): Promise<AgentRecord> {
+    const current = await this.get(companyId, ref);
+    const set: Partial<typeof agents.$inferInsert> = { updatedAt: new Date() };
+    if (patch.managerUserId !== undefined) set.managerUserId = patch.managerUserId;
+    if (patch.probation !== undefined) set.probation = patch.probation;
+    if (patch.limits !== undefined) set.limits = TrustLimits.parse(patch.limits) as Record<string, unknown>;
+    if (patch.monthlyBudgetUsd !== undefined) set.monthlyBudgetUsd = patch.monthlyBudgetUsd;
+    const [row] = await this.handle.db.update(agents).set(set).where(eq(agents.id, current.row.id)).returning();
     return { row: row!, definition: current.definition };
   }
 

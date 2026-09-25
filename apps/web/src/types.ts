@@ -189,6 +189,9 @@ export interface AgentRow {
   builderSessionId: string | null;
   version: number;
   paperclipAgentId: string | null;
+  managerUserId?: string | null;
+  probation?: Probation;
+  monthlyBudgetUsd?: number | null;
   createdAt: string;
   updatedAt: string;
   title?: string;
@@ -210,6 +213,31 @@ export interface AgentDetail {
   definition: AgentDefinition;
   versions: AgentVersion[];
   recentRuns: RunRow[];
+  employment?: Employment;
+  /** The viewer may change it (a manager of its department, or an admin). */
+  canManage?: boolean;
+  managerCandidates?: { id: string; name: string; title: string | null }[];
+}
+
+/** How much an AI employee may do alone. */
+export type Probation = "shadow" | "supervised" | "trusted";
+
+export interface TrustLimits {
+  maxAmount?: number;
+  currency?: string;
+  maxActionsPerDay?: number;
+  mailDomains?: string[];
+}
+
+export interface Employment {
+  manager: { id: string; name: string; email: string; title: string | null } | null;
+  probation: Probation;
+  limits: TrustLimits;
+  monthlyBudgetUsd: number | null;
+  costThisMonthUsd: number;
+  stoppedByBudget: boolean;
+  changesToday: number;
+  duties: { kind: string; text: string }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +325,8 @@ export interface Approval {
   details: string;
   action: ApprovalAction;
   assigneeRole: string | null;
+  /** Why a person is asked ("Supervised: every change goes to a person"). */
+  reason?: string | null;
   status: ApprovalStatus;
   decidedBy: string | null;
   decisionNote: string | null;

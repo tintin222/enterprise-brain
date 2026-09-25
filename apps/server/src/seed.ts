@@ -37,6 +37,8 @@ export async function seedDemoPeople(platform: Platform, company: CompanyRow): P
       .filter((d): d is { departmentId: string; role: MembershipRole } => Boolean(d.departmentId));
     await platform.people.create(company.id, { email, name: person.name, title: person.title, role: person.admin ? "admin" : "member", departments, authProvider: "demo" });
   }
+  // Each demo AI employee reports to its department's manager.
+  await platform.employment.assignDefaultManagers(company.id);
   const [row] = await platform.handle.db.select({ settings: companies.settings }).from(companies).where(eq(companies.id, company.id));
   const signIn = (row?.settings.signIn ?? {}) as Record<string, unknown>;
   const settings = { ...(row?.settings ?? {}), demo: true, signIn: { ...signIn, demo: true, demoEmails: emails } };

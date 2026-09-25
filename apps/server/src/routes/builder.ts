@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { StakeholderRole } from "@enterprise-brain/core";
+import { requireAnyManager, viewerOf } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf, readMultipart } from "../http.ts";
 
@@ -35,6 +36,7 @@ export async function builderRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get("/api/companies/:company/builder/sessions", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const sessions = await builder.list(company.id);
     return sessions.map((s) => ({
       id: s.id,
@@ -53,17 +55,20 @@ export async function builderRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post("/api/companies/:company/builder/sessions", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     return builder.start(company.id, StartBody.parse(request.body));
   });
 
   app.get("/api/companies/:company/builder/sessions/:id", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { id } = request.params as { id: string };
     return builder.get(company.id, id);
   });
 
   app.post("/api/companies/:company/builder/sessions/:id/reply", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { id } = request.params as { id: string };
     if (request.isMultipart()) {
       const { fields, files } = await readMultipart(platform, company.id, request, "builder");
@@ -74,6 +79,7 @@ export async function builderRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post("/api/companies/:company/builder/sessions/:id/samples", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { id } = request.params as { id: string };
     if (!request.isMultipart()) throw new HttpError(400, "Upload samples as multipart/form-data");
     const { files } = await readMultipart(platform, company.id, request, "builder");
@@ -82,6 +88,7 @@ export async function builderRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post("/api/companies/:company/builder/sessions/:id/reference", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { id } = request.params as { id: string };
     if (!request.isMultipart()) throw new HttpError(400, "Upload documents as multipart/form-data");
     const { files } = await readMultipart(platform, company.id, request, "knowledge");
@@ -90,24 +97,32 @@ export async function builderRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post("/api/companies/:company/builder/sessions/:id/proceed", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { id } = request.params as { id: string };
     return builder.proceedWithAssumptions(company.id, id);
   });
 
   app.post("/api/companies/:company/builder/sessions/:id/confirm", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { id } = request.params as { id: string };
-    return builder.confirm(company.id, id);
+    const view = await builder.confirm(company.id, id);
+    if (view.agent) await platform.employment.assignDefaultManagers(company.id, { by: viewerOf(request).userId, agentIds: [view.agent.id] });
+    return view;
   });
 
   app.post("/api/companies/:company/builder/sessions/:id/activate", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { id } = request.params as { id: string };
-    return builder.activate(company.id, id);
+    const view = await builder.activate(company.id, id);
+    if (view.agent) await platform.employment.assignDefaultManagers(company.id, { by: viewerOf(request).userId, agentIds: [view.agent.id] });
+    return view;
   });
 
   app.post("/api/companies/:company/builder/sessions/:id/reopen", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { id } = request.params as { id: string };
     const { nodeId } = z.object({ nodeId: z.string() }).parse(request.body);
     return builder.reopenNode(company.id, id, nodeId);
@@ -115,6 +130,7 @@ export async function builderRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.put("/api/companies/:company/builder/requests/:id", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { id } = request.params as { id: string };
     const body = z
       .object({ recipientName: z.string().optional(), recipientEmail: z.string().optional(), subject: z.string().optional(), body: z.string().optional() })
@@ -124,6 +140,7 @@ export async function builderRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post("/api/companies/:company/builder/requests/:id/send", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { id } = request.params as { id: string };
     const { via } = z.object({ via: z.enum(["mail", "manual"]).default("manual") }).parse(request.body ?? {});
     return builder.sendRequest(company.id, id, { via });

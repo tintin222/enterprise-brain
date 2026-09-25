@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { AgentStatus, type AgentDefinition } from "@enterprise-brain/core";
-import { canManageDepartment, canSeeDepartment, requireAdmin, viewerOf } from "../auth/viewer.ts";
+import { AgentStatus, Probation, TrustLimits, type AgentDefinition } from "@enterprise-brain/core";
+import { actorOf, canManageDepartment, canSeeDepartment, requireAdmin, viewerOf } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf, readMultipart, sse } from "../http.ts";
 
@@ -83,25 +83,33 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post("/api/companies/:company/agents", async (request) => {
     const company = await companyOf(platform, request);
-    requireAdmin(request);
+    const viewer = requireAdmin(request);
     const body = z.object({ definition: z.record(z.string(), z.unknown()), status: AgentStatus.optional() }).parse(request.body);
-    const agent = await platform.agents.create(company.id, { definition: body.definition as never, status: body.status, source: "manual", createdBy: "user" });
-    return agent.row;
+    const agent = await platform.agents.create(company.id, { definition: body.definition as never, status: body.status, source: "manual", createdBy: actorOf(viewer) });
+    await platform.employment.assignDefaultManagers(company.id, { by: viewer.userId, agentIds: [agent.row.id] });
+    return (await platform.agents.get(company.id, agent.row.id)).row;
   });
 
   app.get("/api/companies/:company/agents/:agent", async (request) => {
     const company = await companyOf(platform, request);
     const { agent: ref } = request.params as { agent: string };
     const agent = await agentFor(request, company.id, ref);
-    const [versions, recentRuns] = await Promise.all([
+    const canManage = canManageDepartment(viewerOf(request), agent.row.departmentId);
+    const [versions, recentRuns, employment, managers] = await Promise.all([
       platform.agents.versions(company.id, ref),
       platform.engine.list(company.id, { agentId: agent.row.id, limit: 20 }),
+      platform.employment.view(company.id, agent),
+      canManage ? platform.employment.candidates(company.id, agent) : Promise.resolve([]),
     ]);
     return {
       agent: agent.row,
       definition: agent.definition,
       versions: versions.map((v) => ({ version: v.version, note: v.note, createdBy: v.createdBy, createdAt: v.createdAt })),
       recentRuns: recentRuns.map((r) => ({ ...r, context: undefined })),
+      employment,
+      canManage,
+      /** Who may be its manager (for those who may change it). */
+      managerCandidates: managers.map((p) => ({ id: p.id, name: p.name, title: p.title })),
     };
   });
 
@@ -123,6 +131,23 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     const agent = await platform.agents.setStatus(company.id, ref, status);
     await platform.activity.record(company.id, { actor: "user", action: `agent.${status}`, entityType: "agent", entityId: agent.row.id, summary: `${agent.definition.name} → ${status}` });
     return agent.row;
+  });
+
+  /** Its manager, probation level, limits and monthly budget: set by a manager of its department. */
+  app.put("/api/companies/:company/agents/:agent/employment", async (request) => {
+    const company = await companyOf(platform, request);
+    const { agent: ref } = request.params as { agent: string };
+    const body = z
+      .object({
+        managerUserId: z.string().uuid().nullable().optional(),
+        probation: Probation.optional(),
+        limits: TrustLimits.optional(),
+        monthlyBudgetUsd: z.number().min(0).nullable().optional(),
+      })
+      .parse(request.body);
+    await agentFor(request, company.id, ref, true);
+    const agent = await platform.employment.update(company.id, ref, body, actorOf(viewerOf(request)));
+    return { agent: agent.row, employment: await platform.employment.view(company.id, agent) };
   });
 
   app.post("/api/companies/:company/agents/:agent/rollback", async (request) => {

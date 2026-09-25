@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   boolean,
   customType,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -153,6 +154,15 @@ export const agents = pgTable(
     definition: jsonb("definition").$type<Record<string, unknown>>().notNull(),
     version: integer("version").notNull().default(1),
     paperclipAgentId: text("paperclip_agent_id"),
+    // Employment: not part of the versioned job definition, so a rollback keeps them.
+    /** The person accountable for this AI employee: sets its level, hears when it stops. */
+    managerUserId: uuid("manager_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** How much it may do alone: shadow, supervised or trusted. */
+    probation: text("probation").notNull().default("supervised"),
+    /** What a trusted AI employee may do alone (TrustLimits). */
+    limits: jsonb("limits").$type<Record<string, unknown>>().notNull().default({}),
+    /** It stops starting work when this month's model cost reaches the budget. */
+    monthlyBudgetUsd: doublePrecision("monthly_budget_usd"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
@@ -345,6 +355,8 @@ export const approvals = pgTable(
     /** What happens when approved (tool/operation + resolved input). */
     action: jsonb("action").$type<Record<string, unknown>>().notNull().default({}),
     assigneeRole: text("assignee_role"),
+    /** Why a person is asked, in plain words ("Supervised: every change goes to a person"). */
+    reason: text("reason"),
     status: text("status").notNull().default("pending"),
     decidedBy: text("decided_by"),
     decisionNote: text("decision_note"),

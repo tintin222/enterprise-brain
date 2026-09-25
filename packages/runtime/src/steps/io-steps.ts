@@ -4,7 +4,7 @@ import { buildContext } from "@enterprise-brain/knowledge";
 import type { LlmUsage } from "@enterprise-brain/llm";
 import { toFileIds } from "../files.ts";
 import type { ExecutionScope, StepOutcome } from "../run-types.ts";
-import { needsApproval, type ToolDeps } from "../tools.ts";
+import { approvalCheck, type ToolDeps } from "../tools.ts";
 import { mergeUsage } from "./llm-steps.ts";
 
 type Step<T extends WorkflowStep["type"]> = Extract<WorkflowStep, { type: T }>;
@@ -73,11 +73,14 @@ export async function runConnector(step: Step<"connector">, scope: ExecutionScop
   const op = deps.connectors.operation(resolved.impl, step.operation);
   const resolvedInput = resolveTemplate(step.input, scope.context);
   const input = isRecord(resolvedInput) ? stripEmpty(resolvedInput) : {};
-  if (op.kind === "write" && needsApproval(scope.definition, { ref: binding.ref, operation: op.id, kind: "write" }, step.requiresApproval)) {
+  const check =
+    op.kind === "write" ? await approvalCheck(deps, scope, { type: "connector", ref: binding.ref, operation: op.id, input }, step.requiresApproval) : undefined;
+  if (check?.needed) {
     return {
       kind: "pause",
       title: `${op.name} in ${resolved.name}`,
       details: `${scope.definition.name} wants to ${op.name.toLowerCase()} in ${resolved.name}${resolved.sandbox ? " (sandbox)" : ""}.`,
+      reason: check.reason,
       action: {
         type: "connector",
         ref: binding.ref,
@@ -91,6 +94,14 @@ export async function runConnector(step: Step<"connector">, scope: ExecutionScop
     };
   }
   const result = await deps.connectors.execute(scope.companyId, resolved, op.id, input);
+  if (check) {
+    await scope.emit({
+      type: "action.executed",
+      stepId: step.id,
+      message: `${op.name} in ${resolved.name}`,
+      data: { alone: check.alone ?? false, reason: check.reason, action: { type: "connector", ref: binding.ref, operation: op.id } },
+    });
+  }
   return { kind: "done", result, message: `${resolved.name}${resolved.sandbox ? " (sandbox)" : ""}: ${op.name}` };
 }
 
@@ -123,15 +134,23 @@ export async function runMailSend(step: Step<"mail.send">, scope: ExecutionScope
     inReplyTo: step.inReplyTo ? renderTemplate(step.inReplyTo, scope.context) || undefined : undefined,
   };
   if (!action.to) throw new Error(`Step "${step.id}": no recipient`);
-  if (needsApproval(scope.definition, { capability: "mail.send" }, step.requiresApproval)) {
+  const check = await approvalCheck(deps, scope, { type: "mail.send", to: action.to }, step.requiresApproval);
+  if (check.needed) {
     return {
       kind: "pause",
       title: `Send email to ${action.to}`,
       details: `Subject: ${action.subject}\n\n${action.body}`,
+      reason: check.reason,
       action,
     };
   }
   const sent = await deps.mail.send(scope.companyId, action);
+  await scope.emit({
+    type: "action.executed",
+    stepId: step.id,
+    message: `Sent email to ${action.to}: ${action.subject}`,
+    data: { alone: check.alone ?? false, reason: check.reason, action: { type: "mail.send", to: action.to, subject: action.subject } },
+  });
   return { kind: "done", result: { sent: true, messageId: sent.messageId, delivery: sent.delivery, to: action.to, subject: action.subject } };
 }
 

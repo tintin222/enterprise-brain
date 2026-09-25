@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, max } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, max, sql } from "drizzle-orm";
 import {
   evaluateCondition,
   isRecord,
@@ -7,11 +7,11 @@ import {
   type AgentDefinition,
   type WorkflowStep,
 } from "@enterprise-brain/core";
-import { approvals, runEvents, runs, type DatabaseHandle } from "@enterprise-brain/db";
+import { activityLog, approvals, runEvents, runs, type DatabaseHandle } from "@enterprise-brain/db";
 import type { LlmUsage } from "@enterprise-brain/llm";
 import { describeAction, executeAction } from "./actions.ts";
 import type { ActivityService } from "./activity.ts";
-import type { AgentRecord, AgentService } from "./agents.ts";
+import { employmentOf, type AgentRecord, type AgentService } from "./agents.ts";
 import type {
   ApprovalAction,
   ExecutionScope,
@@ -60,6 +60,19 @@ export class RunError extends Error {
   }
 }
 
+/** The AI employee reached its monthly budget: it starts no new work until its manager raises it. */
+export class BudgetError extends RunError {
+  constructor(message: string) {
+    super(message, 409);
+    this.name = "BudgetError";
+  }
+}
+
+/** The first moment of the current month (server time): budgets count from here. */
+export function monthStart(now = new Date()): Date {
+  return new Date(now.getFullYear(), now.getMonth(), 1);
+}
+
 /** The default single step for agents without a workflow: an autonomous tool loop over the input. */
 export function defaultAgentStep(definition: AgentDefinition): WorkflowStep {
   return {
@@ -84,7 +97,11 @@ export class RunEngine {
   private readonly seqs = new Map<string, number>();
 
   constructor(private readonly deps: EngineDeps) {
-    this.toolDeps = { ...deps, requestApproval: (companyId, request) => this.requestDeferredApproval(companyId, request) };
+    this.toolDeps = {
+      ...deps,
+      requestApproval: (companyId, request) => this.requestDeferredApproval(companyId, request),
+      changesToday: (agentId) => this.changesToday(agentId),
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -95,6 +112,7 @@ export class RunEngine {
     const agent = await this.deps.agents.get(companyId, agentRef);
     const trigger = options.trigger ?? "manual";
     this.assertRunnable(agent, trigger, options.isTest ?? false);
+    if (!options.isTest) await this.assertWithinBudget(companyId, agent);
     const missing = agent.definition.inputs
       .filter((f) => !options.task && f.required && (input[f.key] === undefined || input[f.key] === null || input[f.key] === ""))
       .map((f) => f.label ?? f.key);
@@ -130,6 +148,71 @@ export class RunEngine {
     return this.getRow(companyId, run!.id);
   }
 
+  /** This month's model cost of an AI employee's work (test runs included: they cost the same). */
+  async costThisMonth(agentId: string, now = new Date()): Promise<number> {
+    const [row] = await this.deps.handle.db
+      .select({ usd: sql<number>`coalesce(sum((${runs.usage}->>'costUsd')::numeric), 0)::float` })
+      .from(runs)
+      .where(and(eq(runs.agentId, agentId), gte(runs.createdAt, monthStart(now))));
+    return Number(row?.usd ?? 0);
+  }
+
+  /** Changes the AI employee made alone (without a person) since midnight, for its daily limit. */
+  async changesToday(agentId: string, now = new Date()): Promise<number> {
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const [row] = await this.deps.handle.db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(runEvents)
+      .innerJoin(runs, eq(runs.id, runEvents.runId))
+      .where(
+        and(eq(runs.agentId, agentId), eq(runEvents.type, "action.executed"), gte(runEvents.createdAt, midnight), sql`(${runEvents.data}->>'alone')::boolean`),
+      );
+    return Number(row?.n ?? 0);
+  }
+
+  private async assertWithinBudget(companyId: string, agent: AgentRecord) {
+    const budget = agent.row.monthlyBudgetUsd;
+    if (budget === null || budget === undefined) return;
+    const spent = await this.costThisMonth(agent.row.id);
+    if (spent < budget) return;
+    await this.noteBudgetReached(companyId, agent.row.id, agent.definition.name, spent, budget);
+    throw new BudgetError(`${agent.definition.name} reached its monthly budget ($${budget.toFixed(2)}). Its manager can raise it.`);
+  }
+
+  /** Tell the manager once a month that the AI employee stopped at its budget (activity; the work queue shows it). */
+  private async noteBudgetReached(companyId: string, agentId: string, name: string, spent: number, budget: number) {
+    const [already] = await this.deps.handle.db
+      .select({ id: activityLog.id })
+      .from(activityLog)
+      .where(
+        and(
+          eq(activityLog.companyId, companyId),
+          eq(activityLog.action, "agent.budget_reached"),
+          eq(activityLog.entityId, agentId),
+          gte(activityLog.createdAt, monthStart()),
+        ),
+      )
+      .limit(1);
+    if (already) return;
+    await this.deps.activity.record(companyId, {
+      actor: `agent:${agentId}`,
+      action: "agent.budget_reached",
+      entityType: "agent",
+      entityId: agentId,
+      summary: `${name} stopped: it reached its monthly budget ($${spent.toFixed(2)} of $${budget.toFixed(2)})`,
+      data: { spentUsd: spent, budgetUsd: budget },
+    });
+  }
+
+  /** After a run: when it used up the rest of the budget, tell the manager now rather than at the next start. */
+  private async afterRun(companyId: string, agentId: string) {
+    const agent = await this.deps.agents.find(companyId, agentId);
+    const budget = agent?.row.monthlyBudgetUsd;
+    if (!agent || budget === null || budget === undefined) return;
+    const spent = await this.costThisMonth(agentId);
+    if (spent >= budget) await this.noteBudgetReached(companyId, agentId, agent.definition.name, spent, budget);
+  }
+
   private assertRunnable(agent: AgentRecord, trigger: string, isTest: boolean) {
     const status = agent.row.status;
     if (isTest) return;
@@ -155,10 +238,13 @@ export class RunEngine {
     let definition: AgentDefinition;
     let agentName = "Agent";
     let agentSlug = "agent";
+    let employment;
     try {
       definition = await this.deps.agents.definitionAt(run.agentId, run.agentVersion);
       agentName = definition.name;
       agentSlug = definition.slug;
+      // The level and limits as the manager set them now (a run resumed after a change follows the change).
+      employment = employmentOf((await this.deps.agents.get(companyId, run.agentId)).row);
     } catch (error) {
       await this.fail(run, error);
       return;
@@ -177,6 +263,7 @@ export class RunEngine {
       runId,
       agentId: run.agentId,
       definition,
+      employment,
       context,
       emit: (event) => this.emit(runId, event),
       onText: (delta) => this.textListeners.get(runId)?.forEach((fn) => fn(delta)),
@@ -247,6 +334,7 @@ export class RunEngine {
             details: outcome.details || describeAction(outcome.action),
             action: outcome.action as unknown as Record<string, unknown>,
             assigneeRole: outcome.assigneeRole ?? null,
+            reason: outcome.reason ?? null,
           })
           .returning();
         state.pending = { stepId: step.id, approvalId: approval!.id, kind: outcome.action.type === "decision" ? "decision" : "gated" };
@@ -259,7 +347,7 @@ export class RunEngine {
           type: "approval.requested",
           stepId: step.id,
           message: outcome.title,
-          data: { approvalId: approval!.id, action: outcome.action as unknown as Record<string, unknown> },
+          data: { approvalId: approval!.id, action: outcome.action as unknown as Record<string, unknown>, reason: outcome.reason ?? null },
         });
         await this.deps.activity.record(companyId, {
           actor: `agent:${run.agentId}`,
@@ -303,6 +391,7 @@ export class RunEngine {
       entityId: runId,
       summary: `${agentName} finished`,
     });
+    await this.afterRun(companyId, run.agentId).catch(() => undefined);
   }
 
   private async fail(run: RunRow, error: unknown, stepId?: string) {
@@ -316,6 +405,7 @@ export class RunEngine {
       entityId: run.id,
       summary: `Run failed: ${truncate(message, 200)}`,
     });
+    await this.afterRun(run.companyId, run.agentId).catch(() => undefined);
   }
 
   private async persist(runId: string, patch: Partial<Pick<RunRow, "status" | "context" | "usage" | "currentStep" | "output" | "error" | "finishedAt">>) {
@@ -386,6 +476,7 @@ export class RunEngine {
         title: request.title,
         details: request.details,
         action: request.action as unknown as Record<string, unknown>,
+        reason: request.reason ?? null,
       })
       .returning();
     if (request.runId) {
@@ -393,7 +484,7 @@ export class RunEngine {
         type: "approval.requested",
         stepId: request.stepId,
         message: request.title,
-        data: { approvalId: approval!.id, deferred: true },
+        data: { approvalId: approval!.id, deferred: true, reason: request.reason ?? null },
       });
     }
     await this.deps.activity.record(companyId, {

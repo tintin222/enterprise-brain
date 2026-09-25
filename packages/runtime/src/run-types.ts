@@ -1,5 +1,6 @@
 import type { AgentDefinition } from "@enterprise-brain/core";
 import type { LlmUsage } from "@enterprise-brain/llm";
+import type { Employment } from "./policy.ts";
 
 export type RunStatus = "queued" | "running" | "waiting_approval" | "succeeded" | "failed" | "cancelled";
 
@@ -59,13 +60,15 @@ export interface RunEventRecord extends RunEventInput {
 
 export type StepOutcome =
   | { kind: "done"; result: unknown; usage?: LlmUsage; message?: string }
-  | { kind: "pause"; title: string; details: string; assigneeRole?: string; action: ApprovalAction };
+  | { kind: "pause"; title: string; details: string; assigneeRole?: string; action: ApprovalAction; reason?: string };
 
 export interface ExecutionScope {
   companyId: string;
   runId: string;
   agentId: string;
   definition: AgentDefinition;
+  /** Its level and limits, read when the run (re)starts: the manager's latest decision applies. */
+  employment: Employment;
   context: RunContext;
   emit: (event: RunEventInput) => Promise<void>;
   onText?: (delta: string) => void;

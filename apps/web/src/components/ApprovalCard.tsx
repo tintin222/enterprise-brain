@@ -127,6 +127,11 @@ export function ApprovalCard({ approval, showAgent = true, className }: { approv
         </div>
       </div>
       <div className="space-y-3 px-4 py-3">
+        {approval.reason && (
+          <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:bg-amber-400/10 dark:text-amber-200">
+            <span className="font-semibold">Why you are asked:</span> {approval.reason}
+          </p>
+        )}
         {approval.details && (
           <Markdown compact breaks className="max-h-80 overflow-y-auto text-[13px]">
             {approval.details}

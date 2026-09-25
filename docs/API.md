@@ -55,9 +55,10 @@ Template shapes are defined in `packages/core/src/catalog.ts` (`DepartmentTempla
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/companies/:company/agents?status=` | Agent rows `{ id, slug, name, summary, archetype, status (draft/testing/active/paused/archived), source (template/builder/manual), templateId, version, departmentId, processId, title, department, triggers, ui, steps, createdAt, updatedAt }` |
+| GET | `/api/companies/:company/agents?status=` | Agent rows `{ id, slug, name, summary, archetype, status (draft/testing/active/paused/archived), source (template/builder/manual), templateId, version, departmentId, processId, managerUserId, probation (shadow/supervised/trusted), limits, monthlyBudgetUsd, title, department, triggers, ui, steps, createdAt, updatedAt }`: the AI employees the viewer may see |
 | POST | `/api/companies/:company/agents` | `{ definition: AgentDefinition, status? }` |
-| GET | `/api/companies/:company/agents/:agent` | `{ agent, definition: AgentDefinition, versions[] {version, note, createdBy, createdAt}, recentRuns[] }` (`:agent` = slug or id) |
+| GET | `/api/companies/:company/agents/:agent` | `{ agent, definition: AgentDefinition, versions[] {version, note, createdBy, createdAt}, recentRuns[], employment, canManage, managerCandidates[] {id, name, title} }` (`:agent` = slug or id). `employment`: `{ manager {id, name, email, title} \| null, probation, limits, monthlyBudgetUsd, costThisMonthUsd, stoppedByBudget, changesToday, duties[] {kind, text} }` |
+| PUT | `/api/companies/:company/agents/:agent/employment` | A manager of its department (or an admin): `{ managerUserId?: uuid \| null, probation?: "shadow"\|"supervised"\|"trusted", limits?: { maxAmount?, currency?, maxActionsPerDay?, mailDomains?[] }, monthlyBudgetUsd?: number \| null }` → `{ agent, employment }`. The manager must manage its department or be an admin (400 otherwise) |
 | PUT | `/api/companies/:company/agents/:agent` | `{ definition, note? }` → new version |
 | POST | `/api/companies/:company/agents/:agent/status` | `{ status }` |
 | POST | `/api/companies/:company/agents/:agent/rollback` | `{ version }` |
@@ -70,13 +71,15 @@ Template shapes are defined in `packages/core/src/catalog.ts` (`DepartmentTempla
 
 A run row: `{ id, agentId, agentVersion, trigger, triggerRef, status (running/waiting_approval/succeeded/failed/cancelled), input, output, error, usage {calls, inputTokens, outputTokens, costUsd}, isTest, currentStep, startedAt, finishedAt, createdAt }`.
 
+**Probation levels** decide which changes (an email sent, a connector write) wait for a person. A workflow step's own `requiresApproval` always wins (`false` means a person approved it earlier in the workflow). Otherwise *shadow* and *supervised* send every change to a person, and *trusted* acts alone unless the change is above its limits (the largest amount in the action, an amount in another currency, the number of changes made alone today, email recipients outside `mailDomains`) or its guardrails name that system or action. An AI employee with a `monthlyBudgetUsd` refuses new runs (409) once this month's model cost reaches it; its email waits, and the activity log records `agent.budget_reached` once a month. Test runs are not limited.
+
 `AgentDefinition` (see `packages/core/src/agent.ts`): `slug, name, title, summary, department, archetype, instructions, inputs: FieldSpec[], outputs: FieldSpec[], workflow: WorkflowStep[], tools[], triggers[], knowledge {collections}, connectors[], guardrails {approvalRequiredFor[], personalData, retentionDays, notes}, ui {layout: form-results|chat|inbox|table|none, title, description, submitLabel, resultView, highlight[]}, kpis[], tests[]`. `FieldSpec`: `{ key, label?, type (string|text|number|integer|boolean|date|email|phone|url|select|multiselect|file|files|list|object), required?, options?[{value,label}], description?, accept?[], fields? }`.
 
 ## Approvals (human in the loop)
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/companies/:company/approvals?status=pending` | `{ id, runId, agentId, agentName, origin (workflow/deferred), stepId, title, details, action {type: decision|connector|mail.send, …}, status, decidedBy, decisionNote, createdAt, decidedAt }` |
+| GET | `/api/companies/:company/approvals?status=pending` | `{ id, runId, agentId, agentName, origin (workflow/deferred), stepId, title, details, action {type: decision|connector|mail.send, …}, reason (why a person is asked, e.g. "12,500 TRY is above its limit of 10,000 TRY"), status, decidedBy, decisionNote, createdAt, decidedAt }` |
 | POST | `/api/companies/:company/approvals/:approval/decide` | `{ approved: boolean, note? }` — resumes the paused run |
 
 ## Files

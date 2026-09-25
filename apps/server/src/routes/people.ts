@@ -40,6 +40,7 @@ export async function peopleRoutes(app: FastifyInstance, ctx: AppContext) {
       })
       .parse(request.body);
     const person = await platform.people.create(company.id, { ...body, password: body.password || undefined });
+    await platform.employment.assignDefaultManagers(company.id);
     await platform.activity.record(company.id, {
       actor: viewer.name,
       action: "person.added",
@@ -65,6 +66,7 @@ export async function peopleRoutes(app: FastifyInstance, ctx: AppContext) {
       })
       .parse(request.body);
     const person = await platform.people.update(company.id, id, body);
+    if (body.departments) await platform.employment.assignDefaultManagers(company.id);
     await platform.activity.record(company.id, {
       actor: viewer.name,
       action: "person.updated",
