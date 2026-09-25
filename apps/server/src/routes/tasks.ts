@@ -75,6 +75,13 @@ export async function taskRoutes(app: FastifyInstance, ctx: AppContext) {
     return { task: await platform.tasks.get(company.id, run.taskId!), run: { ...run, context: undefined } };
   });
 
+  app.post("/api/companies/:company/tasks/:task/retry", async (request) => {
+    const company = await companyOf(platform, request);
+    const { task: ref } = request.params as { task: string };
+    const { task } = await taskFor(request, company.id, ref, true);
+    return platform.engine.retryTask(company.id, task.id, viewerOf(request).name, { wait: false });
+  });
+
   for (const action of ["pause", "resume", "stop"] as const) {
     app.post(`/api/companies/:company/tasks/:task/${action}`, async (request) => {
       const company = await companyOf(platform, request);

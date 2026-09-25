@@ -43,6 +43,13 @@
       "when": 1790346576076,
       "tag": "0005_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790347464346,
+      "tag": "0006_work_queue",
+      "breakpoints": true
     }
   ]
 }

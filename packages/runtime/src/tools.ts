@@ -22,6 +22,21 @@ export interface DeferredApprovalRequest {
   reason?: string;
 }
 
+/** A question an AI employee asks a person while working on a task. */
+export interface AskPersonRequest {
+  companyId: string;
+  agentId: string;
+  taskId: string;
+  runId?: string;
+  question: string;
+  context?: string;
+  /** What it would do, and why: the person can just agree. */
+  suggestion?: string;
+  options?: string[];
+  /** Ask its manager rather than anyone who handles its department's work. */
+  toManager?: boolean;
+}
+
 export interface ToolDeps {
   llm: LlmClient;
   files: FileService;
@@ -32,6 +47,7 @@ export interface ToolDeps {
   /** Changes the AI employee made alone today (for its daily limit when trusted). */
   changesToday?: (agentId: string) => Promise<number>;
   tasks?: TaskService;
+  askPerson?: (request: AskPersonRequest) => Promise<{ id: string }>;
 }
 
 export interface ToolScope {
@@ -357,12 +373,12 @@ export async function buildTools(
       }
     }
   }
-  if (scope.task && deps.tasks) tools.push(...taskTools(deps.tasks, scope, scope.task));
+  if (scope.task && deps.tasks) tools.push(...taskTools(deps, deps.tasks, scope, scope.task));
   return { tools, serverTools, warnings };
 }
 
 /** Tools for working on a task over days: notes in its history, waiting for replies, follow-ups, closing it. */
-function taskTools(tasks: TaskService, scope: ToolScope, task: { id: string; ref: string }): RuntimeTool[] {
+function taskTools(deps: ToolDeps, tasks: TaskService, scope: ToolScope, task: { id: string; ref: string }): RuntimeTool[] {
   const plan = async (next: TaskPlan, text: string): Promise<ToolExecution> => {
     await tasks.update(task.id, { plan: next as unknown as Record<string, unknown> });
     return { content: text };
@@ -403,6 +419,33 @@ function taskTools(tasks: TaskService, scope: ToolScope, task: { id: string; ref
         const date = typeof input.date === "string" && !Number.isNaN(Date.parse(input.date)) ? new Date(input.date) : undefined;
         const at = date ?? new Date(Date.now() + Math.min(365, Math.max(0.01, Number(input.days) || 1)) * 86_400_000);
         return plan({ next: "follow_up", at: at.toISOString(), note: input.note ? String(input.note) : undefined }, `Task ${task.ref} will be looked at again on ${at.toISOString().slice(0, 10)}. End your turn now.`);
+      },
+    ),
+    tool(
+      "task_ask_person",
+      `Ask a person when you are unsure or something is missing that your tools and knowledge can't settle (a decision, a missing fact, an exception). Task ${task.ref} waits for the answer and you are woken with it. Give your suggestion when you have one: they can just agree. Call it last, then end your turn.`,
+      {
+        question: { type: "string", description: "One clear question" },
+        context: { type: "string", description: "What you found and why you ask" },
+        suggestion: { type: "string", description: "What you would do, and why" },
+        options: { type: "array", items: { type: "string" }, description: "Possible answers, when there are a few" },
+        to_manager: { type: "boolean", description: "Ask your manager (decisions above your level) rather than anyone in your department" },
+      },
+      ["question"],
+      async (input) => {
+        if (!deps.askPerson) return { content: "Asking people is not available here.", isError: true };
+        await deps.askPerson({
+          companyId: scope.companyId,
+          agentId: scope.agentId,
+          taskId: task.id,
+          runId: scope.runId,
+          question: String(input.question),
+          context: input.context ? String(input.context) : undefined,
+          suggestion: input.suggestion ? String(input.suggestion) : undefined,
+          options: Array.isArray(input.options) ? input.options.map(String).slice(0, 8) : undefined,
+          toManager: input.to_manager === true,
+        });
+        return { content: `Asked. Task ${task.ref} waits for the answer; you will be woken with it. End your turn now.` };
       },
     ),
     tool(

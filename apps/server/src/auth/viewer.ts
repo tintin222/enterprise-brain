@@ -86,6 +86,24 @@ export function requireAnyManager(request: FastifyRequest): Viewer {
   return viewer;
 }
 
+/**
+ * May the viewer handle a work-queue item (decide, answer, check)? Its assignee; the people of its
+ * department (for items not assigned to anyone); its department's managers; admins.
+ */
+export function canHandleWork(viewer: Viewer, departmentId: string | null | undefined, assigneeUserId?: string | null): boolean {
+  if (viewer.isAdmin) return true;
+  if (assigneeUserId && viewer.userId === assigneeUserId) return true;
+  if (assigneeUserId) return canManageDepartment(viewer, departmentId);
+  return Boolean(departmentId) && viewer.departments.some((d) => d.departmentId === departmentId);
+}
+
+/** Is it the viewer's to do (their "needs me" list)? Assigned to them, or unassigned in a department they work in. */
+export function isForViewer(viewer: Viewer, departmentId: string | null | undefined, assigneeUserId?: string | null): boolean {
+  if (assigneeUserId) return viewer.userId === assigneeUserId || (viewer.kind !== "session" && viewer.isAdmin);
+  if (!departmentId) return viewer.isAdmin;
+  return viewer.departments.some((d) => d.departmentId === departmentId) || (viewer.kind !== "session" && viewer.isAdmin);
+}
+
 /** How the viewer appears in the audit log and on decisions. */
 export function actorOf(viewer: Viewer | undefined): string {
   if (!viewer) return "system";

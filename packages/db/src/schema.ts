@@ -430,6 +430,40 @@ export const approvals = pgTable(
   (t) => [index("approvals_company_status").on(t.companyId, t.status)],
 );
 
+/**
+ * The work queue besides approvals: questions an AI employee asks, checks of Shadow AI employees' work,
+ * tasks that failed, and notices (an AI employee stopped at its budget). Each is for a person (often the
+ * AI employee's manager) or for anyone who handles its department's work.
+ */
+export const workItems = pgTable(
+  "work_items",
+  {
+    id: id(),
+    companyId: companyId(),
+    /** question · review · failure · notice */
+    kind: text("kind").notNull(),
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "cascade" }),
+    departmentId: uuid("department_id").references(() => departments.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    details: text("details").notNull().default(""),
+    /** What the AI employee suggests, and why. */
+    suggestion: text("suggestion"),
+    reason: text("reason"),
+    /** Answer choices for a question. */
+    options: jsonb("options").$type<string[]>(),
+    assigneeUserId: uuid("assignee_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** open · done · dismissed */
+    status: text("status").notNull().default("open"),
+    answer: text("answer"),
+    resolvedBy: text("resolved_by"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [index("work_items_company_status").on(t.companyId, t.status, t.createdAt), index("work_items_task").on(t.taskId)],
+);
+
 export const mailMessages = pgTable(
   "mail_messages",
   {

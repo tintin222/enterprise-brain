@@ -25,16 +25,18 @@ import type {
 } from "./run-types.ts";
 import { executeStep, mergeUsage } from "./steps/index.ts";
 import { wakeText, type TaskPlan, type TaskRow, type TaskService, type TaskWait, type WakeReason } from "./tasks.ts";
-import type { DeferredApprovalRequest, ToolDeps } from "./tools.ts";
+import type { AskPersonRequest, DeferredApprovalRequest, ToolDeps } from "./tools.ts";
+import { WorkError, type WorkItemRow, type WorkService } from "./work.ts";
 
 export type RunRow = typeof runs.$inferSelect;
 export type ApprovalRow = typeof approvals.$inferSelect;
 
-export interface EngineDeps extends Omit<ToolDeps, "requestApproval" | "tasks"> {
+export interface EngineDeps extends Omit<ToolDeps, "requestApproval" | "tasks" | "askPerson"> {
   handle: DatabaseHandle;
   agents: AgentService;
   activity: ActivityService;
   tasks: TaskService;
+  work: WorkService;
 }
 
 export interface StartRunOptions {
@@ -58,6 +60,8 @@ export interface Decision {
   approved: boolean;
   note?: string;
   decidedBy?: string;
+  /** Corrections to the proposed change before it runs: an email's to/subject/body, a system action's input fields. */
+  edits?: Record<string, unknown>;
 }
 
 const AUTOMATED_TRIGGERS = new Set(["mailbox", "schedule", "webhook", "paperclip", "connector-event"]);
@@ -111,6 +115,7 @@ export class RunEngine {
       requestApproval: (companyId, request) => this.requestDeferredApproval(companyId, request),
       changesToday: (agentId) => this.changesToday(agentId),
       tasks: deps.tasks,
+      askPerson: (request) => this.askPerson(request),
     };
   }
 
@@ -228,6 +233,16 @@ export class RunEngine {
       entityType: "agent",
       entityId: agentId,
       summary: `${name} stopped: it reached its monthly budget ($${spent.toFixed(2)} of $${budget.toFixed(2)})`,
+      data: { spentUsd: spent, budgetUsd: budget },
+    });
+    const agent = await this.deps.agents.find(companyId, agentId);
+    await this.deps.work.create(companyId, {
+      kind: "notice",
+      title: `${name} stopped: it reached its monthly budget`,
+      details: `It used $${spent.toFixed(2)} of its $${budget.toFixed(2)} budget this month, so it starts no new work. Raise its budget on its page to let it continue; its emails and tasks wait meanwhile.`,
+      agentId,
+      departmentId: agent?.row.departmentId ?? null,
+      assigneeUserId: agent?.row.managerUserId ?? null,
       data: { spentUsd: spent, budgetUsd: budget },
     });
   }
@@ -478,18 +493,36 @@ export class RunEngine {
   private async settleTask(companyId: string, taskId: string, runId: string, outcome: string) {
     const task = await this.deps.tasks.byId(taskId);
     if (!task || task.status !== "working") return;
-    const pending = await this.deps.tasks.approvalsOf(taskId, "pending");
+    const pending = [...(await this.deps.tasks.approvalsOf(taskId, "pending")).map((a) => a.title), ...(await this.deps.work.openFor(taskId, "question")).map((q) => q.title)];
     if (pending.length) {
       await this.deps.tasks.update(taskId, { status: "needs_person" });
       await this.deps.tasks.record(companyId, taskId, {
         type: "needs_person",
-        message: `Waiting for a person to decide: ${pending.map((a) => a.title).join("; ")}`,
+        message: `Waiting for a person: ${pending.join("; ")}`,
         actor: `agent:${task.agentId}`,
         runId,
       });
       return;
     }
     await this.followPlan(task, runId, outcome);
+  }
+
+  /** A question from an AI employee to a person (its manager, or its department): the task waits for the answer. */
+  private async askPerson(request: AskPersonRequest): Promise<{ id: string }> {
+    const agent = await this.deps.agents.get(request.companyId, request.agentId);
+    const item = await this.deps.work.create(request.companyId, {
+      kind: "question",
+      title: request.question,
+      details: request.context ?? "",
+      suggestion: request.suggestion ?? null,
+      options: request.options ?? null,
+      taskId: request.taskId,
+      agentId: agent.row.id,
+      departmentId: agent.row.departmentId,
+      assigneeUserId: request.toManager ? agent.row.managerUserId : null,
+    });
+    await this.deps.tasks.record(request.companyId, request.taskId, { type: "asked", message: `Asked: ${request.question}`, actor: `agent:${agent.row.id}`, runId: request.runId ?? null, data: { workItemId: item.id } });
+    return { id: item.id };
   }
 
   /** No person is needed any more: wait for a reply, follow up later, or close the task. */
@@ -522,6 +555,19 @@ export class RunEngine {
       const outcome = plan?.next === "complete" ? plan.outcome : fallbackOutcome;
       await this.deps.tasks.update(task.id, { status: "done", plan: null, waitingFor: null, nextCheckAt: null, outcome, closedAt: now });
       await this.deps.tasks.record(task.companyId, task.id, { type: "done", message: `Done: ${truncate(outcome, 400)}`, actor, runId });
+      // In Shadow, a person checks every finished task.
+      const agent = await this.deps.agents.find(task.companyId, task.agentId);
+      if (agent && employmentOf(agent.row).probation === "shadow") {
+        await this.deps.work.create(task.companyId, {
+          kind: "review",
+          title: `Check ${agent.definition.name}'s work: ${task.title}`,
+          details: outcome,
+          taskId: task.id,
+          agentId: agent.row.id,
+          departmentId: agent.row.departmentId,
+          assigneeUserId: agent.row.managerUserId,
+        });
+      }
     }
   }
 
@@ -625,6 +671,73 @@ export class RunEngine {
     return this.deps.tasks.get(companyId, task.id);
   }
 
+  /**
+   * A person handles a work-queue item: answers a question (the task wakes with the answer), checks a
+   * Shadow AI employee's work (a "wrong" verdict is kept as a coaching note), retries a failed task, or
+   * dismisses a notice.
+   */
+  async resolveWorkItem(
+    companyId: string,
+    id: string,
+    input: { answer?: string; verdict?: "right" | "wrong"; note?: string; retry?: boolean; dismiss?: boolean },
+    by: string,
+    options: { wait?: boolean } = {},
+  ): Promise<WorkItemRow> {
+    const item = await this.deps.work.get(companyId, id);
+    const record = (type: string, message: string, data: Record<string, unknown> = {}) =>
+      item.taskId ? this.deps.tasks.record(companyId, item.taskId, { type, message, actor: by, data: { workItemId: item.id, ...data } }) : Promise.resolve();
+    if (item.kind === "question") {
+      const answer = input.dismiss ? "No answer: the question was dismissed" : input.answer?.trim();
+      if (!answer) throw new WorkError("Write an answer, or dismiss the question");
+      const resolved = await this.deps.work.resolve(companyId, id, { status: input.dismiss ? "dismissed" : "done", answer, by });
+      await record("answered", `${by} answered "${truncate(item.title, 120)}": ${truncate(answer, 400)}`);
+      if (item.taskId) await this.afterDecisions(companyId, item.taskId);
+      return resolved;
+    }
+    if (item.kind === "review" && !input.dismiss) {
+      if (!input.verdict) throw new WorkError("Say whether the work was right or wrong");
+      const note = input.note?.trim() || null;
+      const resolved = await this.deps.work.resolve(companyId, id, { status: "done", answer: input.verdict === "right" ? "Right" : `Wrong${note ? `: ${note}` : ""}`, by, data: { verdict: input.verdict, note } });
+      await record("checked", `${by} checked the work: ${input.verdict}${note ? ` (${note})` : ""}`, { verdict: input.verdict });
+      if (input.verdict === "wrong" && item.agentId) {
+        // Kept for coaching: the next version of the AI employee learns from it.
+        await this.deps.activity.record(companyId, {
+          actor: by,
+          action: "agent.coaching_note",
+          entityType: "agent",
+          entityId: item.agentId,
+          summary: `${by}: ${note ?? "marked a task as wrong"}`,
+          data: { taskId: item.taskId, workItemId: item.id, note },
+        });
+      }
+      return resolved;
+    }
+    if (item.kind === "failure" && input.retry) {
+      if (!item.taskId) throw new WorkError("There is no task to retry");
+      await this.retryTask(companyId, item.taskId, by, options);
+      return this.deps.work.get(companyId, id);
+    }
+    const resolved = await this.deps.work.resolve(companyId, id, { status: input.dismiss ? "dismissed" : "done", by });
+    await record("handled", `${by} ${input.dismiss ? "dismissed" : "handled"}: ${truncate(item.title, 160)}`);
+    return resolved;
+  }
+
+  /** Try a failed task again: its last run continues from the step that failed. */
+  async retryTask(companyId: string, ref: string, by: string, options: { wait?: boolean } = {}): Promise<TaskRow> {
+    const task = await this.deps.tasks.get(companyId, ref);
+    if (task.status !== "failed") throw new RunError(`Task ${task.ref} is ${task.status}, not failed`, 409);
+    const run = (await this.deps.tasks.runsOf(task.id)).at(-1);
+    if (!run || run.status !== "failed") throw new RunError(`Task ${task.ref} has no failed run to retry`, 409);
+    await this.deps.tasks.update(task.id, { status: "working", closedAt: null });
+    await this.deps.tasks.record(companyId, task.id, { type: "retried", message: `${by} retried the task`, actor: by, runId: run.id });
+    for (const item of await this.deps.work.openFor(task.id, "failure")) await this.deps.work.resolve(companyId, item.id, { status: "done", by, answer: "Retried" });
+    await this.persist(run.id, { status: "running", error: null, finishedAt: null });
+    await this.emit(run.id, { type: "run.retried", message: `${by} retried from the step that failed` });
+    const execution = this.execute(run.id);
+    if (options.wait ?? true) await execution;
+    return this.deps.tasks.get(companyId, task.id);
+  }
+
   /** End a task for good: its runs are cancelled and its open approvals withdrawn. */
   async stopTask(companyId: string, ref: string, by: string): Promise<TaskRow> {
     const task = await this.deps.tasks.get(companyId, ref);
@@ -636,6 +749,9 @@ export class RunEngine {
     for (const approval of await this.deps.tasks.approvalsOf(task.id, "pending")) {
       await this.deps.handle.db.update(approvals).set({ status: "cancelled", decidedAt: new Date(), decidedBy: by }).where(eq(approvals.id, approval.id));
     }
+    for (const item of await this.deps.work.openFor(task.id)) {
+      await this.deps.work.resolve(companyId, item.id, { status: "dismissed", by, answer: "The task was stopped" });
+    }
     await this.deps.tasks.record(companyId, task.id, { type: "stopped", message: `${by} stopped the task`, actor: by });
     return this.deps.tasks.get(companyId, task.id);
   }
@@ -644,20 +760,24 @@ export class RunEngine {
    * After people decided on a task's changes: once nothing is pending, a rejection wakes the AI employee
    * to rethink; otherwise the task follows its plan.
    */
-  private async afterDecisions(companyId: string, taskId: string) {
+  async afterDecisions(companyId: string, taskId: string) {
     const task = await this.deps.tasks.byId(taskId);
     if (!task || task.status !== "needs_person") return;
     if ((await this.deps.tasks.approvalsOf(taskId, "pending")).length) return;
+    if ((await this.deps.work.openFor(taskId, "question")).length) return;
     const runsOfTask = await this.deps.tasks.runsOf(taskId);
     // A workflow run still waiting on its own approval step resumes by itself.
     if (runsOfTask.some((r) => r.status === "waiting_approval" || r.status === "running")) return;
     const latest = runsOfTask.at(-1);
     const since = latest?.startedAt ?? latest?.createdAt ?? new Date(0);
     const decided = (await this.deps.tasks.approvalsOf(taskId)).filter((a) => a.origin === "deferred" && a.decidedAt && a.createdAt >= since);
-    if (decided.some((a) => a.status === "rejected")) {
+    const answered = (await this.deps.work.list(companyId, { taskId, kind: "question", statuses: ["done"] })).filter((q) => q.createdAt >= since);
+    // Answers and rejections change the picture: the AI employee looks again. Otherwise it follows its plan.
+    if (answered.length || decided.some((a) => a.status === "rejected")) {
       await this.wakeTask(companyId, taskId, {
         kind: "decisions",
         decisions: decided.map((a) => ({ title: a.title, approved: a.status === "approved", note: a.decisionNote, decidedBy: a.decidedBy })),
+        answers: answered.map((q) => ({ question: q.title, answer: q.answer ?? "", by: q.resolvedBy })),
       });
       return;
     }
@@ -672,6 +792,20 @@ export class RunEngine {
     if (run.taskId) {
       await this.deps.tasks.update(run.taskId, { status: "failed", nextCheckAt: null, closedAt: new Date() });
       await this.deps.tasks.record(run.companyId, run.taskId, { type: "failed", message: `Failed: ${truncate(message, 300)}`, runId: run.id });
+      const task = await this.deps.tasks.byId(run.taskId);
+      const agent = await this.deps.agents.find(run.companyId, run.agentId);
+      if (task && agent) {
+        await this.deps.work.create(run.companyId, {
+          kind: "failure",
+          title: `${agent.definition.name} couldn't finish: ${task.title}`,
+          details: message,
+          suggestion: "Fix the cause (a connection, missing data), then retry: it continues from the step that failed.",
+          taskId: task.id,
+          agentId: agent.row.id,
+          departmentId: agent.row.departmentId,
+          assigneeUserId: agent.row.managerUserId,
+        });
+      }
     }
     await this.deps.activity.record(run.companyId, {
       actor: `agent:${run.agentId}`,
@@ -798,6 +932,15 @@ export class RunEngine {
     if (!approval) throw new RunError(`Approval ${approvalId} not found`, 404);
     if (approval.status !== "pending") throw new RunError(`Approval is already ${approval.status}`, 409);
     const decidedBy = decision.decidedBy ?? "user";
+    if (decision.approved && decision.edits && Object.keys(decision.edits).length) {
+      // The person corrected the proposed change: what runs is the corrected version, and the approval shows it.
+      const corrected = applyEdits(approval.action as unknown as ApprovalAction, decision.edits);
+      await this.deps.handle.db
+        .update(approvals)
+        .set({ action: { ...(corrected as unknown as Record<string, unknown>), correctedBy: decidedBy } })
+        .where(eq(approvals.id, approvalId));
+      approval.action = corrected as unknown as Record<string, unknown>;
+    }
     await this.deps.handle.db
       .update(approvals)
       .set({
@@ -815,6 +958,7 @@ export class RunEngine {
       summary: `${decision.approved ? "Approved" : "Rejected"}: ${approval.title}`,
     });
     const action = approval.action as unknown as ApprovalAction;
+    const corrected = Boolean(decision.approved && decision.edits && Object.keys(decision.edits).length);
 
     if (approval.origin === "workflow" && approval.runId) {
       const run = await this.getRow(companyId, approval.runId);
@@ -855,7 +999,7 @@ export class RunEngine {
         if (task) {
           await this.deps.tasks.record(companyId, task.id, {
             type: "decided",
-            message: `${decidedBy} ${decision.approved ? "approved" : "rejected"}: ${approval.title}${decision.note ? ` (${decision.note})` : ""}`,
+            message: `${decidedBy} ${corrected ? "corrected and approved" : decision.approved ? "approved" : "rejected"}: ${approval.title}${decision.note ? ` (${decision.note})` : ""}`,
             actor: decidedBy,
             runId: run.id,
           });
@@ -906,7 +1050,7 @@ export class RunEngine {
     if (run?.taskId) {
       await this.deps.tasks.record(companyId, run.taskId, {
         type: "decided",
-        message: `${decidedBy} ${decision.approved ? "approved" : "rejected"}: ${approval.title}${decision.note ? ` (${decision.note})` : ""}`,
+        message: `${decidedBy} ${corrected ? "corrected and approved" : decision.approved ? "approved" : "rejected"}: ${approval.title}${decision.note ? ` (${decision.note})` : ""}`,
         actor: decidedBy,
         runId: run.id,
       });
@@ -1009,6 +1153,22 @@ export function taskStep(definition: AgentDefinition, task: string): WorkflowSte
     tools: [...new Set([...definition.tools, "knowledge.search", ...definition.connectors.map((c) => `connector:${c.ref}`)])],
     maxTurns: 16,
   };
+}
+
+/** A proposed change with a person's corrections: an email's to/subject/body, or a system action's input fields. */
+export function applyEdits(action: ApprovalAction, edits: Record<string, unknown>): ApprovalAction {
+  switch (action.type) {
+    case "mail.send": {
+      const text = (key: string, current: string) => (typeof edits[key] === "string" && (edits[key] as string).trim() ? (edits[key] as string) : current);
+      return { ...action, to: text("to", action.to), subject: text("subject", action.subject), body: text("body", action.body) };
+    }
+    case "connector": {
+      const input = isRecord(edits.input) ? edits.input : edits;
+      return { ...action, input: { ...action.input, ...input } };
+    }
+    case "decision":
+      return action;
+  }
 }
 
 const SOURCE_TEXT: Record<string, string> = {

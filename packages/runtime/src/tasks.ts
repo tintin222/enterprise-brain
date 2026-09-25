@@ -34,7 +34,11 @@ export interface TaskWait {
 export type WakeReason =
   | { kind: "reply"; email: EmailInput }
   | { kind: "time" }
-  | { kind: "decisions"; decisions: { title: string; approved: boolean; note: string | null; decidedBy: string | null }[] }
+  | {
+      kind: "decisions";
+      decisions: { title: string; approved: boolean; note: string | null; decidedBy: string | null }[];
+      answers?: { question: string; answer: string; by: string | null }[];
+    }
   | { kind: "resumed"; by: string };
 
 // Letters and digits people don't confuse (no 0/O, 1/I/L).
@@ -276,9 +280,10 @@ export function wakeText(reason: WakeReason, task?: Pick<TaskRow, "waitingFor">)
       return `It is time to follow up.${wait?.note ? ` You noted: ${wait.note}` : ""}`;
     }
     case "decisions":
-      return reason.decisions
-        .map((d) => `${d.decidedBy ?? "A person"} ${d.approved ? "approved" : "rejected"} "${d.title}"${d.note ? `: ${d.note}` : ""}`)
-        .join("\n");
+      return [
+        ...(reason.answers ?? []).map((a) => `${a.by ?? "A person"} answered "${a.question}": ${a.answer}`),
+        ...reason.decisions.map((d) => `${d.decidedBy ?? "A person"} ${d.approved ? "approved" : "rejected"} "${d.title}"${d.note ? `: ${d.note}` : ""}`),
+      ].join("\n");
     case "resumed":
       return `${reason.by} resumed the task.`;
   }

@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AgentStatus, Probation, TrustLimits, type AgentDefinition } from "@enterprise-brain/core";
-import { actorOf, canManageDepartment, canSeeDepartment, requireAdmin, viewerOf } from "../auth/viewer.ts";
+import { actorOf, canHandleWork, canManageDepartment, canSeeDepartment, requireAdmin, viewerOf } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf, readMultipart, sse } from "../http.ts";
 
@@ -280,12 +280,24 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
   app.post("/api/companies/:company/approvals/:approval/decide", async (request) => {
     const company = await companyOf(platform, request);
     const { approval } = request.params as { approval: string };
-    const body = z.object({ approved: z.boolean(), note: z.string().optional(), decidedBy: z.string().optional(), wait: z.boolean().default(true) }).parse(request.body);
+    const body = z
+      .object({
+        approved: z.boolean(),
+        note: z.string().optional(),
+        decidedBy: z.string().optional(),
+        wait: z.boolean().default(true),
+        /** Corrections before approving: an email's to/subject/body, or a system action's input fields. */
+        edits: z.record(z.string(), z.unknown()).optional(),
+      })
+      .parse(request.body);
     const viewer = viewerOf(request);
     const pending = (await platform.engine.listApprovals(company.id)).find((a) => a.id === approval);
-    if (pending) await agentFor(request, company.id, pending.agentId);
+    if (pending) {
+      const agent = await agentFor(request, company.id, pending.agentId);
+      if (!canHandleWork(viewer, agent.row.departmentId)) throw new HttpError(403, "Only the people of this AI employee's department can decide this");
+    }
     const decidedBy = viewer.kind === "session" ? viewer.name : (body.decidedBy ?? "user");
-    return platform.engine.decide(company.id, approval, { approved: body.approved, note: body.note, decidedBy }, { wait: body.wait });
+    return platform.engine.decide(company.id, approval, { approved: body.approved, note: body.note, decidedBy, edits: body.edits }, { wait: body.wait });
   });
 
   app.post("/api/companies/:company/files", async (request) => {

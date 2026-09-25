@@ -95,12 +95,23 @@ How tasks move:
 * Autonomous AI employees plan with task tools: `task_note`, `task_wait_for_reply` (`days`), `task_follow_up` (`days` or `date`) and `task_complete` (`outcome`). When a run ends the task follows that plan, unless a person still has to decide on one of its changes (`needs_person`). Once everything is decided, a rejection wakes it to rethink; otherwise it follows the plan.
 * The scheduler wakes waiting tasks whose next check has come, every minute. A task that wakes continues from a brief of what happened so far and why it woke.
 
+## Work queue
+
+Everything that needs a person, in one list: approvals of AI employees' changes, questions they ask (`task_ask_person`), checks of every finished task of a Shadow AI employee, tasks that failed, and notices (an AI employee stopped at its budget). Items can be for one person (often the AI employee's manager) or for anyone who works in its department.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/companies/:company/work?scope=mine\|all&status=open\|closed` | `[{ type: "approval"\|"question"\|"review"\|"failure"\|"notice", id, title, details, reason, suggestion, options, action (approvals), task {id, ref, title, status}, agent {id, slug, name}, departmentId, assignee {id, name}, forMe, canHandle, status, resolvedBy, createdAt }]`. `mine`: assigned to the viewer, or unassigned in a department they work in |
+| POST | `/api/companies/:company/work/:id` | Handle a question, check, failure or notice: `{ answer }` (question: the task wakes with it), `{ verdict: "right"\|"wrong", note? }` (check: a wrong verdict is kept as a coaching note), `{ retry: true }` (failure: the task continues from the step that failed), or `{ dismiss: true }`. 403 when it is for someone else (its assignee, the department's managers and admins may handle it) |
+| POST | `/api/companies/:company/approvals/:approval/decide` | See below; `edits` corrects the proposed change before it runs |
+| POST | `/api/companies/:company/tasks/:task/retry` | Managers: a failed task continues from the step that failed |
+
 ## Approvals (human in the loop)
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/companies/:company/approvals?status=pending` | `{ id, runId, agentId, agentName, origin (workflow/deferred), stepId, title, details, action {type: decision|connector|mail.send, …}, reason (why a person is asked, e.g. "12,500 TRY is above its limit of 10,000 TRY"), status, decidedBy, decisionNote, createdAt, decidedAt }` |
-| POST | `/api/companies/:company/approvals/:approval/decide` | `{ approved: boolean, note? }` — resumes the paused run |
+| POST | `/api/companies/:company/approvals/:approval/decide` | `{ approved: boolean, note?, edits? }`: resumes the paused run. `edits` corrects the change before it runs: `{ to?, subject?, body? }` for an email, the input fields (or `{ input: {...} }`) for a system action. People of the AI employee's department and admins decide |
 
 ## Files
 
