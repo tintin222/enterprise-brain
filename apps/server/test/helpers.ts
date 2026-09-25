@@ -13,6 +13,7 @@ export interface TestApp {
   app: FastifyInstance;
   platform: Platform;
   builder: BuilderService;
+  config: ServerConfig;
   companyId: string;
   close(): Promise<void>;
 }
@@ -38,6 +39,7 @@ export async function createTestApp(options: { llm?: LlmClient; seed?: boolean; 
     app,
     platform,
     builder,
+    config,
     companyId: company.id,
     async close() {
       await app.close();

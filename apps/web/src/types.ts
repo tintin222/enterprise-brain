@@ -942,4 +942,6 @@ export interface PaperclipPushResult {
 export interface PaperclipConnection {
   hermes: { apiBaseUrl: string; apiKey: string | null; keySource: "env" | "api-key" | "generated" | null };
   paperclip: { url: string | null; configured: boolean; companyId: string | null; agentsWithKeys: number };
+  /** EB_PAPERCLIP_AUTOCONNECT (the Docker bundle): Enterprise Brain connects itself to Paperclip on start. */
+  autoConnect: { state: "off" | "waiting" | "connecting" | "connected" | "failed"; message: string; updatedAt: string };
 }

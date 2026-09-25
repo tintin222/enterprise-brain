@@ -1,9 +1,11 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import {
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Download,
+  ExternalLink,
   File,
   Folder,
   Network,
@@ -112,7 +114,10 @@ export default function Paperclip() {
   const connection = useQuery({
     queryKey: [company, "paperclip", "connection"],
     queryFn: () => api.get<PaperclipConnection>(path("/paperclip/connection")),
+    // Follow the automatic connection while it is in progress.
+    refetchInterval: (query) => (["waiting", "connecting"].includes(query.state.data?.autoConnect?.state ?? "") ? 3000 : false),
   });
+  const auto = connection.data?.autoConnect;
   const [showKey, setShowKey] = useState(false);
   const pkg = useQuery({
     queryKey: [company, "paperclip", built],
@@ -174,9 +179,50 @@ export default function Paperclip() {
         title="Paperclip"
         description="Run Enterprise Brain agents as employees of a Paperclip company: Paperclip provides the org chart, tasks, heartbeats, budgets and governance; Enterprise Brain provides the enterprise knowledge, connectors and agent runtime."
         actions={
-          info.paperclip.configured ? <Badge tone="green">Connected to {info.paperclip.url}</Badge> : <Badge tone="neutral">PAPERCLIP_URL not set</Badge>
+          info.paperclip.configured ? (
+            auto && ["waiting", "connecting", "failed"].includes(auto.state) ? (
+              <Badge tone="neutral">Paperclip at {info.paperclip.url}</Badge>
+            ) : (
+              <Badge tone="green">Connected to {info.paperclip.url}</Badge>
+            )
+          ) : (
+            <Badge tone="neutral">PAPERCLIP_URL not set</Badge>
+          )
         }
       />
+
+      {auto && auto.state !== "off" && (
+        <Callout
+          className="mb-6"
+          tone={auto.state === "connected" ? "success" : auto.state === "failed" ? "warning" : "info"}
+          icon={auto.state === "connected" ? CheckCircle2 : auto.state === "failed" ? TriangleAlert : undefined}
+          title={
+            auto.state === "connected"
+              ? "Connected to Paperclip automatically"
+              : auto.state === "failed"
+                ? "Connecting to Paperclip failed; retrying"
+                : "Connecting to Paperclip…"
+          }
+          actions={
+            auto.state === "connected" && connection.data?.paperclip.url ? (
+              <ButtonAnchor href={connection.data.paperclip.url} target="_blank" rel="noreferrer" size="sm" icon={ExternalLink}>
+                Open Paperclip
+              </ButtonAnchor>
+            ) : undefined
+          }
+        >
+          <div className="flex items-center gap-2">
+            {(auto.state === "waiting" || auto.state === "connecting") && <Spinner size="sm" />}
+            <span>{auto.message}</span>
+          </div>
+          {auto.state === "connected" && (
+            <p className="mt-1 opacity-80">
+              Your departments and agents are in Paperclip's org chart, and the Enterprise Brain page is in its sidebar. Assign a task to an Enterprise Brain agent there and it gets
+              done here.
+            </p>
+          )}
+        </Callout>
+      )}
 
       <div className="mb-8 grid gap-4 md:grid-cols-3">
         {[

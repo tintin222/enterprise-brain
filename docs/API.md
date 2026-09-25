@@ -142,7 +142,7 @@ A run row: `{ id, agentId, agentVersion, trigger, triggerRef, status (running/wa
 | GET | `/api/companies/:company/paperclip/package?scope=installed\|catalog&departments=hr,finance&ceo=true` | `{ files: {path: content}, warnings[], agentSlugs[], specialists[], summary }` |
 | GET | `/api/companies/:company/paperclip/package.zip?…` | Same as a zip |
 | POST | `/api/companies/:company/paperclip/push` | `{ paperclipUrl?, paperclipApiKey?, target: new_company\|existing_company, paperclipCompanyId?, departments? }` → `{ ok, summary, warnings[], agentKeys, paperclip }`. Imports via Paperclip's API, sets each agent's `hermes_gateway` key, and creates a Paperclip API key per agent (`agentKeys` = how many) |
-| GET | `/api/companies/:company/paperclip/connection` | `{ hermes: {apiBaseUrl, apiKey, keySource: env\|api-key\|generated}, paperclip: {url, configured, companyId, agentsWithKeys} }` |
+| GET | `/api/companies/:company/paperclip/connection` | `{ hermes: {apiBaseUrl, apiKey, keySource: env\|api-key\|generated}, paperclip: {url, configured, companyId, agentsWithKeys}, autoConnect: {state: off\|waiting\|connecting\|connected\|failed, message, updatedAt} }` (`autoConnect`: `EB_PAPERCLIP_AUTOCONNECT`, used by the Docker bundle) |
 | GET | `/api/hermes/health` | Hermes gateway health (Bearer Hermes key) |
 | POST | `/api/hermes/v1/runs` | Hermes contract: `{ agent, company?, input, instructions?, session_id? }` → `{ run_id, status }` |
 | GET | `/api/hermes/v1/runs/:id` | `{ run_id, status, output, usage {input_tokens, output_tokens, cached_input_tokens}, cost_usd, model, session_id }` |

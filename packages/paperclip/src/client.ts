@@ -27,6 +27,15 @@ export interface PaperclipComment {
   createdAt?: string;
 }
 
+export interface PaperclipPlugin {
+  id: string;
+  /** The manifest id, e.g. "enterprise-brain". */
+  pluginKey: string;
+  version?: string;
+  status?: string;
+  packagePath?: string | null;
+}
+
 export class PaperclipApiError extends Error {
   constructor(message: string, readonly status: number, readonly body?: unknown) {
     super(message);
@@ -76,6 +85,16 @@ export class PaperclipClient {
     return this.request("/api/companies");
   }
 
+  /** The company, or undefined when Paperclip doesn't have it (any more). */
+  async getCompany(companyId: string): Promise<{ id: string; name?: string } | undefined> {
+    try {
+      return (await this.request(`/api/companies/${encodeURIComponent(companyId)}`)) as { id: string; name?: string };
+    } catch (error) {
+      if (error instanceof PaperclipApiError && error.status === 404) return undefined;
+      throw error;
+    }
+  }
+
   /** Board-level import (runs as a background job in Paperclip). */
   importCompany(options: PaperclipImportOptions) {
     return this.request("/api/companies/import", {
@@ -114,6 +133,38 @@ export class PaperclipClient {
    */
   updateIssue(issueId: string, patch: { status?: string; comment?: string }, as?: { token: string; runId?: string }) {
     return this.request(`/api/issues/${encodeURIComponent(issueId)}`, { method: "PATCH", body: JSON.stringify(patch) }, as);
+  }
+
+  async listPlugins(): Promise<PaperclipPlugin[]> {
+    const body = await this.request("/api/plugins");
+    return Array.isArray(body) ? (body as PaperclipPlugin[]) : [];
+  }
+
+  /** Instance admin: install a plugin from a folder on the Paperclip server's filesystem. */
+  installPlugin(localPath: string): Promise<PaperclipPlugin> {
+    return this.request("/api/plugins/install", { method: "POST", body: JSON.stringify({ packageName: localPath, isLocalPath: true }) }) as Promise<PaperclipPlugin>;
+  }
+
+  /** Instance admin: uninstall a plugin, keeping its data (a later install reactivates it). */
+  uninstallPlugin(pluginId: string) {
+    return this.request(`/api/plugins/${encodeURIComponent(pluginId)}`, { method: "DELETE" });
+  }
+
+  /** Instance admin: reload an installed plugin from its package (after its files changed). */
+  upgradePlugin(pluginId: string): Promise<PaperclipPlugin> {
+    return this.request(`/api/plugins/${encodeURIComponent(pluginId)}/upgrade`, { method: "POST", body: JSON.stringify({}) }) as Promise<PaperclipPlugin>;
+  }
+
+  /** A plugin's settings for one company (plugin settings are per company); undefined when not set. */
+  async getPluginConfig(pluginId: string, companyId: string): Promise<Record<string, unknown> | undefined> {
+    const body = (await this.request(`/api/plugins/${encodeURIComponent(pluginId)}/config?companyId=${encodeURIComponent(companyId)}`)) as {
+      configJson?: Record<string, unknown>;
+    } | null;
+    return body?.configJson ?? undefined;
+  }
+
+  setPluginConfig(pluginId: string, companyId: string, configJson: Record<string, unknown>) {
+    return this.request(`/api/plugins/${encodeURIComponent(pluginId)}/config`, { method: "POST", body: JSON.stringify({ companyId, configJson }) });
   }
 
   previewImport(options: Omit<PaperclipImportOptions, "adapterOverrides" | "pauseAutomations">) {

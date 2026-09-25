@@ -30,7 +30,20 @@ export interface ServerConfig {
   defaultCompany: { slug: string; name: string; mailDomain?: string };
   seedDemo: boolean;
   webDist?: string;
-  paperclip?: { url: string; apiKey?: string };
+  paperclip?: {
+    url: string;
+    apiKey?: string;
+    /**
+     * Connect by itself on start (EB_PAPERCLIP_AUTOCONNECT=true): push the company once, then install the
+     * Enterprise Brain plugin and point it at this server. Used by the Docker bundle.
+     */
+    autoConnect?: boolean;
+    /**
+     * A folder Paperclip can read (EB_PAPERCLIP_PLUGIN_DIR): the built plugin is copied there before it is
+     * installed. Unset: installed from this repository, which works when Paperclip runs on the same machine.
+     */
+    pluginDir?: string;
+  };
   schedulerEnabled: boolean;
 }
 
@@ -58,7 +71,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     },
     seedDemo: env.EB_SEED_DEMO !== "false",
     webDist: existsSync(webDist) ? webDist : undefined,
-    paperclip: env.PAPERCLIP_URL ? { url: env.PAPERCLIP_URL, apiKey: env.PAPERCLIP_API_KEY || undefined } : undefined,
+    paperclip: env.PAPERCLIP_URL
+      ? {
+          url: env.PAPERCLIP_URL.replace(/\/$/, ""),
+          apiKey: env.PAPERCLIP_API_KEY || undefined,
+          autoConnect: env.EB_PAPERCLIP_AUTOCONNECT === "true",
+          pluginDir: env.EB_PAPERCLIP_PLUGIN_DIR || undefined,
+        }
+      : undefined,
     schedulerEnabled: env.EB_SCHEDULER !== "false",
   };
 }

@@ -2,96 +2,28 @@ import { and, eq } from "drizzle-orm";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import JSZip from "jszip";
 import { z } from "zod";
-import type { DepartmentTemplate, ProcessTemplate } from "@enterprise-brain/core";
 import { approvals, runs } from "@enterprise-brain/db";
-import {
-  PaperclipClient,
-  exportCompanyPackage,
-  hermesRunBody,
-  parseHermesRunRequest,
-  toHermesStatus,
-  type EbRunSnapshot,
-  type ExportAgent,
-  type ExportDepartment,
-  type ExportProcess,
-} from "@enterprise-brain/paperclip";
-import type { CompanyRow } from "@enterprise-brain/runtime";
+import { hermesRunBody, parseHermesRunRequest, toHermesStatus, type EbRunSnapshot } from "@enterprise-brain/paperclip";
 import type { AppContext } from "../context.ts";
 import { HttpError, bearer, companyOf, sse } from "../http.ts";
 import { PaperclipBridge } from "../paperclip-bridge.ts";
-
-type Model = { departments: ExportDepartment[]; processes: ExportProcess[]; agents: ExportAgent[] };
-
-async function packageModel(ctx: AppContext, company: CompanyRow, scope: "installed" | "catalog", only?: string[]): Promise<Model> {
-  const { platform } = ctx;
-  const keep = (dept: string | undefined) => !only?.length || (dept !== undefined && only.includes(dept));
-  if (scope === "catalog") {
-    const c = platform.catalog.catalog;
-    return {
-      departments: c.departments.filter((d) => keep(d.id)),
-      processes: c.processes.filter((p) => keep(p.department)),
-      agents: c.agents.filter((a) => keep(a.department)).map((a) => ({ ...a, id: a.id })),
-    };
-  }
-  const [departmentRows, processRows, agentRecords] = await Promise.all([
-    platform.catalog.departments(company.id),
-    platform.catalog.processes(company.id),
-    platform.agents.list(company.id),
-  ]);
-  const deptKeyById = new Map(departmentRows.map((d) => [d.id, d.key]));
-  return {
-    departments: departmentRows
-      .filter((d) => keep(d.key))
-      .map((d) => {
-        const data = d.data as unknown as Partial<DepartmentTemplate>;
-        return { id: d.key, name: d.name, summary: d.summary, mission: data.mission, kpis: data.kpis };
-      }),
-    processes: processRows
-      .map((p) => ({ row: p, data: p.data as unknown as ProcessTemplate }))
-      .filter(({ row }) => keep(deptKeyById.get(row.departmentId ?? "")))
-      .map(({ row, data }) => ({
-        id: row.key,
-        department: deptKeyById.get(row.departmentId ?? "") ?? data.department,
-        name: row.name,
-        summary: row.summary,
-        description: data.description,
-        trigger: data.trigger,
-        frequency: data.frequency,
-        steps: data.steps ?? [],
-        agents: data.agents ?? [],
-        kpis: data.kpis,
-      })),
-    agents: agentRecords
-      .filter((a) => a.row.status !== "archived")
-      .map((a) => ({
-        id: a.row.templateId ?? a.row.slug,
-        slug: a.row.slug,
-        name: a.definition.name,
-        title: a.definition.title,
-        department: (a.row.departmentId ? deptKeyById.get(a.row.departmentId) : undefined) ?? a.definition.department,
-        process: a.definition.process,
-        summary: a.definition.summary,
-        instructions: a.definition.instructions,
-        archetype: a.definition.archetype,
-        triggers: a.definition.triggers,
-      }))
-      .filter((a) => keep(a.department)),
-  };
-}
-
-function buildPackage(ctx: AppContext, company: CompanyRow, model: Model, includeCeo: boolean) {
-  return exportCompanyPackage(model, {
-    company: { name: company.name, slug: company.slug },
-    enterpriseBrain: { url: ctx.config.publicUrl, companySlug: company.slug },
-    includeCeo,
-  });
-}
+import { PaperclipConnector } from "../paperclip-connect.ts";
+import { buildPackage, packageModel, pushCompany } from "../paperclip-package.ts";
 
 export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
   const { platform, config } = ctx;
   const bridge = new PaperclipBridge(platform, config);
   const stopBridge = bridge.start();
-  app.addHook("onClose", async () => stopBridge());
+  // EB_PAPERCLIP_AUTOCONNECT: connect once the server listens (Paperclip calls back into it).
+  const connector = new PaperclipConnector(ctx, bridge);
+  let stopConnector = () => {};
+  app.addHook("onListen", async () => {
+    stopConnector = connector.start();
+  });
+  app.addHook("onClose", async () => {
+    stopBridge();
+    stopConnector();
+  });
   const PackageQuery = z.object({
     scope: z.enum(["installed", "catalog"]).default("installed"),
     departments: z.string().optional(),
@@ -132,61 +64,14 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
       .parse(request.body ?? {});
     const url = body.paperclipUrl ?? config.paperclip?.url;
     if (!url) throw new HttpError(400, "Set PAPERCLIP_URL (or pass paperclipUrl) to push to Paperclip");
-    if (!config.hermesApiKey) throw new HttpError(400, "Enterprise Brain has no Hermes gateway key: set EB_HERMES_API_KEY to a long random secret (Paperclip sends it to Enterprise Brain)");
-    if (body.target === "existing_company" && !body.paperclipCompanyId) throw new HttpError(400, "paperclipCompanyId is required for existing_company");
-    const model = await packageModel(ctx, company, "installed", body.departments);
-    const result = buildPackage(ctx, company, model, body.target === "new_company");
-    const hermesBase = `${config.publicUrl}/api/hermes`;
-    const adapterOverrides = Object.fromEntries(
-      result.specialists.map(({ paperclipSlug, ebSlug }) => [
-        paperclipSlug,
-        {
-          adapterType: "hermes_gateway",
-          adapterConfig: {
-            apiBaseUrl: hermesBase,
-            apiKey: config.hermesApiKey,
-            sessionKeyStrategy: "issue",
-            timeoutSec: 900,
-            payloadTemplate: { agent: ebSlug, company: company.slug },
-          },
-        },
-      ]),
-    );
-    const client = new PaperclipClient(url, body.paperclipApiKey ?? config.paperclip?.apiKey);
-    const response = (await client.importCompany({
-      files: result.files,
-      rootPath: company.slug,
-      target: body.target === "new_company" ? { mode: "new_company" } : { mode: "existing_company", companyId: body.paperclipCompanyId! },
-      adapterOverrides,
-    })) as { company?: { id?: string }; agents?: { slug?: string; id?: string | null }[] } | null;
-    // Each Enterprise Brain agent gets its own Paperclip API key, so it can close its issues like any employee.
-    const imported = new Map((response?.agents ?? []).filter((a) => a.slug && a.id).map((a) => [a.slug!, a.id!]));
-    const keys: { paperclipAgentId: string; slug: string; token: string }[] = [];
-    const keyWarnings: string[] = [];
-    for (const { paperclipSlug, ebSlug } of result.specialists) {
-      const paperclipAgentId = imported.get(paperclipSlug);
-      if (!paperclipAgentId) continue;
-      try {
-        const { token } = await client.createAgentKey(paperclipAgentId, "enterprise-brain");
-        keys.push({ paperclipAgentId, slug: ebSlug, token });
-      } catch (error) {
-        keyWarnings.push(`No Paperclip key for ${paperclipSlug}: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-    await bridge.remember(company.id, {
+    const result = await pushCompany(ctx, bridge, company, {
       url,
-      companyId: response?.company?.id ?? (body.target === "existing_company" ? body.paperclipCompanyId : undefined),
-      boardKey: body.paperclipApiKey,
-      agents: keys,
+      apiKey: body.paperclipApiKey,
+      target: body.target,
+      paperclipCompanyId: body.paperclipCompanyId,
+      departments: body.departments,
     });
-    await platform.activity.record(company.id, {
-      actor: "user",
-      action: "paperclip.pushed",
-      entityType: "company",
-      entityId: company.id,
-      summary: `Pushed ${result.summary.agents} agents to Paperclip (${url})`,
-    });
-    return { ok: true, summary: result.summary, warnings: [...result.warnings, ...keyWarnings], agentKeys: keys.length, paperclip: response };
+    return { ok: true, summary: result.summary, warnings: result.warnings, agentKeys: result.agentKeys, paperclip: result.paperclip };
   });
 
   /** What Paperclip needs to call Enterprise Brain, and what is known about the linked Paperclip company. */
@@ -201,6 +86,7 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
         companyId: link?.companyId ?? null,
         agentsWithKeys: Object.keys(link?.agents ?? {}).length,
       },
+      autoConnect: connector.status(),
     };
   });
 

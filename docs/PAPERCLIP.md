@@ -11,6 +11,73 @@
 
 Tested against Paperclip 0.3.1 (see [What was verified](#what-was-verified)).
 
+## The bundle: Paperclip and Enterprise Brain in one command
+
+The quickest way to get the Paperclip experience with Enterprise Brain inside it. Requirements: Docker.
+
+```bash
+docker compose up -d
+```
+
+| Open | What you get |
+|---|---|
+| http://localhost:3100 | **Paperclip**: your company's org chart with the CEO, department leads and Enterprise Brain agents; tasks, budgets, governance; the **Enterprise Brain** page in the sidebar |
+| http://localhost:3200 | The **Enterprise Brain** console |
+
+![Enterprise Brain inside Paperclip: the plugin page opened from the sidebar](screenshots/paperclip-enterprise-brain-page.png)
+
+On first start, which takes a few minutes:
+
+1. PostgreSQL with pgvector starts. A setup step creates Paperclip's database and generates its secrets once, in Paperclip's data volume (`docker/paperclip-setup.sh`).
+2. Paperclip starts from its official image (`ghcr.io/paperclipai/paperclip`), in its no-login local mode, as `npx paperclipai onboard` does on a laptop.
+3. Enterprise Brain starts, creates the demo company and **connects itself** (`EB_PAPERCLIP_AUTOCONNECT`). It waits until Paperclip answers, then:
+   - pushes the company: the org chart with 26 agents, each Enterprise Brain agent with its own Paperclip key;
+   - installs the Enterprise Brain plugin, which it copies to a volume both apps share;
+   - points the plugin at itself for the company.
+
+The console's Paperclip page shows the progress, then **Connected to Paperclip automatically**. Later starts change nothing that already exists, so a restart doesn't create a second company. After an Enterprise Brain upgrade (`docker compose up -d --build`), the plugin in Paperclip is updated too. If Paperclip's data is reset, the company is pushed again.
+
+Then, in Paperclip, create a task and assign it to an Enterprise Brain agent, for example the *HR Policy Assistant*. Paperclip wakes the agent; it works in Enterprise Brain, answers on the task and closes it:
+
+![A task in Paperclip, answered by the HR Policy Assistant from the leave policy and closed](screenshots/paperclip-task-done.png)
+
+**How it fits together.** The two apps share one network, like containers in a Kubernetes pod, so `localhost` means the same place to both of them and to your browser:
+
+```text
+   your browser ── localhost:3100 ──► gateway ──► Paperclip (127.0.0.1:3100)
+                └─ localhost:3200 ─────────────► Enterprise Brain (:3200)
+   Paperclip ── hermes_gateway ──► http://localhost:3200/api/hermes    (agents at work)
+   Paperclip ── plugin worker ───► http://localhost:3200               (agent tools; the page loads it in your browser)
+   Enterprise Brain ─────────────► http://127.0.0.1:3100               (push, plugin, task status)
+   both ──► PostgreSQL (databases enterprise_brain and paperclip)
+```
+
+This is what makes it work with no settings. Paperclip's no-login mode listens only on 127.0.0.1, and its Hermes adapter accepts plain HTTP only to localhost. The small `gateway` container (socat) forwards the browser to Paperclip. The ports are published on this machine only (`127.0.0.1`), so nobody else on the network can open the unauthenticated Paperclip board or console.
+
+**Settings**, all optional, in a `.env` file next to `docker-compose.yml`:
+
+| Variable | Default | |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | – | Claude for Enterprise Brain; also passed to Paperclip for its own agents |
+| `PAPERCLIP_PORT`, `EB_PORT` | `3100`, `3200` | Ports on this machine |
+| `PAPERCLIP_IMAGE` | `ghcr.io/paperclipai/paperclip:latest` | Pin a Paperclip version |
+| `EB_PAPERCLIP_AUTOCONNECT` | `true` | `false` to connect by hand (console → Paperclip → Push) |
+| `POSTGRES_PASSWORD` | `brain` | The database isn't published outside Docker |
+
+**Data** lives in Docker volumes: `pgdata` (both databases), `braindata` (Enterprise Brain's files and keys), `paperclip-data` (Paperclip's files and secrets) and `eb-plugin`. `docker compose down` keeps them; `docker compose down -v` deletes everything.
+
+**Paperclip's own agents** (the CEO and department leads) need a runtime to plan and delegate. In Paperclip, open an agent and pick one, such as Claude Code (`claude_local`, installed in Paperclip's image; set `ANTHROPIC_API_KEY`). Enterprise Brain agents need nothing more.
+
+### Running the bundle on a server
+
+The bundle is for one machine, like a local Paperclip. On a server that other people use, Paperclip must run in its login mode (`authenticated`). Enterprise Brain then needs a Paperclip board key to connect, and the apps need HTTPS:
+
+- Run Paperclip as its [Docker guide](https://github.com/paperclipai/paperclip/blob/master/doc/DOCKER.md) describes (`PAPERCLIP_DEPLOYMENT_MODE=authenticated`) and claim the instance in the browser.
+- Give Enterprise Brain a board API key as `PAPERCLIP_API_KEY`. Paperclip issues board keys through its browser approval flow (`paperclipai auth login`); they expire after 30 days.
+- Serve both apps over HTTPS, set `EB_PUBLIC_URL` to Enterprise Brain's address and `EB_API_KEY` for its console, and add that key as the plugin's API key secret in Paperclip.
+
+Automating this (Enterprise Brain asking for approval in Paperclip's browser flow, and renewing its key) is the next step and not built yet.
+
 ## The Hermes key
 
 Paperclip authenticates to Enterprise Brain with a shared secret: the **Hermes key**. It is not issued by Paperclip or by any vendor. It is a password the two systems share, like Hermes Agent's `API_SERVER_KEY`, and you don't need to create it:
@@ -20,7 +87,7 @@ Paperclip authenticates to Enterprise Brain with a shared secret: the **Hermes k
 
 The console's **Paperclip** page shows the key and a ready-to-paste adapter configuration, and the startup banner says where the key comes from. A push (below) puts the key on every agent for you. Requests without it get `401`.
 
-## Quick start: both systems on one machine
+## Without Docker: both systems on one machine
 
 ```bash
 # 1. Paperclip (http://localhost:3100)
@@ -33,7 +100,7 @@ PAPERCLIP_URL=http://localhost:3100 pnpm start
 
 Then, in the Enterprise Brain console:
 
-1. Open **Paperclip** and click **Push to Paperclip**. A new company appears in Paperclip with the CEO, the department leads and the Enterprise Brain specialists in its org chart.
+1. Open **Paperclip** and click **Push to Paperclip**. A new company appears in Paperclip with the CEO, the department leads and the Enterprise Brain specialists in its org chart. Or start Enterprise Brain with `EB_PAPERCLIP_AUTOCONNECT=true`, and it pushes the company and installs the plugin by itself, as in the bundle.
 2. In Paperclip, create a task and assign it to a specialist, for example *HR Policy Assistant*. Paperclip wakes the agent on assignment. The agent reads the task, does the work in Enterprise Brain, posts its answer on the task and closes it.
 3. For Paperclip's own agents (CEO, department leads), choose a runtime in Paperclip, such as Claude Code (`claude_local`). They plan, delegate to the specialists and review. Enterprise Brain specialists need nothing more.
 
@@ -126,6 +193,8 @@ A task someone has already moved on from `blocked` is left alone.
 
 ## 3. Install the plugin
 
+The bundle, and `EB_PAPERCLIP_AUTOCONNECT=true`, install and configure it for you. By hand:
+
 ```bash
 pnpm --filter @enterprise-brain/paperclip-plugin build
 paperclipai plugin install /absolute/path/to/enterprise-brain/plugins/paperclip-plugin
@@ -163,6 +232,7 @@ Against Paperclip 0.3.1, running locally with PostgreSQL:
 - **Security:** the gateway rejects requests without the Hermes key (`401`).
 - **Plugin:** it installs and becomes ready, and its 5 tools are available to Paperclip agents. `knowledge_search` and `list_agents` were called through Paperclip's tool API. The Enterprise Brain page and sidebar entry render inside Paperclip.
 - **Approvals:** the `blocked` → approved → `done` path is covered by an automated test against a stand-in Paperclip (`apps/server/test/paperclip-bridge.test.ts`), because it needs a model that calls tools.
+- **The bundle:** `docker compose up -d` with Docker 29 and Compose 5. The setup step, the automatic connection (company, 20 agent keys, plugin ready from the shared volume), a task assigned in Paperclip and closed by the Enterprise Brain agent, the embedded page, and a restart without a second push. The official Paperclip image couldn't be downloaded in the test environment, so Paperclip ran from the same source in a stand-in container with the image's entrypoint and settings. The connection logic is also covered by `apps/server/test/paperclip-connect.test.ts`.
 
 ## Who does what
 

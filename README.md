@@ -31,11 +31,28 @@ Analyst:    ❓ Q5 — Where inputs come from? (pick all that apply)   ➡️ Re
 
 ## Quick start
 
+### With Paperclip, in one command
+
+Requirements: **Docker** (Docker Desktop on Mac and Windows).
+
+```bash
+docker compose up -d
+```
+
+| Open | What you get |
+|---|---|
+| **http://localhost:3100** | **Paperclip** with your company: the org chart with the department leads and Enterprise Brain agents, tasks, budgets, and the Enterprise Brain page in the sidebar |
+| **http://localhost:3200** | The **Enterprise Brain** console: Agent Builder, catalog, approvals, knowledge |
+
+The first start takes a few minutes: it builds Enterprise Brain and downloads Paperclip and PostgreSQL. Enterprise Brain then connects itself to Paperclip, with nothing to configure. Assign a task to an Enterprise Brain agent in Paperclip and it does the work, answers on the task and closes it. To use Claude, put `ANTHROPIC_API_KEY=…` in a `.env` file next to `docker-compose.yml` and run `docker compose up -d` again. See [docs/PAPERCLIP.md](docs/PAPERCLIP.md#the-bundle-paperclip-and-enterprise-brain-in-one-command) for how it works.
+
+### Enterprise Brain alone
+
 Requirements: **Node.js 22.12+** and **pnpm 9**.
 
 ```bash
 pnpm install
-pnpm build          # builds the web console
+pnpm build          # builds the web console and the Paperclip plugin
 pnpm start          # http://localhost:3200
 ```
 
@@ -54,7 +71,7 @@ CREATE EXTENSION vector;
 DATABASE_URL=postgres://user:password@host:5432/enterprise_brain pnpm start
 ```
 
-`docker compose up` starts both, with a pgvector-enabled PostgreSQL. Managed services (Azure Database for PostgreSQL, AWS RDS, Google Cloud SQL) support pgvector.
+The Docker bundle runs one PostgreSQL server with pgvector for both Enterprise Brain and Paperclip. Managed services (Azure Database for PostgreSQL, AWS RDS, Google Cloud SQL) support pgvector.
 
 **Claude:** set `ANTHROPIC_API_KEY` (default model `claude-opus-5`). Without it, everything still works in a clearly labelled **offline mode** with deterministic fallbacks. See `.env.example` for all settings (Postgres, embeddings, API keys, Paperclip).
 
@@ -100,6 +117,7 @@ packages/paperclip   Paperclip package exporter, Hermes contract, API client
 plugins/paperclip-plugin   Paperclip plugin
 catalog/             Departments, processes, agents (Markdown + YAML), use cases
 docs/                Architecture, Agent Builder, Paperclip, API, templates, connectors, ADRs
+docker/              The Docker bundle's setup for Paperclip (its database and secrets)
 ```
 
 ## Documentation

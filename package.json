@@ -11,7 +11,7 @@
   "scripts": {
     "dev": "pnpm --filter @enterprise-brain/server dev",
     "dev:web": "pnpm --filter @enterprise-brain/web dev",
-    "build": "pnpm --filter @enterprise-brain/web build",
+    "build": "pnpm --filter @enterprise-brain/web build && pnpm --filter @enterprise-brain/paperclip-plugin build",
     "start": "pnpm --filter @enterprise-brain/server start",
     "typecheck": "pnpm -r --parallel typecheck",
     "test": "vitest run",
