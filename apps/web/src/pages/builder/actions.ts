@@ -83,7 +83,7 @@ export function useSessionActions(sessionId: string) {
     onSuccess: (view) => {
       apply(view);
       void queryClient.invalidateQueries({ queryKey: keys.agents(company) });
-      toast.success(view.agent ? `${view.agent.name} is built and in testing` : "Agent generated");
+      toast.success(view.agent ? `${view.agent.name} is hired, on trial` : "Hired, on trial");
     },
     onError: (error) => {
       void queryClient.invalidateQueries({ queryKey: sessionKey });
@@ -96,7 +96,10 @@ export function useSessionActions(sessionId: string) {
     onSuccess: (view) => {
       apply(view);
       void queryClient.invalidateQueries({ queryKey: keys.agents(company) });
-      toast.success(`${view.agent?.name ?? "The agent"} is live`, view.agent ? { link: { to: `/apps/${view.agent.slug}`, label: "Open its app" } } : undefined);
+      toast.success(
+        `${view.agent?.name ?? "Your AI employee"} is at work`,
+        view.agent ? { link: { to: `/ai/${view.agent.slug}`, label: "Open its page" } } : undefined,
+      );
     },
     onError,
   });

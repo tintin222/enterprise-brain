@@ -156,7 +156,8 @@ describe("Agent Builder: HR manager builds a CV analyser", () => {
     }
     expect(view.session.status).toBe("confirming");
     const summary = view.messages.filter((m: any) => m.data?.summary).at(-1);
-    expect(summary.content).toContain("What I'll build");
+    expect(summary.content).toContain("### Its job");
+    expect(summary.content).toContain("**At first:** Supervised");
     expect(view.draft.triggers.some((tr: any) => tr.type === "mailbox" && tr.mailbox === "careers@acme.com.tr")).toBe(true);
     // Nothing has been generated before confirmation.
     expect(view.agent).toBeUndefined();
@@ -172,6 +173,9 @@ describe("Agent Builder: HR manager builds a CV analyser", () => {
     expect(results, "test results are reported in the chat").toBeTruthy();
     expect(results.content.split("\n").filter((l: string) => l.startsWith("- **")).length).toBe(3);
     const agent = (await t.app.inject({ method: "GET", url: `${base}/agents/${view.agent.slug}` })).json();
+    // Hired on trial at the level agreed in the interview (the recommended Supervised).
+    expect(agent.employment.probation).toBe("supervised");
+    expect(view.job).toMatchObject({ level: { value: "supervised" }, samples: 3, duties: expect.arrayContaining(["Reads every email sent to careers@acme.com.tr with an attachment"]) });
     expect(agent.definition.guardrails.personalData).not.toBe("none");
     expect(agent.definition.instructions).toContain("Requirements agreed with the business");
   });

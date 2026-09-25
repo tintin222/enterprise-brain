@@ -1,9 +1,11 @@
 import {
   ARCHETYPE_LABELS,
+  PROBATION_LEVELS,
   SECTION_LABELS,
   STAKEHOLDER_LABELS,
   type AgentDefinition,
   type BuilderRound,
+  type Probation,
   type RequirementTree,
   type RoundQuestion,
   type WorkflowStep,
@@ -199,7 +201,7 @@ function waitText(step: Extract<WorkflowStep, { type: "wait" }>): string {
   return days ? `Wait ${days}` : "Wait until the set date";
 }
 
-export function describeDefinition(definition: AgentDefinition): string {
+export function describeDefinition(definition: AgentDefinition, options: { probation?: Probation } = {}): string {
   const lines: string[] = [];
   lines.push(`- **Type:** ${ARCHETYPE_LABELS[definition.archetype]}`);
   if (definition.inputs.length) lines.push(`- **Inputs:** ${definition.inputs.map((f) => `${f.label ?? f.key}${f.required ? "*" : ""}`).join(", ")}`);
@@ -217,8 +219,16 @@ export function describeDefinition(definition: AgentDefinition): string {
       `- **Systems:** ${definition.connectors.map((c) => `${c.category.toUpperCase()}${c.purpose ? ` (${c.purpose.replace(/[.\s]+$/, "")})` : ""}${c.instanceId ? "" : ", sandbox until connected"}`).join("; ")}`,
     );
   }
-  const approvals = definition.guardrails.approvalRequiredFor.map((p) => APPROVAL_LABELS[p] ?? p);
-  lines.push(`- **Human approval for:** ${approvals.length ? approvals.join(", ") : "nothing (fully automatic)"}`);
+  if (options.probation) {
+    const level = PROBATION_LEVELS[options.probation];
+    lines.push(`- **At first:** ${level.label}. Alone: ${level.alone.toLowerCase()}; a person: ${level.person.toLowerCase()}`);
+    // Rules beyond the level ("every email", "every change" are what the level decides).
+    const always = definition.guardrails.approvalRequiredFor.filter((p) => !["mail.send", "connector:write", "connector:*"].includes(p)).map((p) => APPROVAL_LABELS[p] ?? p);
+    if (always.length) lines.push(`- **Always asks a person before:** ${always.join(", ")}`);
+  } else {
+    const approvals = definition.guardrails.approvalRequiredFor.map((p) => APPROVAL_LABELS[p] ?? p);
+    lines.push(`- **Human approval for:** ${approvals.length ? approvals.join(", ") : "nothing (fully automatic)"}`);
+  }
   lines.push(
     `- **Privacy:** ${definition.guardrails.personalData === "none" ? "no personal data" : `${definition.guardrails.personalData} personal data`}${definition.guardrails.retentionDays ? `, kept ${definition.guardrails.retentionDays} days` : ""}`,
   );
@@ -230,6 +240,8 @@ export function renderSummary(options: {
   agentName: string;
   goal: string;
   draft?: AgentDefinition;
+  /** How much it does alone at first (from the interview). */
+  probation?: Probation;
   language?: string;
   requestStatus?: Map<string, string>;
 }): string {
@@ -266,13 +278,13 @@ export function renderSummary(options: {
     lines.push("", tr ? "**Varsayımlar (değiştirebilirsiniz)**" : "**Assumptions (you can change these)**", ...assumptions.map((a) => `- ${a}`));
   }
   if (options.draft) {
-    lines.push("", tr ? "### Oluşturacağım ajan" : "### What I'll build", describeDefinition(options.draft));
+    lines.push("", tr ? "### Oluşturacağım ajan" : "### Its job", describeDefinition(options.draft, { probation: options.probation }));
   }
   lines.push(
     "",
     tr
       ? "Hazırsanız **\"onayla\"** yazın; ajanı oluşturup örneklerinizle test edeyim. Değiştirmek istediğiniz bir şey varsa söyleyin."
-      : "Reply **\"confirm\"** and I'll build the agent and test it on your samples — or tell me what to change.",
+      : "Reply **\"confirm\"** and I'll hire it on trial and try it on your samples, or tell me what to change.",
   );
   return lines.join("\n");
 }

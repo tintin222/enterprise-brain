@@ -317,6 +317,13 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     return platform.files.list(company.id);
   });
 
+  /** The bundled demo samples (sample CVs and invoices) people try AI employees with; nobody's own files. */
+  app.get("/api/companies/:company/files/demo", async (request) => {
+    const company = await companyOf(platform, request);
+    viewerOf(request);
+    return (await platform.files.list(company.id)).filter((f) => typeof f.metadata?.demoSet === "string");
+  });
+
   app.get("/api/companies/:company/files/:file", async (request, reply) => {
     const company = await companyOf(platform, request);
     const { file: fileId } = request.params as { file: string };

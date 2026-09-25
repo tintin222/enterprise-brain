@@ -1,5 +1,6 @@
 # Enterprise Brain: one container with the API, the web console and the Paperclip plugin.
-# Use DATABASE_URL for PostgreSQL + pgvector; docker-compose.yml runs it together with Paperclip.
+# Use DATABASE_URL for PostgreSQL + pgvector; docker-compose.yml runs it with its database, and
+# docker-compose.paperclip.yml together with Paperclip.
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
 RUN corepack enable

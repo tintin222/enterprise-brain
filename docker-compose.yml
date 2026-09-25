@@ -1,18 +1,20 @@
-# Enterprise Brain + Paperclip in one command:
+# Enterprise Brain, one app and its database:
 #
 #   docker compose up -d
 #
-#   Paperclip (org chart, tasks, budgets):   http://localhost:3100
-#   Enterprise Brain console:                http://localhost:3200
+#   Open http://localhost:3200
 #
-# On first start Enterprise Brain connects itself to Paperclip: your company, departments and agents appear
-# in Paperclip's org chart, and the Enterprise Brain page in its sidebar. Nothing to configure. Optional
-# settings (ANTHROPIC_API_KEY, other ports…) go in a .env file next to this one; see .env.example.
+# The first start builds the app (a few minutes) and sets up the demo company, Acme, with its departments,
+# AI employees and demo people you can sign in as with one click. For your own company, set
+# EB_SEED_DEMO=false and EB_COMPANY_NAME before the first start: the first person to open the app then
+# becomes its admin and sets up sign-in (Microsoft 365 or Google), connections and people in Settings.
 #
-# How it fits together: Paperclip and Enterprise Brain share one network, like containers in a Kubernetes
-# pod, so each reaches the other at localhost. Paperclip runs in its no-login mode (local_trusted), as
-# `npx paperclipai onboard` does on a laptop, so the ports are published on this machine only (127.0.0.1).
-# For a server that other people use, see docs/PAPERCLIP.md ("Running the bundle on a server").
+# Optional settings (ANTHROPIC_API_KEY for Claude, the company, sign-in, another port…) go in a .env file
+# next to this one; see .env.example. The app is published on this computer only (127.0.0.1). To let
+# colleagues reach it, set EB_BIND=0.0.0.0 and EB_PUBLIC_URL to the address they use, after you have
+# created the admin account (or put it behind your reverse proxy with HTTPS).
+#
+# Want Paperclip too? docker compose -f docker-compose.paperclip.yml up -d (see docs/PAPERCLIP.md).
 name: enterprise-brain
 
 services:
@@ -30,90 +32,41 @@ services:
       retries: 20
     restart: unless-stopped
 
-  # Owns the shared network and publishes both apps on this machine. Paperclip's no-login mode only
-  # listens on 127.0.0.1, so this forwards the browser to it.
-  gateway:
-    image: alpine/socat:1.8.0.3
-    command: ["TCP-LISTEN:39100,fork,reuseaddr", "TCP:127.0.0.1:${PAPERCLIP_PORT:-3100}"]
-    ports:
-      - "127.0.0.1:${PAPERCLIP_PORT:-3100}:39100"
-      - "127.0.0.1:${EB_PORT:-3200}:${EB_PORT:-3200}"
-    restart: unless-stopped
-
-  # Before Paperclip starts: its database and its secrets (generated once, kept in its data volume).
-  paperclip-setup:
-    image: pgvector/pgvector:pg17
-    depends_on:
-      db:
-        condition: service_healthy
-    environment:
-      PGHOST: db
-      PGUSER: brain
-      PGPASSWORD: ${POSTGRES_PASSWORD:-brain}
-    entrypoint: ["sh", "/paperclip-setup.sh"]
-    volumes:
-      - ./docker/paperclip-setup.sh:/paperclip-setup.sh:ro
-      - paperclip-data:/paperclip
-    restart: "no"
-
-  paperclip:
-    image: ${PAPERCLIP_IMAGE:-ghcr.io/paperclipai/paperclip:latest}
-    network_mode: service:gateway
-    depends_on:
-      gateway:
-        condition: service_started
-      paperclip-setup:
-        condition: service_completed_successfully
-    environment:
-      HOST: 127.0.0.1
-      PORT: ${PAPERCLIP_PORT:-3100}
-      DATABASE_URL: postgres://brain:${POSTGRES_PASSWORD:-brain}@db:5432/paperclip
-      PAPERCLIP_DEPLOYMENT_MODE: local_trusted
-      PAPERCLIP_DEPLOYMENT_EXPOSURE: private
-      PAPERCLIP_PUBLIC_URL: http://localhost:${PAPERCLIP_PORT:-3100}
-      # For Paperclip's own agents (CEO, department leads) once you give them a runtime such as Claude Code.
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-    volumes:
-      - paperclip-data:/paperclip
-      # The Enterprise Brain plugin, put there by Enterprise Brain.
-      - eb-plugin:/opt/enterprise-brain/paperclip-plugin:ro
-    pids_limit: 2048
-    restart: unless-stopped
-
   brain:
     build: .
     image: enterprise-brain:local
-    network_mode: service:gateway
     depends_on:
       db:
         condition: service_healthy
-      gateway:
-        condition: service_started
+    ports:
+      - "${EB_BIND:-127.0.0.1}:${EB_PORT:-3200}:3200"
     environment:
-      PORT: ${EB_PORT:-3200}
+      PORT: 3200
       DATABASE_URL: postgres://brain:${POSTGRES_PASSWORD:-brain}@db:5432/enterprise_brain
       EB_PUBLIC_URL: ${EB_PUBLIC_URL:-http://localhost:${EB_PORT:-3200}}
-      # Connect to Paperclip on start: push the company once, install and configure the plugin.
-      PAPERCLIP_URL: http://127.0.0.1:${PAPERCLIP_PORT:-3100}
-      EB_PAPERCLIP_AUTOCONNECT: ${EB_PAPERCLIP_AUTOCONNECT:-true}
-      EB_PAPERCLIP_PLUGIN_DIR: /opt/enterprise-brain/paperclip-plugin
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
-      # No sign-in, like Paperclip's local_trusted mode (both apps are reachable from this computer only).
-      # The Paperclip plugin calls Enterprise Brain without a person's session.
-      EB_AUTH: ${EB_AUTH:-open}
+      # The company this installation is for, and whether to fill it with demo data on first start.
+      EB_COMPANY_SLUG: ${EB_COMPANY_SLUG:-acme}
+      EB_COMPANY_NAME: ${EB_COMPANY_NAME:-Acme Endüstri A.Ş.}
+      EB_MAIL_DOMAIN: ${EB_MAIL_DOMAIN:-acme.com.tr}
+      EB_SEED_DEMO: ${EB_SEED_DEMO:-true}
+      # People sign in. Microsoft 365 and Google can also be set up in the app (Settings → People and roles).
+      EB_AUTH: ${EB_AUTH:-accounts}
+      EB_AUTH_MICROSOFT_CLIENT_ID: ${EB_AUTH_MICROSOFT_CLIENT_ID:-}
+      EB_AUTH_MICROSOFT_CLIENT_SECRET: ${EB_AUTH_MICROSOFT_CLIENT_SECRET:-}
+      EB_AUTH_MICROSOFT_TENANT: ${EB_AUTH_MICROSOFT_TENANT:-}
+      EB_AUTH_GOOGLE_CLIENT_ID: ${EB_AUTH_GOOGLE_CLIENT_ID:-}
+      EB_AUTH_GOOGLE_CLIENT_SECRET: ${EB_AUTH_GOOGLE_CLIENT_SECRET:-}
+      EB_AUTH_GOOGLE_HOSTED_DOMAIN: ${EB_AUTH_GOOGLE_HOSTED_DOMAIN:-}
+      # Machines (the MCP endpoint, scripts) send it as a Bearer token.
       EB_API_KEY: ${EB_API_KEY:-}
-      EB_HERMES_API_KEY: ${EB_HERMES_API_KEY:-}
-      # Encrypts connector secrets. Unset: a random key is generated once in the data volume (/data).
+      # Encrypts connection secrets. Unset: a random key is generated once in the data volume (/data).
       EB_MASTER_KEY: ${EB_MASTER_KEY:-}
     volumes:
       - braindata:/data
-      - eb-plugin:/opt/enterprise-brain/paperclip-plugin
     restart: unless-stopped
 
 volumes:
   pgdata:
   braindata:
-  paperclip-data:
-  eb-plugin:

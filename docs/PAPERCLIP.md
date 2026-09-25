@@ -13,11 +13,13 @@ Tested against Paperclip 0.3.1 (see [What was verified](#what-was-verified)).
 
 ## The bundle: Paperclip and Enterprise Brain in one command
 
-The quickest way to get the Paperclip experience with Enterprise Brain inside it. Requirements: Docker.
+Enterprise Brain installs as one app on its own (`docker compose up -d`, see the README). When you also want Paperclip, with Enterprise Brain inside it, use the bundle instead. Requirements: Docker.
 
 ```bash
-docker compose up -d
+docker compose -f docker-compose.paperclip.yml up -d
 ```
+
+The bundle runs Enterprise Brain without sign-in (`EB_AUTH=open`), like Paperclip's no-login mode, on this computer only. Both compose files use the same data volumes, so you can move between them; after a switch, run the new one with `--remove-orphans` so the other one's containers go away.
 
 | Open | What you get |
 |---|---|
@@ -35,7 +37,7 @@ On first start, which takes a few minutes:
    - installs the Enterprise Brain plugin, which it copies to a volume both apps share;
    - points the plugin at itself for the company.
 
-The console's Paperclip page shows the progress, then **Connected to Paperclip automatically**. Later starts change nothing that already exists, so a restart doesn't create a second company. After an Enterprise Brain upgrade (`docker compose up -d --build`), the plugin in Paperclip is updated too. If Paperclip's data is reset, the company is pushed again.
+The console's Paperclip page shows the progress, then **Connected to Paperclip automatically**. Later starts change nothing that already exists, so a restart doesn't create a second company. After an Enterprise Brain upgrade (`docker compose -f docker-compose.paperclip.yml up -d --build`), the plugin in Paperclip is updated too. If Paperclip's data is reset, the company is pushed again.
 
 Then, in Paperclip, create a task and assign it to an Enterprise Brain agent, for example the *HR Policy Assistant*. Paperclip wakes the agent; it works in Enterprise Brain, answers on the task and closes it:
 
@@ -54,7 +56,7 @@ Then, in Paperclip, create a task and assign it to an Enterprise Brain agent, fo
 
 This is what makes it work with no settings. Paperclip's no-login mode listens only on 127.0.0.1, and its Hermes adapter accepts plain HTTP only to localhost. The small `gateway` container (socat) forwards the browser to Paperclip. The ports are published on this machine only (`127.0.0.1`), so nobody else on the network can open the unauthenticated Paperclip board or console.
 
-**Settings**, all optional, in a `.env` file next to `docker-compose.yml`:
+**Settings**, all optional, in a `.env` file next to `docker-compose.paperclip.yml`:
 
 | Variable | Default | |
 |---|---|---|
@@ -64,7 +66,7 @@ This is what makes it work with no settings. Paperclip's no-login mode listens o
 | `EB_PAPERCLIP_AUTOCONNECT` | `true` | `false` to connect by hand (console → Paperclip → Push) |
 | `POSTGRES_PASSWORD` | `brain` | The database isn't published outside Docker |
 
-**Data** lives in Docker volumes: `pgdata` (both databases), `braindata` (Enterprise Brain's files and keys), `paperclip-data` (Paperclip's files and secrets) and `eb-plugin`. `docker compose down` keeps them; `docker compose down -v` deletes everything.
+**Data** lives in Docker volumes: `pgdata` (both databases), `braindata` (Enterprise Brain's files and keys), `paperclip-data` (Paperclip's files and secrets) and `eb-plugin`. `docker compose -f docker-compose.paperclip.yml down` keeps them; adding `-v` deletes everything.
 
 **Paperclip's own agents** (the CEO and department leads) need a runtime to plan and delegate. In Paperclip, open an agent and pick one, such as Claude Code (`claude_local`, installed in Paperclip's image; set `ANTHROPIC_API_KEY`). Enterprise Brain agents need nothing more.
 
@@ -232,7 +234,7 @@ Against Paperclip 0.3.1, running locally with PostgreSQL:
 - **Security:** the gateway rejects requests without the Hermes key (`401`).
 - **Plugin:** it installs and becomes ready, and its 5 tools are available to Paperclip agents. `knowledge_search` and `list_agents` were called through Paperclip's tool API. The Enterprise Brain page and sidebar entry render inside Paperclip.
 - **Approvals:** the `blocked` → approved → `done` path is covered by an automated test against a stand-in Paperclip (`apps/server/test/paperclip-bridge.test.ts`), because it needs a model that calls tools.
-- **The bundle:** `docker compose up -d` with Docker 29 and Compose 5. The setup step, the automatic connection (company, 20 agent keys, plugin ready from the shared volume), a task assigned in Paperclip and closed by the Enterprise Brain agent, the embedded page, and a restart without a second push. The official Paperclip image couldn't be downloaded in the test environment, so Paperclip ran from the same source in a stand-in container with the image's entrypoint and settings. The connection logic is also covered by `apps/server/test/paperclip-connect.test.ts`.
+- **The bundle:** `docker compose up -d` (now `docker compose -f docker-compose.paperclip.yml up -d`) with Docker 29 and Compose 5. The setup step, the automatic connection (company, 20 agent keys, plugin ready from the shared volume), a task assigned in Paperclip and closed by the Enterprise Brain agent, the embedded page, and a restart without a second push. The official Paperclip image couldn't be downloaded in the test environment, so Paperclip ran from the same source in a stand-in container with the image's entrypoint and settings. The connection logic is also covered by `apps/server/test/paperclip-connect.test.ts`.
 
 ## Who does what
 

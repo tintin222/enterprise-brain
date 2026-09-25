@@ -256,7 +256,7 @@ export function Transcript({
               <Button variant="primary" icon={Sparkles} loading={actions.confirm.isPending} onClick={() => actions.confirm.mutate()}>
                 Confirm and hire
               </Button>
-              <span className="text-xs text-muted">Nothing is generated until you confirm.</span>
+              <span className="text-xs text-muted">Nothing is hired until you confirm.</span>
             </div>
           )}
           {m.data?.agentId && view.agent && (

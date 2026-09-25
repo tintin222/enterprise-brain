@@ -1,5 +1,5 @@
 #!/bin/sh
-# One-time setup for Paperclip in the Enterprise Brain bundle (docker-compose.yml), run before it starts:
+# One-time setup for Paperclip in the Enterprise Brain bundle (docker-compose.paperclip.yml), run before it starts:
 # its database on the shared PostgreSQL server, and the secrets it signs sessions and agent tokens with.
 # Safe to run on every start: nothing that exists is changed.
 set -eu

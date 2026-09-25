@@ -40,25 +40,25 @@ export function stakeholderQuestion(node: RequirementNode, tree: RequirementTree
   switch (node.id) {
     case "integration.mail":
       return q(
-        `How can the agent get access to ${mailbox}? Our preferred option is a Microsoft 365 (Entra ID) app registration with Mail.Read and Mail.Send application permissions, restricted to this mailbox with an application access policy. A dedicated service account over IMAP/SMTP also works.`,
-        "The agent reads incoming messages and attachments from this mailbox; replies are only sent after a person approves them.",
+        `How can the AI employee get access to ${mailbox}? Our preferred option is a Microsoft 365 (Entra ID) app registration with Mail.Read and Mail.Send application permissions, restricted to this mailbox with an application access policy. A dedicated service account over IMAP/SMTP also works.`,
+        "The AI employee reads incoming messages and attachments from this mailbox; replies are only sent after a person approves them.",
       );
     case "integration.source_system":
       return q(
-        `How can the agent read data from ${source}? Is there an API (REST/OData), and can you create a read-only technical user limited to the records it needs?`,
-        `Read-only access with a dedicated technical user keeps the agent's footprint minimal and auditable.${context("inputs.system")}`,
+        `How can the AI employee read data from ${source}? Is there an API (REST/OData), and can you create a read-only technical user limited to the records it needs?`,
+        `Read-only access with a dedicated technical user keeps the AI employee's footprint minimal and auditable.${context("inputs.system")}`,
       );
     case "integration.target_system":
       return q(
-        `Can you create a technical integration user in ${target} that may create/update only the records the agent writes, and tell us which API to use?`,
+        `Can you create a technical integration user in ${target} that may create/update only the records the AI employee writes, and tell us which API to use?`,
         `Every write is approval-gated and logged, but the account itself should still follow least privilege.${context("outputs.system")}`,
       );
     case "integration.shared_folder":
-      return q("Can you grant the agent read access to the shared folder via Microsoft Graph (Sites.Selected), or tell us the preferred way?");
+      return q("Can you grant the AI employee read access to the shared folder via Microsoft Graph (Sites.Selected), or tell us the preferred way?");
     case "integration.web_form":
       return q("Can the website form send each submission (as JSON) to a webhook URL we provide, and who can make that change?");
     case "governance.retention":
-      return q("How long may the data processed by this agent be retained, and must it be deleted or anonymised afterwards?");
+      return q("How long may the data processed by this AI employee be retained, and must it be deleted or anonymised afterwards?");
     case "governance.legal_basis":
       return q("What is the legal basis for processing this personal data (e.g. consent in the privacy notice), and does the notice need updating for automated screening?");
     default:
@@ -139,7 +139,7 @@ export function questionnaireMarkdown(role: StakeholderRole, questions: Stakehol
     "",
     "## Context",
     "",
-    `${ctx.goal.replace(/\s+/g, " ").trim()} The agent runs on the company's Enterprise Brain platform; every action that changes other systems or sends email is approval-gated and logged.`,
+    `${ctx.goal.replace(/\s+/g, " ").trim()} The AI employee works on the company's Enterprise Brain platform; a person approves its changes to other systems and its emails until it has a track record, and everything it does is logged.`,
     "",
     "## How to answer",
     "",

@@ -9,6 +9,7 @@ import {
   type Criterion,
   type FieldSpec,
   type FieldType,
+  type Probation,
   type RequirementTree,
   type SampleAnalysis,
   type TriggerSpec,
@@ -82,6 +83,16 @@ function oneOf<T extends string>(value: string, allowed: readonly T[], fallback:
 }
 
 /** "180" -> 180, "6 months" -> 180, "2 years" / "2 yıl" -> 730; undefined when there is no duration ("policy"). */
+/**
+ * The probation level agreed in the interview: how much the new AI employee does alone at first.
+ * Interviews from before probation levels answered "which actions need approval" instead.
+ */
+export function probationOf(tree: RequirementTree): Probation {
+  const value = text(valueOf(tree, "actions.approval"));
+  if (value === "shadow" || value === "supervised" || value === "trusted") return value;
+  return value === "none" || value === "emails" ? "trusted" : "supervised";
+}
+
 export function durationInDays(answer: string): number | undefined {
   const match = answer.toLowerCase().match(/(\d+(?:[.,]\d+)?)\s*(days?|gün|gun|weeks?|hafta|months?|ay|years?|yıl|yil)?/);
   if (!match) return undefined;
@@ -300,7 +311,7 @@ export function generateDefinition(input: GenerationInput): AgentDefinition {
   ]).map((f) => (channels.includes("email") && f.type === "file" && input.archetype === "document-processing" ? { ...f, required: false } : f));
 
   // Choice answers are validated when given; these guards keep a stray value from breaking generation.
-  const approvals = oneOf(text(valueOf(tree, "actions.approval")), ["external", "emails", "none"], "external");
+  const level = probationOf(tree);
   const personalData = oneOf(text(valueOf(tree, "governance.personal_data")), ["none", "contains", "sensitive"], definition.guardrails?.personalData ?? "none");
   // Labels carry the durations ("Talent pool for 1 year, …"); a stakeholder's answer is in their words.
   const retentionState = stateOf(tree, "governance.retention");
@@ -357,7 +368,8 @@ export function generateDefinition(input: GenerationInput): AgentDefinition {
       ...(definition.triggers ?? []).filter((t) => t.type !== "manual" && !(t.type === "mailbox" && triggers.some((n) => n.type === "mailbox"))),
     ]),
     guardrails: {
-      approvalRequiredFor: approvals === "none" ? [] : approvals === "emails" ? ["mail.send"] : ["mail.send", "connector:write"],
+      // The level decides what goes to a person; these keep a Trusted hire's job consistent with it.
+      approvalRequiredFor: level === "trusted" ? (text(valueOf(tree, "actions.approval")) === "emails" ? ["mail.send"] : []) : ["mail.send", "connector:write"],
       personalData,
       ...(retention ? { retentionDays: retention } : {}),
       notes: notes.length ? notes : undefined,

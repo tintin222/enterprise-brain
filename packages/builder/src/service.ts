@@ -2,6 +2,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import {
   ARCHETYPE_LABELS,
   STAKEHOLDER_LABELS,
+  describeDuties,
   nowIso,
   slugify,
   truncate,
@@ -20,7 +21,8 @@ import { builderMessages, builderSessions, stakeholderRequests } from "@enterpri
 import { analyzeSample, extractDocument } from "@enterprise-brain/documents";
 import type { Platform } from "@enterprise-brain/runtime";
 import { Analyst } from "./analyst.ts";
-import { generateDefinition, guessSystemCategory, requirementsDigest, type Synthesis } from "./generate.ts";
+import { generateDefinition, guessSystemCategory, probationOf, requirementsDigest, type Synthesis } from "./generate.ts";
+import { jobDescription, type JobDescription } from "./job.ts";
 import { buildInitialNodes } from "./nodes.ts";
 import { coerceAnswer, splitNumbered, type ParsedAnswer } from "./parse.ts";
 import { describeDefinition, displayValue, renderFollowUp, renderRound, renderSummary } from "./render.ts";
@@ -99,12 +101,14 @@ export interface SessionView {
   currentRound?: BuilderRound;
   progress: TreeProgress;
   draft?: AgentDefinition;
+  /** The job description in plain words, built as the manager answers (the right side of Hire). */
+  job: JobDescription;
   agent?: { id: string; slug: string; status: string; name: string };
   llm: { available: boolean; provider: string; model: string };
 }
 
 const CONFIRM = /^\s*(confirm(ed)?|yes,? (build|go)|build (it|the agent)|go ahead|looks good,? build|onayla(yorum)?|onaylıyorum|tamam,? (oluştur|kur)|oluştur|evet,? oluştur)\b/i;
-const ACTIVATE = /^\s*(activate|deploy|go live|publish|yayınla|canlıya al|aktif et|devreye al)\b/i;
+const ACTIVATE = /^\s*(activate|deploy|go live|publish|put (it )?to work|start work(ing)?|yayınla|canlıya al|aktif et|devreye al|işe başlat)\b/i;
 
 export class BuilderError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -137,7 +141,7 @@ export class BuilderService {
   // ---------------------------------------------------------------------------
 
   async start(companyId: string, input: StartSessionInput): Promise<SessionView> {
-    if (!input.description?.trim()) throw new BuilderError("Describe the agent you want to build");
+    if (!input.description?.trim()) throw new BuilderError("Describe the job you want to hire for");
     const discovery = await this.analyst.discover(input);
     const template = discovery.template;
     const company = await this.platform.company(companyId);
@@ -165,7 +169,8 @@ export class BuilderService {
         requesterName: input.requesterName ?? null,
         requesterEmail: input.requesterEmail ?? null,
         requesterRole: input.requesterRole ?? null,
-        department: discovery.department ?? input.department ?? null,
+        // The hiring manager's department, when the server knows it; else the matched template's.
+        department: input.department ?? discovery.department ?? null,
         description: [input.description, input.formDescription ? `\n\nForm: ${input.formDescription}` : ""].join(""),
         archetype: discovery.archetype,
         templateId: template?.id ?? null,
@@ -182,7 +187,7 @@ export class BuilderService {
       [
         tr
           ? `Anladığım kadarıyla **${discovery.agentName}** adlı, _${ARCHETYPE_LABELS[discovery.archetype]}_ tipinde bir ajan istiyorsunuz.`
-          : `Here's what I understood: you want **${discovery.agentName}**, a _${ARCHETYPE_LABELS[discovery.archetype]}_ agent.`,
+          : `Here's what I understood: you want to hire **${discovery.agentName}**, a _${ARCHETYPE_LABELS[discovery.archetype].toLowerCase()}_ AI employee.`,
         template
           ? tr
             ? `Katalogdaki **${template.name}** şablonundan başlayacağım (${template.department}); sizin sürecinize göre uyarlayacağız.`
@@ -202,6 +207,16 @@ export class BuilderService {
     return this.advance(companyId, session!.id);
   }
 
+  /** A session's row, e.g. to check who may see it (404 when it doesn't exist). */
+  async find(companyId: string, sessionId: string): Promise<SessionRow> {
+    return this.session(companyId, sessionId);
+  }
+
+  /** The session a stakeholder request belongs to. */
+  async sessionOfRequest(companyId: string, requestId: string): Promise<SessionRow> {
+    return this.session(companyId, (await this.request(companyId, requestId)).sessionId);
+  }
+
   async list(companyId: string) {
     return this.db.select().from(builderSessions).where(eq(builderSessions.companyId, companyId)).orderBy(desc(builderSessions.updatedAt));
   }
@@ -219,6 +234,7 @@ export class BuilderService {
       const record = await this.platform.agents.find(companyId, session.agentId);
       if (record) agent = { id: record.row.id, slug: record.row.slug, status: record.row.status, name: record.row.name };
     }
+    const draft = (session.draft as AgentDefinition | null) ?? undefined;
     return {
       session,
       tree,
@@ -226,7 +242,8 @@ export class BuilderService {
       requests,
       currentRound: currentRound?.questions.length ? currentRound : undefined,
       progress: progress(tree),
-      draft: (session.draft as AgentDefinition | null) ?? undefined,
+      draft,
+      job: jobDescription({ tree, draft, requests, samples: ((session.samples ?? []) as unknown[]).length, requesterName: session.requesterName }),
       agent,
       llm: { available: this.platform.llm.available, provider: this.platform.llm.provider, model: this.platform.llm.model },
     };
@@ -503,7 +520,7 @@ export class BuilderService {
           "analyst",
           tr
             ? "Sizin tarafınızdaki tüm soruları tamamladık. Kalanlar başka ekiplerin yanıtını bekliyor (talepleri aşağıda görebilirsiniz). İsterseniz **varsayımlarla devam** edebiliriz; ajan, entegrasyonlar hazır olana kadar manuel yükleme ve test verisiyle çalışır."
-            : "That's everything on your side. The remaining points wait on other teams (see the requests below). You can **continue with assumptions** now — the agent will run on manual uploads and sandbox data until the integrations are ready.",
+            : "That's everything on your side. The remaining points wait on other teams (see the requests below). You can **continue with assumptions** now: it will work on manual uploads and demo data until the connections are ready.",
         );
       }
     } else {
@@ -516,6 +533,7 @@ export class BuilderService {
           agentName: String(valueOf(tree, "purpose.name") ?? session.title),
           goal: String(valueOf(tree, "purpose.goal") ?? session.description),
           draft,
+          probation: probationOf(tree),
           language: session.language,
           requestStatus: await this.requestStatuses(sessionId),
         }),
@@ -792,7 +810,7 @@ export class BuilderService {
     }
   }
 
-  /** The confirmation gate passed: generate the agent, create it in "testing" and run it on the samples. */
+  /** The confirmation gate passed: hire the AI employee on trial ("testing") at the agreed level, and try it on the samples. */
   async confirm(companyId: string, sessionId: string): Promise<SessionView> {
     const session = await this.session(companyId, sessionId);
     if (!["confirming", "awaiting-stakeholders"].includes(session.status)) {
@@ -824,7 +842,7 @@ export class BuilderService {
     const definition = this.draft(session, tree, synthesis, knowledgeCollection);
     if (!definition) {
       await this.db.update(builderSessions).set({ status: "confirming" }).where(eq(builderSessions.id, sessionId));
-      throw new BuilderError("I couldn't assemble a valid agent from these answers. Please review the summary and adjust.");
+      throw new BuilderError("I couldn't write a valid job description from these answers. Please review the summary and adjust.");
     }
     const department = definition.department ? (await this.platform.catalog.departments(companyId)).find((d) => d.key === definition.department) : undefined;
     const agent = session.agentId
@@ -837,6 +855,7 @@ export class BuilderService {
           departmentId: department?.id ?? null,
           builderSessionId: sessionId,
           createdBy: session.requesterEmail ?? "builder",
+          probation: probationOf(tree),
         });
     await this.db
       .update(builderSessions)
@@ -847,16 +866,16 @@ export class BuilderService {
       action: "agent.generated",
       entityType: "agent",
       entityId: agent.row.id,
-      summary: `Agent Builder generated ${agent.definition.name}`,
+      summary: `Hired ${agent.definition.name} in the Studio, on trial`,
       data: { sessionId },
     });
     await this.message(
       sessionId,
       "analyst",
       [
-        tr ? `✅ **${agent.definition.name}** oluşturuldu (test modunda).` : `✅ **${agent.definition.name}** is built (in testing).`,
+        tr ? `✅ **${agent.definition.name}** oluşturuldu (deneme sürecinde).` : `✅ **${agent.definition.name}** is hired, on trial: it works only when you try it until you put it to work.`,
         "",
-        describeDefinition(agent.definition),
+        describeDefinition(agent.definition, { probation: probationOf(tree) }),
         "",
         agent.definition.tests.length
           ? tr
@@ -864,7 +883,7 @@ export class BuilderService {
             : `Now testing it on your ${agent.definition.tests.length} sample(s)…`
           : tr
             ? "Test için örnek dosya yok; ajan ekranından deneyebilirsiniz."
-            : "There are no sample files to test with — try it from the agent's screen.",
+            : "There are no sample files to try it on: try it from its page.",
       ].join("\n"),
       undefined,
       { agentId: agent.row.id },
@@ -899,7 +918,7 @@ export class BuilderService {
         "",
         tr
           ? "Sonuçlar beklediğiniz gibi mi? Değiştirmek istediğinizi yazın (ör. \"İngilizce seviyesini zorunlu yap\"), ya da **\"devreye al\"** diyerek ajanı aktif edin."
-          : "Do these look right? Tell me what to change (e.g. \"make English a must-have\"), or say **\"activate\"** to put the agent live.",
+          : "Do these look right? Tell me what to change (e.g. \"make English a must-have\"), or say **\"put to work\"** to start its duties.",
       ].join("\n"),
     );
   }
@@ -922,7 +941,7 @@ export class BuilderService {
         "analyst",
         tr
           ? "Çevrimdışı moddayım; değişikliği ajan ekranındaki tanımı düzenleyerek yapabilirsiniz ya da ilgili soruyu yeniden açabilirim."
-          : "I'm in offline mode, so I can't rewrite the agent from a free-text request. Edit the definition on the agent's page, or reopen the relevant question in the summary.",
+          : "I'm in offline mode, so I can't rewrite its job from a free-text request. Change its job description on its page, or reopen the relevant question in the summary.",
       );
       return this.get(companyId, sessionId);
     }
@@ -941,32 +960,34 @@ export class BuilderService {
 
   async activate(companyId: string, sessionId: string): Promise<SessionView> {
     const session = await this.session(companyId, sessionId);
-    if (!session.agentId) throw new BuilderError("Generate the agent first", 409);
+    if (!session.agentId) throw new BuilderError("Hire it first: confirm the summary", 409);
     const agent = await this.platform.agents.setStatus(companyId, session.agentId, "active");
     await this.db.update(builderSessions).set({ status: "deployed", updatedAt: new Date() }).where(eq(builderSessions.id, sessionId));
     const tr = session.language.startsWith("tr");
     const pending = (await this.db.select().from(stakeholderRequests).where(eq(stakeholderRequests.sessionId, sessionId))).filter((r) => r.status !== "answered");
+    const duties = describeDuties(agent.definition.triggers).map((d) => d.text);
     await this.message(
       sessionId,
       "analyst",
       [
-        tr ? `🚀 **${agent.definition.name}** artık aktif.` : `🚀 **${agent.definition.name}** is live.`,
-        tr ? `Ekranı: [/apps/${agent.row.slug}](/apps/${agent.row.slug})` : `Its screen: [/apps/${agent.row.slug}](/apps/${agent.row.slug})`,
+        tr ? `🚀 **${agent.definition.name}** artık aktif.` : `🚀 **${agent.definition.name}** is at work.`,
+        duties.length && !tr ? `From now on it ${duties.map((d) => d.charAt(0).toLowerCase() + d.slice(1)).join("; ")}, on its own.` : "",
+        tr ? `Sayfası: [/ai/${agent.row.slug}](/ai/${agent.row.slug})` : `Its page: [/ai/${agent.row.slug}](/ai/${agent.row.slug}). What needs a person comes to your team's Work queue.`,
         pending.length
           ? tr
             ? `Bekleyen ${pending.length} talep yanıtlandığında entegrasyonları bağlayacağız; o zamana kadar manuel yükleme ve test verisi kullanılır.`
-            : `${pending.length} stakeholder request(s) are still open; until they're answered the agent uses manual uploads and sandbox systems.`
+            : `${pending.length} request(s) to other teams are still open; until they're answered it works on manual uploads and demo systems.`
           : "",
       ]
         .filter(Boolean)
-        .join("\n"),
+        .join("\n\n"),
     );
     await this.platform.activity.record(companyId, {
       actor: session.requesterEmail ?? "user",
       action: "agent.activated",
       entityType: "agent",
       entityId: agent.row.id,
-      summary: `Activated ${agent.definition.name}`,
+      summary: `Put ${agent.definition.name} to work`,
     });
     return this.get(companyId, sessionId);
   }

@@ -53,7 +53,8 @@ export async function mailRoutes(app: FastifyInstance, ctx: AppContext) {
         subject: fields.subject ?? "(no subject)",
         body: fields.body ?? "",
         route: fields.route !== "false",
-        attachmentFileIds: files.map((f) => f.id),
+        // Uploaded files, plus stored ones (e.g. the demo samples) by id.
+        attachmentFileIds: [...files.map((f) => f.id), ...(fields.attachmentFileIds ?? "").split(",").map((id) => id.trim()).filter(Boolean)],
       };
     } else {
       const body = z

@@ -20,9 +20,9 @@ import { ErrorState, Skeleton, Spinner } from "../components/Spinner.tsx";
 import { Segmented } from "../components/Tabs.tsx";
 import { useCompany } from "../lib/company.tsx";
 import { formatBytes, formatDateTime, plural, timeAgo } from "../lib/format.ts";
-import { keys, useAgents, useMailboxes } from "../lib/queries.ts";
+import { keys, useAgents, useDemoFiles, useMailboxes } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
-import type { MailMessage, MailMessageDetail, RunRow } from "../types.ts";
+import type { MailMessage, MailMessageDetail, RunRow, StoredFile } from "../types.ts";
 
 // ---------------------------------------------------------------------------
 // Simulate incoming email
@@ -46,6 +46,9 @@ function ComposeDialog({
   const toast = useToast();
   const [form, setForm] = useState({ mailbox: initialMailbox ?? mailboxes[0] ?? "", from: "", fromName: "", subject: "", body: "" });
   const [files, setFiles] = useState<File[]>([]);
+  // Bundled sample CVs and invoices, attached by reference.
+  const demo = useDemoFiles();
+  const [demoFiles, setDemoFiles] = useState<StoredFile[]>([]);
   useEffect(() => {
     if (open) setForm((f) => ({ ...f, mailbox: initialMailbox ?? f.mailbox ?? mailboxes[0] ?? "" }));
   }, [open, initialMailbox, mailboxes]);
@@ -55,6 +58,7 @@ function ComposeDialog({
       if (files.length) {
         const data = new FormData();
         for (const [k, v] of Object.entries(form)) if (v) data.append(k, v);
+        if (demoFiles.length) data.append("attachmentFileIds", demoFiles.map((f) => f.id).join(","));
         for (const f of files) data.append("attachments", f, f.name);
         return api.upload<{ message: MailMessage; runs: { id: string; agentId: string; status: string }[] }>(path("/mail/messages"), data);
       }
@@ -64,6 +68,7 @@ function ComposeDialog({
         fromName: form.fromName || undefined,
         subject: form.subject,
         body: form.body,
+        attachmentFileIds: demoFiles.map((f) => f.id),
       });
     },
     onSuccess: (res) => {
@@ -76,6 +81,7 @@ function ComposeDialog({
       });
       setForm((f) => ({ ...f, from: "", fromName: "", subject: "", body: "" }));
       setFiles([]);
+      setDemoFiles([]);
       onDelivered(res.message);
       onClose();
     },
@@ -158,10 +164,35 @@ function ComposeDialog({
         <div>
           <span className="label">Attachments</span>
           <Dropzone compact onFiles={(f) => setFiles((prev) => [...prev, ...f])} label="Attach files (CVs, invoices, …)" />
-          {files.length > 0 && (
+          {demo.data && demo.data.size > 0 && (
+            <select
+              className="input mt-2 h-9 py-1 text-[13px]"
+              value=""
+              aria-label="Attach a demo file"
+              onChange={(e) => {
+                const file = [...demo.data.values()].flat().find((f) => f.id === e.target.value);
+                if (file && !demoFiles.some((f) => f.id === file.id)) setDemoFiles([...demoFiles, file]);
+              }}
+            >
+              <option value="">Or attach a demo file…</option>
+              {[...demo.data.entries()].map(([set, list]) => (
+                <optgroup key={set} label={set === "cv" ? "Sample CVs" : set === "invoice" ? "Sample supplier invoices" : set}>
+                  {list.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          )}
+          {(files.length > 0 || demoFiles.length > 0) && (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {files.map((f, i) => (
                 <FileChip key={`${f.name}-${i}`} name={f.name} size={f.size} onRemove={() => setFiles(files.filter((_, j) => j !== i))} />
+              ))}
+              {demoFiles.map((f) => (
+                <FileChip key={f.id} name={f.name} size={f.size} onRemove={() => setDemoFiles(demoFiles.filter((d) => d.id !== f.id))} />
               ))}
             </div>
           )}

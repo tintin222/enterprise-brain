@@ -247,8 +247,8 @@ export function BlueprintPanel({ draft }: { draft?: AgentDefinition }) {
       <EmptyState
         compact
         icon={Workflow}
-        title="The blueprint appears as you answer"
-        description="Each answer updates the live design of your agent: inputs, steps, outputs, systems and approvals."
+        title="How it works appears as you answer"
+        description="Each answer updates its design: what it receives, its steps, its results and its systems."
       />
     );
   }

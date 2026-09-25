@@ -1,6 +1,20 @@
-# The Agent Builder
+# The Studio (Agent Builder)
 
-The Agent Builder lets a **non-technical employee** create an AI agent by talking to an experienced **requirements analyst**. It asks every question an analyst would ask. It collects sample documents and analyses them itself. It notices when a question belongs to someone else (IT, the data protection officer, Legal), prepares the email to that person and feeds their answer back into the design. Only then, and only after the requester confirms, does it generate, test and deploy the agent together with its screen.
+The Studio is where a **department manager hires an AI employee** by talking to an experienced **requirements analyst** (*Hire → Describe the job in the Studio*). It asks every question an analyst would ask. It collects sample documents and analyses them itself. It notices when a question belongs to someone else (IT, the data protection officer, Legal), prepares the email to that person and feeds their answer back into the design. While the manager answers, the right side of the screen shows the **job description** building up. Only after the manager confirms does it hire the AI employee, on trial, and try it on the samples.
+
+![Hire: the Studio interview on the left, the job description on the right](screenshots/hire-studio.png)
+
+The job description, in the words of the Hire screen (`packages/builder/src/job.ts`):
+
+| | From |
+|---|---|
+| **Duty** | Its triggers, in plain words ("Reads every email sent to careers@acme.com.tr with an attachment") |
+| **Needs** | The access questions (mailbox, source and target systems, shared folder, web form) and where each stands: ready, to ask IT, asked IT, IT answered, arranged by the manager, or by hand for now |
+| **Never** | What the manager said it must never do on its own |
+| **At first** | Its probation level: Shadow, Supervised (recommended) or Trusted |
+| **Samples** | The real examples the analyst analysed; they become its test cases |
+
+When the manager is signed in, the Studio knows who hires: the manager signs the emails to other teams, becomes the AI employee's manager, and the AI employee joins the department they manage. A Studio interview is visible to its manager, the other managers of that department and admins.
 
 The interview technique is the **grilling** primitive from Matt Pocock's skills (`grill-me` / `grilling` / `to-questionnaire`), adapted for business users.
 
@@ -26,7 +40,7 @@ describe ─▶ interviewing ⇄ (samples, answers, corrections)
              confirming ◀──────────────────────────────────┘
                  │ "confirm"
                  ▼
-     generating ─▶ testing (runs on your samples, no side effects) ⇄ refine in chat ─▶ deployed ("activate")
+     generating ─▶ testing: hired on trial, tried on your samples (no side effects) ⇄ refine in chat ─▶ deployed ("put to work")
 ```
 
 ## The question bank
@@ -76,19 +90,20 @@ When the requester delegates a question (for example, "I don't know — ask IT")
 - **Inputs:** the file input plus the requested form fields. An email channel adds an `email` input and a `mailbox` trigger.
 - **Extraction fields, output fields, criteria and categories:** taken from the template unless the requester changed them. Changed labels are converted to typed fields, and criteria markers such as "(must)", "zorunlu" or "deal-breaker" set the criterion kind.
 - **Triggers:** form, mailbox, webhook, chat and schedule.
-- **Guardrails:** the approval policy, personal-data level, retention, legal basis and access notes.
+- **Probation level:** the answer to "How much may it do alone at first?" (Shadow, Supervised, Trusted); the AI employee is hired at that level, and its guardrails stay consistent with it.
+- **Guardrails:** personal-data level, retention, legal basis and access notes.
 - **Instructions:** the template's instructions plus a *requirements agreed with the business* digest. When Claude is available, `Analyst.synthesize()` writes production-quality instructions and schemas from everything agreed.
 - **Tests:** one test per uploaded sample.
 
-The agent is created in **testing** and run on every sample. Actions are dry runs and approvals auto-approve. The requester sees the results in the chat and can:
+The AI employee is hired in **testing** ("on trial") at the agreed level and run on every sample. Actions are dry runs and approvals auto-approve. The requester sees the results in the chat and can:
 
 - ask for changes in plain language ("make English a must-have", "draft the rejection email in Turkish"). `Analyst.refine()` turns the request into JSON Patch operations, so only what was asked changes. The result is validated, saved as a new version and re-tested.
 - reopen any requirement.
-- **activate** the agent. Its screen is then live at `/apps/<slug>`: a form generated from the inputs and a results view generated from the outputs.
+- **put it to work** ("activate"). Its duties start: it follows its mailbox or system on its own, and what needs a person goes to its department's work queue. Its page is `/ai/<slug>`; its form, generated from its inputs, and its results view, generated from its outputs, are at `/apps/<slug>`.
 
 ## Example: the HR manager's CV analyser
 
-This walkthrough is a real run in offline mode, with the demo company's data. It is reproduced by `apps/server/test/builder-e2e.test.ts`. With Claude configured, the wording is tailored and the scores come from the model, so the details differ.
+This walkthrough is a real run in offline mode, with the demo company's data. It is reproduced by `apps/server/test/builder-e2e.test.ts`, and `apps/server/test/gate1.test.ts` goes on with people signed in: the CV Screener screens an application sent to careers@ on its own, and a recruiter approves the shortlist from his work queue. With Claude configured, the wording is tailored and the scores come from the model, so the details differ.
 
 > **HR manager:** "I'm the HR manager. Every week we receive dozens of CVs by email at careers@acme.com.tr and through our careers page. I want an agent that reads each CV, scores the candidate against the open position and shortlists the best ones for our recruiters."
 
@@ -111,7 +126,7 @@ The analyst:
    - Deniz Kaya: 91, pass → Shortlist
    - Emily Carter: fail → Not eligible (deal-breaker): her CV says "requires visa sponsorship for Turkey"
    - Mehmet Öztürk: 55, review → Recruiter review (required skills not evidenced in the Turkish CV)
-10. **"Activate"**: the CV screener is live at `/apps/cv-screener`. New applications to careers@ are screened automatically, and every candidate record waits for a recruiter's approval before it is written to the ATS.
+10. **"Put to work"**: the CV Screener's duties start. New applications to careers@ are screened on their own, and every shortlist decision waits for a recruiter in the HR work queue before the candidate is written to the ATS.
 
 ![A CV screener's generated screen: a form from its inputs, results from its outputs](screenshots/agent-app.png)
 

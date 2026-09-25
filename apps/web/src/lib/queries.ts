@@ -152,8 +152,8 @@ export function useMailboxes() {
 export function useDemoFiles() {
   const { company, path } = useCompany();
   return useQuery({
-    queryKey: [...keys.files(company), "list"],
-    queryFn: () => api.get<StoredFile[]>(path("/files")),
+    queryKey: [...keys.files(company), "demo"],
+    queryFn: () => api.get<StoredFile[]>(path("/files/demo")),
     staleTime: 60_000,
     select: (files) => {
       const sets = new Map<string, StoredFile[]>();

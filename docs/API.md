@@ -125,7 +125,8 @@ Everything that needs a person, in one list: approvals of AI employees' changes,
 | Method | Path | Description |
 |---|---|---|
 | POST | `/api/companies/:company/files` | multipart upload → `[{ field, id, name, mimeType, size }]` |
-| GET | `/api/companies/:company/files` | Recent files (`metadata.demoSet` marks bundled demo samples) |
+| GET | `/api/companies/:company/files` | Admin. Recent files (`metadata.demoSet` marks bundled demo samples) |
+| GET | `/api/companies/:company/files/demo` | The bundled demo samples (sample CVs and invoices), for everyone signed in |
 | GET | `/api/companies/:company/files/:file?inline=1` | Download |
 | GET | `/api/companies/:company/files/:file/meta` | Metadata |
 
@@ -180,7 +181,7 @@ A new email goes back to its task when it is a reply (the task's reference, or i
 | GET | `/api/companies/:company/mail/mailboxes` | `{ mailbox, total, unprocessed, agents[] }` |
 | GET | `/api/companies/:company/mail/messages?mailbox=&direction=&status=` | Messages `{ id, mailbox, direction, fromAddress, fromName, toAddresses, subject, bodyText, attachments[] {fileId, name, mimeType, size}, status (new/processing/triaged/replied/error/draft/sent), classification, runId, receivedAt }` |
 | GET | `/api/companies/:company/mail/messages/:id` | `{ message, run, approvals[] }` |
-| POST | `/api/companies/:company/mail/messages` | Deliver a message to a (sandbox) mailbox: JSON `{ mailbox, from, fromName?, subject, body, route?: true, attachmentFileIds? }` or multipart with attachments. Matching active agents start automatically. → `{ message, runs[] }` |
+| POST | `/api/companies/:company/mail/messages` | Deliver a message to a (sandbox) mailbox: JSON `{ mailbox, from, fromName?, subject, body, route?: true, attachmentFileIds? }` or multipart with attachments (and `attachmentFileIds`, comma-separated, for stored files such as the demo samples). Matching active agents start automatically. → `{ message, runs[] }` |
 | POST | `/api/companies/:company/mail/messages/:id/process` | `{ agent, wait? }` — process with a specific agent |
 
 ## Conversational AI
@@ -193,19 +194,21 @@ A new email goes back to its task when it is a reply (the task's reference, or i
 | POST | `/api/companies/:company/chat/conversations/:id/messages` | `{ text }` → assistant message |
 | POST | `/api/companies/:company/chat/conversations/:id/messages/stream` | *SSE* `{ text }` → `delta` events, then `message` |
 
-## Agent Builder
+## The Studio (Agent Builder)
+
+Managers and admins. An interview belongs to the manager who started it: they, the other managers of its department and admins see it (404 for others).
 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/companies/:company/builder/sessions` | Sessions `{ id, title, status, archetype, templateId, department, requesterName, requesterRole, agentId, createdAt, updatedAt }` |
-| POST | `/api/companies/:company/builder/sessions` | `{ description, formDescription?, requesterName?, requesterEmail?, requesterRole?, department?, language? ("en"/"tr"), roundSize? }` → SessionView |
-| GET | `/api/companies/:company/builder/sessions/:id` | SessionView |
+| POST | `/api/companies/:company/builder/sessions` | `{ description, formDescription?, requesterName?, requesterEmail?, requesterRole?, department?, language? ("en"/"tr"), roundSize? }` → SessionView. Signed in, the requester is the person, and `department` defaults to the one they manage |
+| GET | `/api/companies/:company/builder/sessions/:id` | SessionView `{ session, tree, messages, requests, currentRound?, progress, draft?, job, agent?, llm }`. `job` is the job description in plain words: `{ duties[], needs[] {text, status: "ready"\|"to-ask"\|"asked"\|"answered"\|"yours"\|"manual"\|"open", who}, never[], level {value, label, alone, person}, samples, manager }` |
 | POST | `/api/companies/:company/builder/sessions/:id/reply` | JSON `{ text?, answers?: [{ nodeId, action?: answer|accept|delegate|skip, value?, delegateTo? }], fileIds? }` or multipart (`text` + files as samples) → SessionView |
 | POST | `/api/companies/:company/builder/sessions/:id/samples` | multipart sample files → SessionView |
 | POST | `/api/companies/:company/builder/sessions/:id/reference` | multipart reference docs (added to the agent's knowledge) |
 | POST | `/api/companies/:company/builder/sessions/:id/proceed` | Continue with assumptions while stakeholders answer |
-| POST | `/api/companies/:company/builder/sessions/:id/confirm` | Pass the confirmation gate: generate + test the agent |
-| POST | `/api/companies/:company/builder/sessions/:id/activate` | Put the generated agent live |
+| POST | `/api/companies/:company/builder/sessions/:id/confirm` | Pass the confirmation gate: hire the AI employee on trial (`testing`) at the agreed probation level, with the requester as its manager, and try it on the samples |
+| POST | `/api/companies/:company/builder/sessions/:id/activate` | Put it to work (`active`): its duties start |
 | POST | `/api/companies/:company/builder/sessions/:id/reopen` | `{ nodeId }` — reopen a requirement |
 | PUT | `/api/companies/:company/builder/requests/:id` | Edit a stakeholder request `{ recipientName?, recipientEmail?, subject?, body? }` |
 | POST | `/api/companies/:company/builder/requests/:id/send` | `{ via: "mail" \| "manual" }` |

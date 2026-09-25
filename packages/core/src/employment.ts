@@ -60,7 +60,8 @@ export function describeDuties(triggers: TriggerSpec[]): Duty[] {
       case "manual":
         return [];
       case "form":
-        return [{ kind: "form", text: trigger.description ? `Handles its web form: ${trigger.description}` : "Handles what people send through its web form" }];
+        // Its page's form is how colleagues give it work (requests); only a described form is a standing duty.
+        return trigger.description ? [{ kind: "form", text: `Handles its form: ${trigger.description}` }] : [];
       case "mailbox": {
         const filter = trigger.filter ?? {};
         const conditions = [

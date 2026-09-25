@@ -142,6 +142,15 @@ describe("the places of the app", () => {
     );
   });
 
+  it("offers everyone the demo samples, but not the company's files", async () => {
+    const elif = await as("elif.arslan@acme.com.tr");
+    expect((await get("/files", elif)).statusCode).toBe(403);
+    const samples = (await get("/files/demo", elif)).json() as { name: string; metadata: { demoSet?: string } }[];
+    expect(samples.length).toBeGreaterThan(0);
+    expect(samples.every((f) => typeof f.metadata.demoSet === "string")).toBe(true);
+    expect(new Set(samples.map((f) => f.metadata.demoSet))).toEqual(new Set(["cv", "invoice"]));
+  });
+
   it("records the person who paused an AI employee", async () => {
     const burak = await as("burak.sahin@acme.com.tr");
     const paused = await t.app.inject({

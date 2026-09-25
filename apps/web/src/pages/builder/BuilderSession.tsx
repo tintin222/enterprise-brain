@@ -26,6 +26,7 @@ import { useBuilderSession } from "../../lib/queries.ts";
 import type { SessionView } from "../../types.ts";
 import { useSessionActions, type SessionActions } from "./actions.ts";
 import { BlueprintPanel } from "./BlueprintPanel.tsx";
+import { JobPanel } from "./JobPanel.tsx";
 import { DemoSamplesButton } from "../../components/DemoSamples.tsx";
 import { RequirementsPanel } from "./RequirementsPanel.tsx";
 import { SamplesPanel } from "./SamplesPanel.tsx";
@@ -33,7 +34,7 @@ import { StakeholdersPanel } from "./StakeholdersPanel.tsx";
 import { Transcript } from "./Transcript.tsx";
 import { useDocumentTitle } from "../../lib/title.ts";
 
-type PanelTab = "blueprint" | "requirements" | "stakeholders" | "samples";
+type PanelTab = "job" | "blueprint" | "requirements" | "stakeholders" | "samples";
 
 // ---------------------------------------------------------------------------
 // Header
@@ -141,8 +142,8 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
         <div className="flex flex-wrap items-center gap-3 border-t border-brand-200 bg-brand-50/80 px-4 py-3 sm:px-6 dark:border-brand-400/20 dark:bg-brand-400/10">
           <ClipboardList className="hidden size-5 shrink-0 text-brand-600 sm:block dark:text-brand-300" />
           <div className="min-w-[16rem] flex-1 text-[13px] text-brand-950 dark:text-brand-100">
-            <p className="font-semibold">Ready to build</p>
-            <p className="hidden opacity-90 sm:block">Review the summary above. Nothing is generated until you confirm — or tell me what to change.</p>
+            <p className="font-semibold">Ready to hire</p>
+            <p className="hidden opacity-90 sm:block">Review the summary above. Nothing is hired until you confirm, or tell me what to change.</p>
           </div>
           <Button
             variant="primary"
@@ -169,21 +170,18 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
         <div className="flex flex-wrap items-center gap-3 border-t border-emerald-200 bg-emerald-50/80 px-4 py-3 sm:px-6 dark:border-emerald-400/20 dark:bg-emerald-400/10">
           <div className="min-w-[16rem] flex-1 text-[13px] text-emerald-950 dark:text-emerald-100">
             <p className="font-semibold">{agent?.name ?? "Your AI employee"} is hired and on trial</p>
-            <p className="hidden opacity-90 sm:block">Check the test results above. Tell me what to change, or activate it when you're happy.</p>
+            <p className="hidden opacity-90 sm:block">Check how it did on your samples above. Tell me what to change, or put it to work when you're happy.</p>
           </div>
           <div className="ml-auto flex shrink-0 flex-wrap gap-2">
             {agent && (
               <>
-                <ButtonLink size="sm" variant="secondary" icon={ExternalLink} to={`/apps/${agent.slug}`}>
+                <ButtonLink size="sm" variant="secondary" icon={ExternalLink} to={`/ai/${agent.slug}`}>
                   Open its page
-                </ButtonLink>
-                <ButtonLink size="sm" variant="ghost" to={`/ai/${agent.slug}`}>
-                  Agent details
                 </ButtonLink>
               </>
             )}
             <Button size="sm" variant="success" icon={Rocket} loading={actions.activate.isPending} onClick={() => actions.activate.mutate()}>
-              Activate agent
+              Put to work
             </Button>
           </div>
         </div>
@@ -194,15 +192,14 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
           <Rocket className="hidden size-5 shrink-0 text-emerald-600 sm:block dark:text-emerald-300" />
           <div className="min-w-[16rem] flex-1 text-[13px] text-emerald-950 dark:text-emerald-100">
             <p className="font-semibold">{agent?.name ?? "Your AI employee"} is at work</p>
-            <p className="hidden opacity-90 sm:block">Your team can use it now. You can still ask me for changes here.</p>
+            <p className="hidden opacity-90 sm:block">
+              Its duties run on their own now; what needs a person comes to your team's Work queue. You can still ask me for changes here.
+            </p>
           </div>
           {agent && (
             <div className="ml-auto flex shrink-0 gap-2">
-              <ButtonLink size="sm" variant="ghost" to={`/ai/${agent.slug}`}>
-                Agent details
-              </ButtonLink>
-              <ButtonLink size="sm" variant="success" icon={ExternalLink} to={`/apps/${agent.slug}`}>
-                Open app
+              <ButtonLink size="sm" variant="success" icon={ExternalLink} to={`/ai/${agent.slug}`}>
+                Open its page
               </ButtonLink>
             </div>
           )}
@@ -222,7 +219,7 @@ function placeholderFor(status: string): string {
     case "confirming":
       return "Reply “confirm”, or tell me what to change…";
     case "testing":
-      return "Ask for a change, or say “activate”…";
+      return "Ask for a change, or say “put to work”…";
     case "deployed":
       return "Ask for a change…";
     case "awaiting-stakeholders":
@@ -357,7 +354,7 @@ function Composer({ view, actions, onSending }: { view: SessionView; actions: Se
 function SessionScreen({ view }: { view: SessionView }) {
   const actions = useSessionActions(view.session.id);
   useDocumentTitle(`${view.session.title} · Studio`);
-  const [tab, setTab] = useState<PanelTab>("blueprint");
+  const [tab, setTab] = useState<PanelTab>("job");
   const [pane, setPane] = useState<"chat" | "design">("chat");
   const [highlight, setHighlight] = useState<string | null>(null);
   const [sendingText, setSendingText] = useState<string | null>(null);
@@ -405,9 +402,10 @@ function SessionScreen({ view }: { view: SessionView }) {
   }, [pendingText]);
 
   const tabs = [
-    { id: "blueprint" as const, label: "Blueprint" },
-    { id: "requirements" as const, label: "Requirements" },
-    { id: "stakeholders" as const, label: "Stakeholders", count: view.requests.length || undefined, alert: draftRequests > 0 || openRequests > 0 },
+    { id: "job" as const, label: "Job" },
+    { id: "blueprint" as const, label: "Steps" },
+    { id: "requirements" as const, label: "Answers" },
+    { id: "stakeholders" as const, label: "Requests", count: view.requests.length || undefined, alert: draftRequests > 0 || openRequests > 0 },
     { id: "samples" as const, label: "Samples", count: view.session.samples?.length || undefined },
   ];
 
@@ -456,6 +454,7 @@ function SessionScreen({ view }: { view: SessionView }) {
         >
           <Tabs tabs={tabs} value={tab} onChange={setTab} size="sm" fill className="shrink-0 px-1" />
           <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+            {tab === "job" && <JobPanel view={view} />}
             {tab === "blueprint" && <BlueprintPanel draft={view.draft} />}
             {tab === "requirements" && <RequirementsPanel view={view} actions={actions} />}
             {tab === "stakeholders" && <StakeholdersPanel view={view} actions={actions} highlightId={highlight} />}

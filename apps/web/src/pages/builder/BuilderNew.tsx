@@ -10,6 +10,7 @@ import { Page } from "../../components/Layout.tsx";
 import { Logo } from "../../components/Logo.tsx";
 import { Callout, Spinner } from "../../components/Spinner.tsx";
 import { Segmented } from "../../components/Tabs.tsx";
+import { useViewer } from "../../lib/auth.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { LANGUAGES } from "../../lib/labels.ts";
 import { keys } from "../../lib/queries.ts";
@@ -94,6 +95,10 @@ export default function BuilderNew() {
   const [description, setDescription] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [requester, setRequester] = useState<Requester>(() => readJson<Requester>(REQUESTER_KEY, { name: "", role: "", email: "" }));
+  const viewer = useViewer();
+  // Signed in, the server knows who hires: their name, title and the department they manage.
+  const signedIn = viewer?.kind === "session";
+  const managed = (viewer?.departments ?? []).filter((d) => d.role === "manager").map((d) => d.name);
   const [language, setLanguage] = useState("en");
   const [roundSize, setRoundSize] = useState("5");
   const [department, setDepartment] = useState<string | undefined>(undefined);
@@ -215,8 +220,21 @@ export default function BuilderNew() {
 
         <Card className="p-5 sm:p-6">
           <h2 className="text-sm font-semibold text-fg">About you</h2>
-          <p className="mt-0.5 text-[13px] text-muted">Used to sign the emails the analyst drafts for your colleagues (e.g. IT or data protection).</p>
-          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          {signedIn ? (
+            <p className="mt-0.5 text-[13px] text-muted">
+              You hire it as <span className="font-medium text-fg">{viewer.name}</span>
+              {managed.length ? (
+                <>
+                  {" "}
+                  for <span className="font-medium text-fg">{managed.join(", ")}</span>
+                </>
+              ) : null}
+              , and you become its manager. Emails the analyst drafts for IT or data protection are signed with your name.
+            </p>
+          ) : (
+            <p className="mt-0.5 text-[13px] text-muted">Used to sign the emails the analyst drafts for your colleagues (e.g. IT or data protection).</p>
+          )}
+          <div className={signedIn ? "hidden" : "mt-4 grid gap-4 sm:grid-cols-3"}>
             <Field label="Your name">
               {(id) => (
                 <input

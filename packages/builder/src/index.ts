@@ -5,6 +5,7 @@ export * from "./nodes.ts";
 export * from "./parse.ts";
 export * from "./patch.ts";
 export * from "./generate.ts";
+export * from "./job.ts";
 export { describeSystem } from "./systems.ts";
 export * from "./blueprints.ts";
 export * from "./render.ts";

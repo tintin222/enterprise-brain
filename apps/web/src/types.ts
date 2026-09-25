@@ -997,8 +997,21 @@ export interface SessionView {
   currentRound?: BuilderRound;
   progress: TreeProgress;
   draft?: AgentDefinition;
+  /** The job description in plain words, built as the manager answers. */
+  job?: JobDescription;
   agent?: { id: string; slug: string; status: string; name: string };
   llm: { available: boolean; provider: string; model: string };
+}
+
+export type NeedStatus = "ready" | "to-ask" | "asked" | "answered" | "yours" | "manual" | "open";
+
+export interface JobDescription {
+  duties: string[];
+  needs: { text: string; status: NeedStatus; who: string }[];
+  never: string[];
+  level: { value: Probation; label: string; alone: string; person: string };
+  samples: number;
+  manager: string | null;
 }
 
 export interface ReplyAnswer {
