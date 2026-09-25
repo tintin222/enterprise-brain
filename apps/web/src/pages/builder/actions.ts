@@ -67,7 +67,7 @@ export function useSessionActions(sessionId: string) {
     },
     onSuccess: (view) => {
       apply(view);
-      toast.success("Reference documents added to the agent's knowledge");
+      toast.success("Reference documents added to its knowledge");
     },
     onError,
   });

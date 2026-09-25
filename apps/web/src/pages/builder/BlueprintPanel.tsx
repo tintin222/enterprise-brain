@@ -216,11 +216,11 @@ export function Blueprint({ definition, showPreview = true }: { definition: Agen
               {definition.ui.description && <p className="mb-3 text-xs text-muted">{definition.ui.description}</p>}
               {definition.ui.layout === "chat" ? (
                 <div className="mt-3 rounded-lg border border-dashed border-line-strong p-4 text-center text-sm text-muted">
-                  A chat screen where your team talks to the agent.
+                  A chat screen where your team talks to the AI employee.
                 </div>
               ) : definition.ui.layout === "inbox" ? (
                 <div className="mt-3 rounded-lg border border-dashed border-line-strong p-4 text-center text-sm text-muted">
-                  An inbox of processed emails with the agent's results.
+                  An inbox of processed emails with the AI employee's results.
                 </div>
               ) : (
                 <div className="mt-3 space-y-4">

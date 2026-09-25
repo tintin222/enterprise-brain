@@ -112,7 +112,7 @@ export default function DepartmentDetail() {
       void queryClient.invalidateQueries({ queryKey: keys.dashboard(company) });
       toast.success("Department installed", {
         description: `${res.processes.length} processes and ${res.agents.length} agents${activate ? ", active" : ""}.`,
-        link: { to: "/departments", label: "View departments" },
+        link: { to: "/company", label: "View departments" },
       });
     },
     onError: (e) => toast.error(e),
@@ -134,7 +134,7 @@ export default function DepartmentDetail() {
         <EmptyState
           title="Department template not found"
           action={
-            <ButtonLink to="/catalog" variant="primary">
+            <ButtonLink to="/hire/ready-made" variant="primary">
               Back to the catalog
             </ButtonLink>
           }
@@ -157,7 +157,7 @@ export default function DepartmentDetail() {
   return (
     <Page>
       <div className="mb-2 text-sm">
-        <Link to="/catalog" className="text-muted hover:text-fg">
+        <Link to="/hire/ready-made" className="text-muted hover:text-fg">
           Catalog
         </Link>
         <span className="mx-1.5 text-faint">/</span>
@@ -189,13 +189,13 @@ export default function DepartmentDetail() {
         </div>
         <div className="flex shrink-0 flex-col gap-2 rounded-xl border border-line bg-subtle/50 p-4 lg:w-72">
           <p className="text-sm font-semibold text-fg">{isInstalled ? "Installed in this company" : "Install this department"}</p>
-          <p className="text-xs text-muted">Creates the department, its processes and agents. Knowledge collections are created empty.</p>
-          <Checkbox checked={activate} onChange={setActivate} label="Activate agents" description="Automatic triggers start working right away." />
+          <p className="text-xs text-muted">Creates the department, its processes and AI employees. Knowledge collections are created empty.</p>
+          <Checkbox checked={activate} onChange={setActivate} label="Put the AI employees to work" description="Their duties start right away." />
           <Button variant="primary" icon={Download} loading={install.isPending} onClick={() => install.mutate()} className="mt-1">
             {isInstalled ? "Install missing parts" : "Install department"}
           </Button>
           {isInstalled && (
-            <Link to="/departments" className="text-center text-xs font-medium text-brand-600 hover:underline dark:text-brand-300">
+            <Link to="/company" className="text-center text-xs font-medium text-brand-600 hover:underline dark:text-brand-300">
               View installed departments →
             </Link>
           )}
@@ -270,7 +270,7 @@ export default function DepartmentDetail() {
 
       <div className="mt-10 grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader title="Agents" icon={Bot} subtitle="Click one for its full definition." />
+          <CardHeader title="AI employees" icon={Bot} subtitle="Click one for its full job description." />
           <ul className="divide-y divide-line">
             {agents.map((a) => {
               const AIcon = archetypeIcon(a.archetype);

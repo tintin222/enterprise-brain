@@ -21,7 +21,7 @@ const CONFIG = {
     icon: ScanText,
     title: "Documents & OCR",
     tagline:
-      "Upload any document — PDF, Word, a scan or a phone photo. The agent recognises what it is, extracts the data you need and prepares the next step.",
+      "Upload any document — PDF, Word, a scan or a phone photo. The AI employee recognises what it is, extracts the data you need and prepares the next step.",
     points: ["Reads scans and photos with OCR", "Classifies the document type", "Extracts fields with confidence", "Validates against your systems"],
   },
   excel: {
@@ -61,7 +61,7 @@ export default function UseCaseApp({ kind }: { kind: keyof typeof CONFIG }) {
     onSuccess: (res) => {
       void queryClient.invalidateQueries({ queryKey: keys.agents(company) });
       if (res.agent) toast.success(`${res.agent.name} installed and active`);
-      else toast.info("This use case has no default agent in the catalog yet");
+      else toast.info("This use case has no ready-made AI employee yet");
     },
     onError: (e) => toast.error(e),
   });
@@ -95,10 +95,10 @@ export default function UseCaseApp({ kind }: { kind: keyof typeof CONFIG }) {
         </div>
         {installed && (
           <div className="flex shrink-0 gap-2">
-            <ButtonLink to={`/agents/${installed.slug}`} size="sm">
+            <ButtonLink to={`/ai/${installed.slug}`} size="sm">
               Agent details
             </ButtonLink>
-            <ButtonLink to={`/builder/new?template=${encodeURIComponent(templateId)}`} size="sm" variant="soft" icon={Sparkles}>
+            <ButtonLink to={`/hire/studio/new?template=${encodeURIComponent(templateId)}`} size="sm" variant="soft" icon={Sparkles}>
               Customize
             </ButtonLink>
           </div>
@@ -115,8 +115,7 @@ export default function UseCaseApp({ kind }: { kind: keyof typeof CONFIG }) {
           </div>
           <h2 className="mt-4 text-lg font-semibold text-fg">Install the {useCase?.name ?? config.title} agent</h2>
           <p className="mx-auto mt-1 max-w-lg text-sm text-muted">
-            {useCase?.description ?? "A ready-made agent from the catalog powers this use case."} It's installed active and can be customised afterwards with
-            the Agent Builder.
+            {useCase?.description ?? "A ready-made AI employee does this work."} It's installed active and can be customised afterwards with the Studio.
           </p>
           {useCase?.examples.length ? (
             <ul className="mx-auto mt-5 max-w-lg space-y-1.5 text-left">
@@ -131,8 +130,8 @@ export default function UseCaseApp({ kind }: { kind: keyof typeof CONFIG }) {
             <Button variant="primary" icon={Download} loading={install.isPending} onClick={() => install.mutate()}>
               Install
             </Button>
-            <ButtonLink to={`/builder/new?template=${encodeURIComponent(templateId)}`} icon={Sparkles}>
-              Customize with the Agent Builder
+            <ButtonLink to={`/hire/studio/new?template=${encodeURIComponent(templateId)}`} icon={Sparkles}>
+              Adapt it in the Studio
             </ButtonLink>
           </div>
           {useCase?.connectors.length ? (

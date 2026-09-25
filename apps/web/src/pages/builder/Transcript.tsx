@@ -254,7 +254,7 @@ export function Transcript({
           {m.id === lastSummaryId && session.status === "confirming" && (
             <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
               <Button variant="primary" icon={Sparkles} loading={actions.confirm.isPending} onClick={() => actions.confirm.mutate()}>
-                Confirm & build the agent
+                Confirm and hire
               </Button>
               <span className="text-xs text-muted">Nothing is generated until you confirm.</span>
             </div>
@@ -262,9 +262,9 @@ export function Transcript({
           {m.data?.agentId && view.agent && (
             <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
               <ButtonLink size="sm" variant="soft" to={`/apps/${view.agent.slug}`}>
-                Open the agent's app
+                Open its page
               </ButtonLink>
-              <ButtonLink size="sm" variant="ghost" to={`/agents/${view.agent.slug}`}>
+              <ButtonLink size="sm" variant="ghost" to={`/ai/${view.agent.slug}`}>
                 Agent details
               </ButtonLink>
             </div>

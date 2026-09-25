@@ -21,15 +21,15 @@ import { useDocumentTitle } from "../../lib/title.ts";
 const EXAMPLES: { label: string; text: string }[] = [
   {
     label: "CV screener",
-    text: "I'm an HR manager. Every week we get dozens of CVs by email and through our careers page. I want an agent that reads them, scores candidates against the open position and shortlists the best ones for me to review.",
+    text: "I'm an HR manager. Every week we get dozens of CVs by email and through our careers page. I want an AI employee that reads them, scores candidates against the open position and shortlists the best ones for me to review.",
   },
   {
     label: "Supplier invoice processing",
-    text: "In accounts payable we receive 300+ supplier invoices a month as PDF attachments, some of them scanned. I want an agent that reads each invoice, extracts supplier, invoice number, amounts and the PO number, checks them against the purchase order in our ERP and prepares the posting for approval.",
+    text: "In accounts payable we receive 300+ supplier invoices a month as PDF attachments, some of them scanned. I want an AI employee that reads each invoice, extracts supplier, invoice number, amounts and the PO number, checks them against the purchase order in our ERP and prepares the posting for approval.",
   },
   {
     label: "Customer email triage",
-    text: "Our support@ mailbox gets about 150 emails a day: complaints, delivery questions, returns and spam. I want an agent that classifies every email, looks up the customer's order and drafts a reply in the customer's language for my team to approve.",
+    text: "Our support@ mailbox gets about 150 emails a day: complaints, delivery questions, returns and spam. I want an AI employee that classifies every email, looks up the customer's order and drafts a reply in the customer's language for my team to approve.",
   },
   {
     label: "HR policy assistant",
@@ -37,7 +37,7 @@ const EXAMPLES: { label: string; text: string }[] = [
   },
   {
     label: "Month-end Excel reconciliation",
-    text: "Every month-end I reconcile the bank statement export with our ledger export in Excel. I want an agent that matches the transactions, lists open items and differences, and gives me a clean Excel report with an explanation.",
+    text: "Every month-end I reconcile the bank statement export with our ledger export in Excel. I want an AI employee that matches the transactions, lists open items and differences, and gives me a clean Excel report with an explanation.",
   },
 ];
 
@@ -84,7 +84,7 @@ function Thinking() {
 
 export default function BuilderNew() {
   const { company, path } = useCompany();
-  useDocumentTitle("New agent");
+  useDocumentTitle("Hire in the Studio");
   const navigate = useNavigate();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -108,7 +108,7 @@ export default function BuilderNew() {
     const t = template.data;
     if (!t) return;
     setDescription(
-      `I'd like an agent based on the “${t.name}” template: ${t.summary.trim()} Please adapt it to how we work — ask me about our process, our systems and our rules.`,
+      `I'd like an AI employee based on the “${t.name}” template: ${t.summary.trim()} Please adapt it to how we work — ask me about our process, our systems and our rules.`,
     );
     setDepartment(t.department);
   }, [template.data]);
@@ -128,7 +128,7 @@ export default function BuilderNew() {
     onSuccess: (view) => {
       queryClient.setQueryData(keys.session(company, view.session.id), view);
       void queryClient.invalidateQueries({ queryKey: keys.builder(company) });
-      navigate(`/builder/${view.session.id}`);
+      navigate(`/hire/studio/${view.session.id}`);
     },
     onError: (error) => toast.error(error),
   });
@@ -148,9 +148,9 @@ export default function BuilderNew() {
         <div className="bg-dots absolute inset-0 opacity-20" aria-hidden="true" />
         <div className="relative">
           <p className="flex items-center gap-2 text-sm font-medium text-white/80">
-            <WandSparkles className="size-4" /> Agent Builder
+            <WandSparkles className="size-4" /> Studio
           </p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Describe the agent you need</h1>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight sm:text-3xl">Describe the job</h1>
           <p className="mt-2 max-w-2xl text-[15px] text-white/85">
             Write it the way you'd explain it to a new colleague. An AI requirements analyst will ask you a few rounds of questions — each with a recommended
             answer — and involve IT or legal only where needed. Nothing is built until you confirm.
@@ -161,7 +161,7 @@ export default function BuilderNew() {
       {templateId && template.data && (
         <Callout tone="brand" icon={LibraryBig} className="mb-6" title={`Starting from the “${template.data.name}” template`}>
           The analyst will adapt it to your process instead of starting from scratch.{" "}
-          <Link to="/catalog?tab=agents" className="font-medium underline">
+          <Link to="/hire/ready-made?tab=agents" className="font-medium underline">
             Browse other templates
           </Link>
         </Callout>
@@ -169,14 +169,14 @@ export default function BuilderNew() {
 
       <form onSubmit={submit} className="space-y-6">
         <Card className="p-5 sm:p-6">
-          <Field label="What should the agent do?" required hint="Mention who sends what, what you do with it today, and what a good result looks like.">
+          <Field label="What should it do?" required hint="Mention who sends what, what you do with it today, and what a good result looks like.">
             {(id) => (
               <textarea
                 id={id}
                 rows={7}
                 autoFocus
                 className="input text-[15px] leading-relaxed"
-                placeholder="I'm an HR manager. Every week we get dozens of CVs by email and through our careers page. I want an agent that reads them, scores candidates against the open position and shortlists the best ones…"
+                placeholder="I'm an HR manager. Every week we get dozens of CVs by email and through our careers page. I want an AI employee that reads them, scores candidates against the open position and shortlists the best ones…"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />

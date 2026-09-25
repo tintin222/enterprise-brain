@@ -50,7 +50,7 @@ function CitationChip({ citation }: { citation: Citation }) {
           </span>
           <span className="mt-1.5 block text-xs leading-relaxed text-muted">“{citation.snippet}”</span>
           <Link
-            to={`/knowledge?collection=${encodeURIComponent(citation.collection)}&doc=${encodeURIComponent(citation.documentId)}`}
+            to={`/settings/knowledge?collection=${encodeURIComponent(citation.collection)}&doc=${encodeURIComponent(citation.documentId)}`}
             className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
           >
             <BookOpen className="size-3.5" /> Open in Knowledge

@@ -30,7 +30,7 @@ function useActivate(slug: string) {
     mutationFn: () => api.post(path(`/agents/${encodeURIComponent(slug)}/status`), { status: "active" }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.agents(company) });
-      toast.success("Agent activated");
+      toast.success("Put to work");
     },
     onError: (error) => toast.error(error),
   });
@@ -42,22 +42,22 @@ function StatusBanner({ detail }: { detail: AgentDetail }) {
   if (status === "active") return null;
   const text =
     status === "testing"
-      ? "This agent is in testing. Results are for review, and automatic triggers (like incoming email) stay off until it's activated."
+      ? "On trial: results are for review, and its duties (like incoming email) stay off until it is put to work."
       : status === "draft"
-        ? "This agent is a draft. You can try it here; activate it to switch on its automatic triggers."
+        ? "A draft: you can try it here; put it to work to switch on its duties."
         : status === "paused"
-          ? "This agent is paused. Manual runs still work for testing; automatic triggers are off."
-          : "This agent is archived.";
+          ? "Paused: you can still try it here; its duties are off."
+          : "Let go.";
   return (
     <Callout
       tone="warning"
       icon={FlaskConical}
-      title={status === "testing" ? "This agent is in testing" : status === "draft" ? "Draft agent" : status === "paused" ? "Paused" : "Archived"}
+      title={status === "testing" ? "On trial" : status === "draft" ? "Draft" : status === "paused" ? "Paused" : "Let go"}
       className="mb-6"
       actions={
         status !== "archived" ? (
           <Button size="sm" variant="secondary" icon={Rocket} loading={activate.isPending} onClick={() => activate.mutate()}>
-            Activate
+            Put to work
           </Button>
         ) : undefined
       }
@@ -77,7 +77,7 @@ function History({ detail, title = "History" }: { detail: AgentDetail; title?: s
   const runs = useRuns({ agent: detail.agent.slug, limit: 25 });
   return (
     <Card className="overflow-hidden">
-      <CardHeader title={title} subtitle="Every run of this agent — click one for the full trail." icon={Clock} />
+      <CardHeader title={title} subtitle="Everything it did: click one for the full trail." icon={Clock} />
       {runs.error && <ErrorState error={runs.error} className="m-4" />}
       {runs.isLoading && <Skeleton className="m-4 h-24" />}
       {runs.data && (
@@ -100,7 +100,7 @@ function FormResults({ detail }: { detail: AgentDetail }) {
     <div className="space-y-6">
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Card>
-          <CardHeader title={definition.ui.title ?? "Run"} subtitle={definition.ui.description ?? "Fill in the form and run the agent."} icon={Play} />
+          <CardHeader title={definition.ui.title ?? "Run"} subtitle={definition.ui.description ?? "Fill in the form and give it the work."} icon={Play} />
           <div className="p-5">
             <RunForm slug={detail.agent.slug} definition={definition} onStarted={(run) => setRunId(run.id)} />
           </div>
@@ -115,7 +115,7 @@ function FormResults({ detail }: { detail: AgentDetail }) {
                 compact
                 icon={Sparkles}
                 title="Results appear here"
-                description="Submit the form — you'll see the agent work step by step, then its result."
+                description="Submit the form — you'll see it work step by step, then its result."
                 className="border-0"
               />
             )}
@@ -199,10 +199,10 @@ function InboxLayout({ detail }: { detail: AgentDetail }) {
       <Card className="overflow-hidden">
         <CardHeader
           title="Incoming email"
-          subtitle={mailboxes.length ? `Listening to ${mailboxes.join(", ")}` : "This agent has no mailbox trigger yet."}
+          subtitle={mailboxes.length ? `Listening to ${mailboxes.join(", ")}` : "It follows no mailbox yet."}
           icon={Inbox}
           actions={
-            <ButtonLink size="sm" variant="secondary" to={`/inbox${qs({ mailbox: mailboxes[0], compose: "1" })}`}>
+            <ButtonLink size="sm" variant="secondary" to={`/settings/mailboxes${qs({ mailbox: mailboxes[0], compose: "1" })}`}>
               Simulate an email
             </ButtonLink>
           }
@@ -215,14 +215,14 @@ function InboxLayout({ detail }: { detail: AgentDetail }) {
             className="m-4"
             icon={Inbox}
             title="No email yet"
-            description="Emails arriving in the mailbox appear here with what the agent did with them."
+            description="Emails arriving in the mailbox appear here with what the AI employee did with them."
           />
         )}
         {messages.data && messages.data.length > 0 && (
           <ul className="divide-y divide-line">
             {messages.data.slice(0, 50).map((m) => (
               <li key={m.id}>
-                <Link to={`/inbox${qs({ mailbox: m.mailbox, message: m.id })}`} className="flex items-center gap-3 px-5 py-3 hover:bg-subtle/60">
+                <Link to={`/settings/mailboxes${qs({ mailbox: m.mailbox, message: m.id })}`} className="flex items-center gap-3 px-5 py-3 hover:bg-subtle/60">
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-2 text-sm">
                       <span className="truncate font-medium text-fg">{m.fromName ?? m.fromAddress}</span>
@@ -316,7 +316,7 @@ export function AgentAppView({ detail, showHeader = true }: { detail: AgentDetai
               {automatic.length > 0 && <p className="mt-1.5 text-xs text-faint">Also runs automatically: {automatic.map(describeTrigger).join(" · ")}</p>}
             </div>
           </div>
-          <ButtonLink to={`/agents/${agent.slug}`} variant="secondary" size="sm" icon={Settings2}>
+          <ButtonLink to={`/ai/${agent.slug}`} variant="secondary" size="sm" icon={Settings2}>
             Agent details
           </ButtonLink>
         </div>
@@ -330,7 +330,7 @@ export function AgentAppView({ detail, showHeader = true }: { detail: AgentDetai
         <TableLayout detail={detail} />
       ) : definition.ui.layout === "none" ? (
         <div className="space-y-6">
-          <EmptyState icon={Sparkles} title="This agent works in the background" description="It has no screen of its own; its runs appear below." />
+          <EmptyState icon={Sparkles} title="It works in the background" description="It has no screen of its own; its runs appear below." />
           <History detail={detail} />
         </div>
       ) : (

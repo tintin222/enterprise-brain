@@ -18,10 +18,10 @@ export async function connectorRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post("/api/companies/:company/connectors", async (request) => {
     const company = await companyOf(platform, request);
-    requireAdmin(request);
+    const viewer = requireAdmin(request);
     const body = z.object({ type: z.string(), name: z.string().optional(), values: z.record(z.string(), z.unknown()).default({}) }).parse(request.body);
     const instance = await platform.connectors.create(company.id, body);
-    await platform.activity.record(company.id, { actor: "user", action: "connector.created", entityType: "connector", entityId: instance.id, summary: `Connected ${instance.name}` });
+    await platform.activity.record(company.id, { actor: actorOf(viewer), action: "connector.created", entityType: "connector", entityId: instance.id, summary: `Connected ${instance.name}` });
     return instance;
   });
 
@@ -35,10 +35,10 @@ export async function connectorRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.delete("/api/companies/:company/connectors/:id", async (request) => {
     const company = await companyOf(platform, request);
-    requireAdmin(request);
+    const viewer = requireAdmin(request);
     const { id } = request.params as { id: string };
     await platform.connectors.remove(company.id, id);
-    await platform.activity.record(company.id, { actor: "user", action: "connector.removed", entityType: "connector", entityId: id, summary: "Removed a connector" });
+    await platform.activity.record(company.id, { actor: actorOf(viewer), action: "connector.removed", entityType: "connector", entityId: id, summary: "Removed a connector" });
     return { ok: true };
   });
 
@@ -52,13 +52,13 @@ export async function connectorRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Execute an operation against a connector type (explore sandbox data, verify a live integration). */
   app.post("/api/companies/:company/connectors/types/:type/operations/:operation", async (request) => {
     const company = await companyOf(platform, request);
-    requireAdmin(request);
+    const viewer = requireAdmin(request);
     const { type, operation } = request.params as { type: string; operation: string };
     const body = z.object({ input: z.record(z.string(), z.unknown()).default({}) }).parse(request.body ?? {});
     const result = await platform.connectors.executeByType(company.id, type, operation, body.input);
     const op = platform.connectors.registry.get(type)?.manifest.operations.find((o) => o.id === operation);
     if (op?.kind === "write") {
-      await platform.activity.record(company.id, { actor: "user", action: "connector.write", entityType: "connector", entityId: type, summary: `${type}: ${operation}`, data: { input: body.input } });
+      await platform.activity.record(company.id, { actor: actorOf(viewer), action: "connector.write", entityType: "connector", entityId: type, summary: `${type}: ${operation}`, data: { input: body.input } });
     }
     return { result };
   });

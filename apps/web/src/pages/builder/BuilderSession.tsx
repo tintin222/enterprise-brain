@@ -44,7 +44,7 @@ function SessionHeader({ view }: { view: SessionView }) {
   return (
     <div className="shrink-0 border-b border-line bg-surface px-4 py-3 sm:px-6">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Link to="/builder" className="-ml-1 rounded-lg p-1 text-muted hover:bg-subtle hover:text-fg" aria-label="All builder sessions">
+        <Link to="/hire" className="-ml-1 rounded-lg p-1 text-muted hover:bg-subtle hover:text-fg" aria-label="All builder sessions">
           <ArrowLeft className="size-5" />
         </Link>
         <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-fg">{session.title}</h1>
@@ -94,7 +94,7 @@ function SessionHeader({ view }: { view: SessionView }) {
 // ---------------------------------------------------------------------------
 
 function GeneratingSteps() {
-  const steps = ["Writing the agent definition from your answers", "Creating the agent and its screen", "Testing it on your samples"];
+  const steps = ["Writing its job description from your answers", "Hiring it and creating its page", "Trying it on your samples"];
   const [active, setActive] = useState(0);
   useEffect(() => {
     const timer = window.setInterval(() => setActive((a) => Math.min(a + 1, steps.length - 1)), 4000);
@@ -123,8 +123,7 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
           <div className="min-w-[16rem] flex-1 text-[13px] text-amber-950 dark:text-amber-100">
             <p className="font-semibold">Waiting on others{openRequests ? ` — ${openRequests} request${openRequests === 1 ? "" : "s"} open` : ""}</p>
             <p className="hidden opacity-90 sm:block">
-              Everything on your side is done. You can continue now with assumptions — the agent runs on manual uploads and demo data until the other teams
-              answer.
+              Everything on your side is done. You can continue now with assumptions — it works on manual uploads and demo data until the other teams answer.
             </p>
           </div>
           <div className="ml-auto flex shrink-0 flex-wrap gap-2">
@@ -152,7 +151,7 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
             onClick={() => actions.confirm.mutate()}
             className="ml-auto shrink-0"
           >
-            Confirm & build the agent
+            Confirm and hire
           </Button>
         </div>
       );
@@ -160,7 +159,7 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
       return (
         <div className="border-t border-violet-200 bg-violet-50/80 px-4 py-3 sm:px-6 dark:border-violet-400/20 dark:bg-violet-400/10">
           <p className="flex items-center gap-2 text-[13px] font-semibold text-violet-950 dark:text-violet-100">
-            <Spinner size="sm" /> Generating the agent and testing it on your samples…
+            <Spinner size="sm" /> Hiring it and trying it on your samples…
           </p>
           <GeneratingSteps />
         </div>
@@ -169,16 +168,16 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
       return (
         <div className="flex flex-wrap items-center gap-3 border-t border-emerald-200 bg-emerald-50/80 px-4 py-3 sm:px-6 dark:border-emerald-400/20 dark:bg-emerald-400/10">
           <div className="min-w-[16rem] flex-1 text-[13px] text-emerald-950 dark:text-emerald-100">
-            <p className="font-semibold">{agent?.name ?? "Your agent"} is built and in testing</p>
+            <p className="font-semibold">{agent?.name ?? "Your AI employee"} is hired and on trial</p>
             <p className="hidden opacity-90 sm:block">Check the test results above. Tell me what to change, or activate it when you're happy.</p>
           </div>
           <div className="ml-auto flex shrink-0 flex-wrap gap-2">
             {agent && (
               <>
                 <ButtonLink size="sm" variant="secondary" icon={ExternalLink} to={`/apps/${agent.slug}`}>
-                  Open the agent's app
+                  Open its page
                 </ButtonLink>
-                <ButtonLink size="sm" variant="ghost" to={`/agents/${agent.slug}`}>
+                <ButtonLink size="sm" variant="ghost" to={`/ai/${agent.slug}`}>
                   Agent details
                 </ButtonLink>
               </>
@@ -194,12 +193,12 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
         <div className="flex flex-wrap items-center gap-3 border-t border-emerald-200 bg-emerald-50/80 px-4 py-3 sm:px-6 dark:border-emerald-400/20 dark:bg-emerald-400/10">
           <Rocket className="hidden size-5 shrink-0 text-emerald-600 sm:block dark:text-emerald-300" />
           <div className="min-w-[16rem] flex-1 text-[13px] text-emerald-950 dark:text-emerald-100">
-            <p className="font-semibold">{agent?.name ?? "The agent"} is live</p>
+            <p className="font-semibold">{agent?.name ?? "Your AI employee"} is at work</p>
             <p className="hidden opacity-90 sm:block">Your team can use it now. You can still ask me for changes here.</p>
           </div>
           {agent && (
             <div className="ml-auto flex shrink-0 gap-2">
-              <ButtonLink size="sm" variant="ghost" to={`/agents/${agent.slug}`}>
+              <ButtonLink size="sm" variant="ghost" to={`/ai/${agent.slug}`}>
                 Agent details
               </ButtonLink>
               <ButtonLink size="sm" variant="success" icon={ExternalLink} to={`/apps/${agent.slug}`}>
@@ -357,7 +356,7 @@ function Composer({ view, actions, onSending }: { view: SessionView; actions: Se
 
 function SessionScreen({ view }: { view: SessionView }) {
   const actions = useSessionActions(view.session.id);
-  useDocumentTitle(`${view.session.title} · Agent Builder`);
+  useDocumentTitle(`${view.session.title} · Studio`);
   const [tab, setTab] = useState<PanelTab>("blueprint");
   const [pane, setPane] = useState<"chat" | "design">("chat");
   const [highlight, setHighlight] = useState<string | null>(null);
@@ -451,7 +450,10 @@ function SessionScreen({ view }: { view: SessionView }) {
             <Composer view={view} actions={actions} onSending={setSendingText} />
           </div>
         </section>
-        <aside className={clsx("min-h-0 flex-col border-line bg-surface xl:border-l", pane === "design" ? "flex" : "hidden xl:flex")} aria-label="Agent design">
+        <aside
+          className={clsx("min-h-0 flex-col border-line bg-surface xl:border-l", pane === "design" ? "flex" : "hidden xl:flex")}
+          aria-label="Job description"
+        >
           <Tabs tabs={tabs} value={tab} onChange={setTab} size="sm" fill className="shrink-0 px-1" />
           <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
             {tab === "blueprint" && <BlueprintPanel draft={view.draft} />}
@@ -477,7 +479,7 @@ export default function BuilderSessionPage() {
           title="This builder session doesn't exist"
           description="It may belong to another company, or it was removed."
           action={
-            <ButtonLink to="/builder" variant="primary">
+            <ButtonLink to="/hire" variant="primary">
               All sessions
             </ButtonLink>
           }

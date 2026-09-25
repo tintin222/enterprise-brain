@@ -1,20 +1,20 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Building, KeyRound, Moon, Server, Settings as SettingsIcon, Sun } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AtSign, Building, KeyRound, Moon, Save, Server, Sun } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router";
-import { api, getApiKey, setApiKey } from "../api.ts";
-import { Badge } from "../components/Badge.tsx";
-import { Button } from "../components/Button.tsx";
-import { Card, CardHeader, PageHeader } from "../components/Card.tsx";
-import { Field } from "../components/Form.tsx";
-import { KeyValue } from "../components/KeyValue.tsx";
-import { Page } from "../components/Layout.tsx";
-import { Callout } from "../components/Spinner.tsx";
-import { Segmented } from "../components/Tabs.tsx";
-import { useCompany } from "../lib/company.tsx";
-import { useTheme } from "../lib/theme.ts";
-import { useToast } from "../lib/toast.tsx";
-import type { Company } from "../types.ts";
+import { api, getApiKey, setApiKey } from "../../api.ts";
+import { Badge } from "../../components/Badge.tsx";
+import { Button } from "../../components/Button.tsx";
+import { Card, CardHeader, PageHeader } from "../../components/Card.tsx";
+import { Field } from "../../components/Form.tsx";
+import { KeyValue } from "../../components/KeyValue.tsx";
+import { Page } from "../../components/Layout.tsx";
+import { Callout } from "../../components/Spinner.tsx";
+import { Segmented } from "../../components/Tabs.tsx";
+import { useCompany } from "../../lib/company.tsx";
+import { useTheme } from "../../lib/theme.ts";
+import { useToast } from "../../lib/toast.tsx";
+import type { Company } from "../../types.ts";
 
 function slugify(text: string): string {
   return text
@@ -27,7 +27,54 @@ function slugify(text: string): string {
     .slice(0, 40);
 }
 
-export default function Settings() {
+/** Where people forward email to give an AI employee work: ai@company.com, "CV Screener: …" or ai+cv-screener@. */
+function AiMailbox() {
+  const { company, path } = useCompany();
+  const toast = useToast();
+  const settings = useQuery({ queryKey: [company, "settings"], queryFn: () => api.get<{ aiMailbox: string | null }>(path("/settings")) });
+  const [value, setValue] = useState("");
+  useEffect(() => setValue(settings.data?.aiMailbox ?? ""), [settings.data]);
+  const save = useMutation({
+    mutationFn: () => api.put<{ aiMailbox: string | null }>(path("/settings"), { aiMailbox: value.trim() || null }),
+    onSuccess: (res) => {
+      void settings.refetch();
+      toast.success(res.aiMailbox ? `People can forward work to ${res.aiMailbox}` : "Forwarding to AI employees is off");
+    },
+    onError: (e) => toast.error(e),
+  });
+  const address = settings.data?.aiMailbox;
+  const [local, domain] = (address ?? "ai@company.com").split("@");
+  return (
+    <Card>
+      <CardHeader
+        title="AI mailbox"
+        icon={AtSign}
+        subtitle="People forward an email here to give an AI employee work. It must be a mailbox connected under Connections."
+      />
+      <form
+        className="space-y-3 p-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate();
+        }}
+      >
+        <Field
+          label="Address"
+          hint={`Name the AI employee in the subject ("CV Screener: …") or in the address (${local}+cv-screener@${domain}). Only people of the company can give work this way.`}
+        >
+          {(id) => (
+            <input id={id} type="email" className="input sm:max-w-sm" placeholder="ai@company.com" value={value} onChange={(e) => setValue(e.target.value)} />
+          )}
+        </Field>
+        <Button type="submit" variant="primary" icon={Save} loading={save.isPending} disabled={(address ?? "") === value.trim()}>
+          Save
+        </Button>
+      </form>
+    </Card>
+  );
+}
+
+export default function Installation() {
   const { info, company, companies, setCompany } = useCompany();
   const { theme, setTheme } = useTheme();
   const queryClient = useQueryClient();
@@ -57,8 +104,9 @@ export default function Settings() {
 
   return (
     <Page className="max-w-4xl">
-      <PageHeader icon={SettingsIcon} title="Settings" description="This console's connection, company and appearance." />
+      <PageHeader icon={Server} title="Installation" description="The company, how people reach AI employees, access for machines, and this installation." />
       <div className="space-y-6">
+        <AiMailbox />
         <Card>
           <CardHeader title="Company" icon={Building} subtitle="All data in the console belongs to the selected company." />
           <div className="space-y-5 p-5">
@@ -122,10 +170,10 @@ export default function Settings() {
             {accounts ? (
               <Callout tone="info" title="People sign in with their own accounts">
                 Add colleagues and set up Microsoft or Google sign-in on the{" "}
-                <Link to="/people" className="font-medium underline">
-                  People
-                </Link>{" "}
-                page. Machines (the MCP endpoint, scripts) send the server's EB_API_KEY as <code>Authorization: Bearer …</code>.
+                <Link to="/settings/people" className="font-medium underline">
+                  People and roles
+                </Link>
+                . Machines (the MCP endpoint, scripts) send the server's EB_API_KEY as <code>Authorization: Bearer …</code>.
               </Callout>
             ) : info.authRequired ? (
               <form onSubmit={saveKey} className="space-y-3">

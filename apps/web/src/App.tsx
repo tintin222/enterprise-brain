@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
-import { createBrowserRouter, Outlet, RouterProvider } from "react-router";
+import { createBrowserRouter, Navigate, Outlet, RouterProvider, useLocation, useParams } from "react-router";
 import { isApiError } from "./api.ts";
 import { AppShell } from "./components/Layout.tsx";
 import { LoadingBlock } from "./components/Spinner.tsx";
@@ -9,30 +9,31 @@ import { CompanyProvider } from "./lib/company.tsx";
 import { ToastProvider } from "./lib/toast.tsx";
 import { RouteError } from "./pages/RouteError.tsx";
 
-const Dashboard = lazy(() => import("./pages/Dashboard.tsx"));
-const BuilderList = lazy(() => import("./pages/builder/BuilderList.tsx"));
+const Home = lazy(() => import("./pages/Home.tsx"));
+const Company = lazy(() => import("./pages/company/Company.tsx"));
+const AiEmployee = lazy(() => import("./pages/ai/AiEmployee.tsx"));
+const Hire = lazy(() => import("./pages/hire/Hire.tsx"));
 const BuilderNew = lazy(() => import("./pages/builder/BuilderNew.tsx"));
 const BuilderSession = lazy(() => import("./pages/builder/BuilderSession.tsx"));
+const Catalog = lazy(() => import("./pages/catalog/Catalog.tsx"));
+const DepartmentDetail = lazy(() => import("./pages/catalog/DepartmentDetail.tsx"));
+const Work = lazy(() => import("./pages/work/Work.tsx"));
+const TaskPage = lazy(() => import("./pages/work/TaskPage.tsx"));
+const SettingsLayout = lazy(() => import("./pages/settings/SettingsLayout.tsx"));
+const Connectors = lazy(() => import("./pages/Connectors.tsx"));
+const Knowledge = lazy(() => import("./pages/Knowledge.tsx"));
+const People = lazy(() => import("./pages/People.tsx"));
+const Costs = lazy(() => import("./pages/settings/Costs.tsx"));
+const Inbox = lazy(() => import("./pages/Inbox.tsx"));
+const ActivityPage = lazy(() => import("./pages/Activity.tsx"));
+const Installation = lazy(() => import("./pages/settings/Installation.tsx"));
+const Paperclip = lazy(() => import("./pages/Paperclip.tsx"));
 const AnswerPage = lazy(() => import("./pages/AnswerPage.tsx"));
 const AgentApp = lazy(() => import("./pages/AgentApp.tsx"));
-const AgentsList = lazy(() => import("./pages/agents/AgentsList.tsx"));
-const AgentDetail = lazy(() => import("./pages/agents/AgentDetail.tsx"));
-const RunsList = lazy(() => import("./pages/runs/RunsList.tsx"));
 const RunDetail = lazy(() => import("./pages/runs/RunDetail.tsx"));
-const Approvals = lazy(() => import("./pages/Approvals.tsx"));
-const Inbox = lazy(() => import("./pages/Inbox.tsx"));
-const Knowledge = lazy(() => import("./pages/Knowledge.tsx"));
 const Search = lazy(() => import("./pages/Search.tsx"));
 const Assistant = lazy(() => import("./pages/Assistant.tsx"));
 const UseCaseApp = lazy(() => import("./pages/UseCaseApp.tsx"));
-const Catalog = lazy(() => import("./pages/catalog/Catalog.tsx"));
-const DepartmentDetail = lazy(() => import("./pages/catalog/DepartmentDetail.tsx"));
-const Departments = lazy(() => import("./pages/Departments.tsx"));
-const Connectors = lazy(() => import("./pages/Connectors.tsx"));
-const Paperclip = lazy(() => import("./pages/Paperclip.tsx"));
-const ActivityPage = lazy(() => import("./pages/Activity.tsx"));
-const SettingsPage = lazy(() => import("./pages/Settings.tsx"));
-const People = lazy(() => import("./pages/People.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 const SignIn = lazy(() => import("./pages/SignIn.tsx"));
 
@@ -45,6 +46,37 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/** Old address → where it lives now (":name" carries a route parameter over). */
+const MOVED: Record<string, string> = {
+  agents: "/company",
+  "agents/:slug": "/ai/:slug",
+  departments: "/company",
+  builder: "/hire",
+  "builder/new": "/hire/studio/new",
+  "builder/:id": "/hire/studio/:id",
+  catalog: "/hire/ready-made",
+  "catalog/departments/:id": "/hire/ready-made/:id",
+  approvals: "/work",
+  runs: "/work?view=tasks",
+  connectors: "/settings/connections",
+  knowledge: "/settings/knowledge",
+  people: "/settings/people",
+  inbox: "/settings/mailboxes",
+  activity: "/settings/audit",
+  paperclip: "/settings/paperclip",
+};
+
+/** Sends an old address to its new place, keeping its parameters, query and hash. */
+function Moved({ to }: { to: string }) {
+  const params = useParams();
+  const location = useLocation();
+  const [base = "/", query = ""] = to.replace(/:(\w+)/g, (_, key: string) => encodeURIComponent(params[key] ?? "")).split("?");
+  const search = new URLSearchParams(query);
+  new URLSearchParams(location.search).forEach((value, key) => search.set(key, value));
+  const rest = search.toString();
+  return <Navigate to={`${base}${rest ? `?${rest}` : ""}${location.hash}`} replace />;
+}
 
 /** Providers that need the router (toasts render <Link>s). */
 function Root() {
@@ -93,30 +125,38 @@ const router = createBrowserRouter([
         element: <Console />,
         errorElement: <RouteError />,
         children: [
-          { index: true, element: <Dashboard /> },
-          { path: "builder", element: <BuilderList /> },
-          { path: "builder/new", element: <BuilderNew /> },
-          { path: "builder/:id", element: <BuilderSession /> },
-          { path: "catalog", element: <Catalog /> },
-          { path: "catalog/departments/:id", element: <DepartmentDetail /> },
-          { path: "agents", element: <AgentsList /> },
-          { path: "agents/:slug", element: <AgentDetail /> },
+          { index: true, element: <Home /> },
+          { path: "company", element: <Company /> },
+          { path: "ai/:slug", element: <AiEmployee /> },
+          { path: "hire", element: <Hire /> },
+          { path: "hire/studio/new", element: <BuilderNew /> },
+          { path: "hire/studio/:id", element: <BuilderSession /> },
+          { path: "hire/ready-made", element: <Catalog /> },
+          { path: "hire/ready-made/:id", element: <DepartmentDetail /> },
+          { path: "work", element: <Work /> },
+          { path: "work/:ref", element: <TaskPage /> },
+          {
+            path: "settings",
+            element: <SettingsLayout />,
+            children: [
+              { path: "connections", element: <Connectors /> },
+              { path: "knowledge", element: <Knowledge /> },
+              { path: "people", element: <People /> },
+              { path: "costs", element: <Costs /> },
+              { path: "mailboxes", element: <Inbox /> },
+              { path: "audit", element: <ActivityPage /> },
+              { path: "installation", element: <Installation /> },
+              { path: "paperclip", element: <Paperclip /> },
+            ],
+          },
           { path: "apps/:slug", element: <AgentApp /> },
-          { path: "runs", element: <RunsList /> },
           { path: "runs/:id", element: <RunDetail /> },
-          { path: "approvals", element: <Approvals /> },
-          { path: "inbox", element: <Inbox /> },
           { path: "assistant", element: <Assistant /> },
           { path: "search", element: <Search /> },
-          { path: "knowledge", element: <Knowledge /> },
           { path: "documents", element: <UseCaseApp kind="documents" /> },
           { path: "excel", element: <UseCaseApp kind="excel" /> },
-          { path: "connectors", element: <Connectors /> },
-          { path: "paperclip", element: <Paperclip /> },
-          { path: "departments", element: <Departments /> },
-          { path: "people", element: <People /> },
-          { path: "activity", element: <ActivityPage /> },
-          { path: "settings", element: <SettingsPage /> },
+          // Addresses from before the five places keep working.
+          ...Object.entries(MOVED).map(([path, to]) => ({ path, element: <Moved to={to} /> })),
           { path: "*", element: <NotFound /> },
         ],
       },

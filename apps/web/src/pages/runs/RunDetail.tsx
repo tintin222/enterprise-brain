@@ -112,8 +112,8 @@ export default function RunDetail() {
           icon={CirclePlay}
           title="Run not found"
           action={
-            <ButtonLink to="/runs" variant="primary">
-              All runs
+            <ButtonLink to="/work?view=tasks" variant="primary">
+              All tasks
             </ButtonLink>
           }
         />
@@ -135,18 +135,26 @@ export default function RunDetail() {
   return (
     <Page>
       <div className="mb-2 text-sm">
-        <Link to="/runs" className="text-muted hover:text-fg">
-          Runs
+        <Link to="/work?view=tasks" className="text-muted hover:text-fg">
+          Work
         </Link>
+        {run.taskId && (
+          <>
+            <span className="mx-1.5 text-faint">/</span>
+            <Link to={`/work/${run.taskId}`} className="text-muted hover:text-fg">
+              Task
+            </Link>
+          </>
+        )}
         <span className="mx-1.5 text-faint">/</span>
-        <span className="font-mono text-xs text-fg">{run.id.slice(0, 8)}</span>
+        <span className="font-mono text-xs text-fg">Run {run.id.slice(0, 8)}</span>
       </div>
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-xl font-semibold tracking-tight text-fg sm:text-2xl">
               {agent ? (
-                <Link to={`/agents/${agent.slug}`} className="hover:underline">
+                <Link to={`/ai/${agent.slug}`} className="hover:underline">
                   {agent.name}
                 </Link>
               ) : (

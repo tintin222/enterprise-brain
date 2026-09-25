@@ -18,10 +18,10 @@ export default function AgentApp() {
       {isApiError(error, 404) && (
         <EmptyState
           icon={Bot}
-          title="This agent doesn't exist"
+          title="This AI employee doesn't exist"
           description="It may have been removed, or it belongs to another company."
           action={
-            <ButtonLink to="/agents" variant="primary">
+            <ButtonLink to="/company" variant="primary">
               All agents
             </ButtonLink>
           }

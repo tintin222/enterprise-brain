@@ -71,8 +71,8 @@ function ComposeDialog({
       void queryClient.invalidateQueries({ queryKey: keys.runs(company) });
       toast.success("Email delivered", {
         description: res.runs.length
-          ? `${res.runs.length} agent${res.runs.length === 1 ? "" : "s"} started processing it.`
-          : "No active agent listens to this mailbox — process it manually.",
+          ? `${res.runs.length} AI employee${res.runs.length === 1 ? "" : "s"} started on it.`
+          : "No AI employee follows this mailbox: give it to one below.",
       });
       setForm((f) => ({ ...f, from: "", fromName: "", subject: "", body: "" }));
       setFiles([]);
@@ -94,7 +94,7 @@ function ComposeDialog({
       onClose={onClose}
       size="lg"
       title="Simulate an incoming email"
-      description="Delivers a message to a sandbox mailbox. Active agents listening to that mailbox start automatically."
+      description="Delivers a message to a demo mailbox. AI employees following that mailbox start on it by themselves."
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
@@ -276,15 +276,15 @@ function MessageDetail({ id, onBack }: { id: string; onBack: () => void }) {
 
       {message.runId && (
         <div className="space-y-2">
-          <h3 className="text-sm font-semibold text-fg">What the agent did</h3>
+          <h3 className="text-sm font-semibold text-fg">What the AI employee did</h3>
           <LinkedRun runId={message.runId} />
         </div>
       )}
 
       <div className="flex flex-col gap-2 rounded-xl border border-dashed border-line-strong p-3 sm:flex-row sm:items-center">
         <span className="text-sm text-muted">Process with…</span>
-        <select className="input h-9 flex-1 py-1.5" value={agent} onChange={(e) => setAgent(e.target.value)} aria-label="Agent">
-          <option value="">Choose an agent</option>
+        <select className="input h-9 flex-1 py-1.5" value={agent} onChange={(e) => setAgent(e.target.value)} aria-label="AI employee">
+          <option value="">Choose an AI employee</option>
           {candidates.map((a) => (
             <option key={a.id} value={a.slug}>
               {a.name}
@@ -340,8 +340,8 @@ export default function Inbox() {
     <Page wide>
       <PageHeader
         icon={InboxIcon}
-        title="Inbox"
-        description="Shared mailboxes the agents read: each email is classified, its attachments processed and replies drafted for approval."
+        title="Mailboxes"
+        description="Shared mailboxes AI employees follow: each email is sorted, its attachments read and replies drafted for approval."
         actions={
           <Button variant="primary" icon={MailPlus} onClick={() => setCompose(true)}>
             Simulate incoming email
@@ -425,7 +425,7 @@ export default function Inbox() {
               className="m-4"
               icon={Mail}
               title="No messages"
-              description="Simulate an incoming email to see an agent pick it up."
+              description="Send a test email to see an AI employee pick it up."
               action={
                 <Button size="sm" icon={MailPlus} onClick={() => setCompose(true)}>
                   Simulate email
@@ -474,7 +474,7 @@ export default function Inbox() {
                 compact
                 icon={Mail}
                 title="Select a message"
-                description="See the email, its attachments, what the agent extracted and any reply waiting for approval."
+                description="See the email, its attachments, what the AI employee found and any reply waiting for approval."
                 className="border-0"
               />
             </div>

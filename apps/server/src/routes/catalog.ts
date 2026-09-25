@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { searchCatalog } from "@enterprise-brain/catalog";
-import { actorOf, requireAdmin, requireAnyManager } from "../auth/viewer.ts";
+import { actorOf, canSeeDepartment, requireAdmin, requireAnyManager, viewerOf } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf } from "../http.ts";
 
@@ -82,11 +82,14 @@ export async function catalogRoutes(app: FastifyInstance, ctx: AppContext) {
       platform.catalog.processes(company.id),
       platform.agents.list(company.id),
     ]);
+    const viewer = viewerOf(request);
+    // Everyone sees which departments exist; their AI employees only the people who work there.
     return departments.map((d) => ({
       ...d,
+      visible: canSeeDepartment(viewer, d.id),
       processes: processes.filter((p) => p.departmentId === d.id),
       agents: agentRecords
-        .filter((a) => a.row.departmentId === d.id)
+        .filter((a) => a.row.departmentId === d.id && canSeeDepartment(viewer, d.id))
         .map((a) => ({ id: a.row.id, slug: a.row.slug, name: a.row.name, status: a.row.status, archetype: a.row.archetype, processId: a.row.processId, source: a.row.source })),
     }));
   });

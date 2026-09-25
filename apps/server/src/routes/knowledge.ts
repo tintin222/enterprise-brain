@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { humanizeKey, slugify } from "@enterprise-brain/core";
 import { extractDocument } from "@enterprise-brain/documents";
-import { requireAnyManager } from "../auth/viewer.ts";
+import { actorOf, requireAnyManager } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf, readMultipart } from "../http.ts";
 
@@ -38,7 +38,7 @@ export async function knowledgeRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Add documents: multipart files (+ `collection` field) or JSON {collection, title, text}. */
   app.post("/api/companies/:company/knowledge/documents", async (request) => {
     const company = await companyOf(platform, request);
-    requireAnyManager(request);
+    const viewer = requireAnyManager(request);
     if (request.isMultipart()) {
       const { fields, files } = await readMultipart(platform, company.id, request, "knowledge");
       const collection = fields.collection || "general";
@@ -58,7 +58,7 @@ export async function knowledgeRoutes(app: FastifyInstance, ctx: AppContext) {
           }),
         );
       }
-      await platform.activity.record(company.id, { actor: "user", action: "knowledge.uploaded", entityType: "collection", entityId: collection, summary: `Added ${documents.length} document(s) to ${collection}` });
+      await platform.activity.record(company.id, { actor: actorOf(viewer), action: "knowledge.uploaded", entityType: "collection", entityId: collection, summary: `Added ${documents.length} document(s) to ${collection}` });
       return documents;
     }
     const body = z.object({ collection: z.string().default("general"), title: z.string().min(1), text: z.string().min(1), uri: z.string().optional() }).parse(request.body);

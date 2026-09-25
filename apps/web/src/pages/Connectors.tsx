@@ -1,10 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleCheck, ClipboardList, Database, ExternalLink, FlaskConical, Play, Plug, PlugZap, RefreshCw, Trash } from "lucide-react";
+import { CircleCheck, ClipboardList, Database, ExternalLink, FlaskConical, ListTree, Play, Plug, PlugZap, RefreshCw, Trash } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { api } from "../api.ts";
 import { Badge, StatusPill } from "../components/Badge.tsx";
 import { Button, ButtonAnchor } from "../components/Button.tsx";
 import { Card, CardHeader, PageHeader, SectionTitle } from "../components/Card.tsx";
+import { ConnectionActionsDrawer } from "../components/ConnectionActions.tsx";
 import { Dialog, Drawer } from "../components/Dialog.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { Field, Switch } from "../components/Form.tsx";
@@ -250,7 +251,7 @@ function SandboxExplorer({ manifests, initialType }: { manifests: ConnectorManif
     <Card>
       <CardHeader
         title="Sandbox explorer"
-        subtitle="Browse the built-in demo ERP, CRM, HRIS, ATS and ITSM — the same data agents use until the real systems are connected."
+        subtitle="Browse the built-in demo ERP, CRM, HRIS, ATS and ITSM — the same data AI employees use until the real systems are connected."
         icon={FlaskConical}
       />
       <div className="space-y-4 p-5">
@@ -366,6 +367,7 @@ export default function Connectors() {
   const [connecting, setConnecting] = useState<ConnectorManifest | null>(null);
   const [removing, setRemoving] = useState<ConnectorInstance | null>(null);
   const [explore, setExplore] = useState<string | undefined>(undefined);
+  const [naming, setNaming] = useState<ConnectorInstance | null>(null);
 
   const test = useMutation({
     mutationFn: (id: string) => api.post<{ ok: boolean; message: string }>(path(`/connectors/${encodeURIComponent(id)}/test`)),
@@ -380,7 +382,7 @@ export default function Connectors() {
     mutationFn: (id: string) => api.del(path(`/connectors/${encodeURIComponent(id)}`)),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: keys.connectors(company) });
-      toast.success("Connector removed");
+      toast.success("Connection removed");
       setRemoving(null);
     },
     onError: (e) => toast.error(e),
@@ -401,8 +403,8 @@ export default function Connectors() {
     <Page>
       <PageHeader
         icon={Plug}
-        title="Connectors"
-        description="Connect the company's systems of record — ERP, CRM, HR, ITSM, mail and documents. Until a system is connected, agents work against built-in sandbox systems with realistic demo data."
+        title="Connections"
+        description="Connect the company's systems: ERP, CRM, HR, mail, web services and databases. For web services and databases, name the actions AI employees may use. Until a system is connected, AI employees practise on built-in demo systems."
       />
 
       <SectionTitle>Connected systems</SectionTitle>
@@ -415,7 +417,7 @@ export default function Connectors() {
             className="m-4"
             icon={Plug}
             title="No systems connected yet"
-            description="Pick a system below. Agents keep using demo data for anything that isn't connected."
+            description="Pick a system below. AI employees keep using demo data for anything that isn't connected."
           />
         )}
         {instances.data && instances.data.length > 0 && (
@@ -445,6 +447,11 @@ export default function Connectors() {
                     </div>
                   </div>
                   <div className="flex shrink-0 gap-2">
+                    {(i.type === "rest-api" || i.type === "sql-database") && (
+                      <Button size="sm" variant="soft" icon={ListTree} onClick={() => setNaming(i)}>
+                        Actions
+                      </Button>
+                    )}
                     <Button size="sm" icon={RefreshCw} loading={test.isPending && test.variables === i.id} onClick={() => test.mutate(i.id)}>
                       Test
                     </Button>
@@ -459,7 +466,7 @@ export default function Connectors() {
         )}
       </Card>
 
-      <SectionTitle>Available connectors</SectionTitle>
+      <SectionTitle>Systems you can connect</SectionTitle>
       {catalog.isLoading && <Skeleton className="h-40" />}
       {catalog.error && <ErrorState error={catalog.error} />}
       <div className="space-y-8">
@@ -521,12 +528,13 @@ export default function Connectors() {
       </div>
 
       <ConnectDrawer manifest={connecting} onClose={() => setConnecting(null)} />
+      <ConnectionActionsDrawer connection={naming} onClose={() => setNaming(null)} />
       <Dialog
         open={Boolean(removing)}
         onClose={() => setRemoving(null)}
         size="sm"
         title={`Remove ${removing?.name}?`}
-        description="Agents bound to this system fall back to demo data. Stored credentials are deleted."
+        description="AI employees using this system fall back to demo data. Stored credentials are deleted."
         footer={
           <>
             <Button onClick={() => setRemoving(null)}>Cancel</Button>

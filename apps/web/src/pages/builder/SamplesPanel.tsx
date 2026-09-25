@@ -20,7 +20,7 @@ export function SamplesPanel({ view, actions }: { view: SessionView; actions: Se
           busy={actions.uploadSamples.isPending}
           disabled={locked}
           label="Add sample files"
-          hint="Real examples become the agent's test cases."
+          hint="Real examples become its test cases."
           onFiles={(files) => actions.uploadSamples.mutate(files)}
         />
         <DemoSamplesButton
@@ -85,7 +85,7 @@ export function SamplesPanel({ view, actions }: { view: SessionView; actions: Se
         <p className="flex items-center gap-2 text-sm font-medium text-fg">
           <BookOpen className="size-4 text-muted" /> Reference documents
         </p>
-        <p className="mt-0.5 mb-2.5 text-xs text-muted">Job descriptions, policies or price lists the agent should consult. They go into its knowledge base.</p>
+        <p className="mt-0.5 mb-2.5 text-xs text-muted">Job descriptions, policies or price lists it should consult. They go into its knowledge base.</p>
         <Dropzone
           compact
           busy={actions.uploadReference.isPending}

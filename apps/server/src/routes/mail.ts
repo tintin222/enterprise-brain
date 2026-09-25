@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { MailService } from "@enterprise-brain/runtime";
-import { requireAnyManager } from "../auth/viewer.ts";
+import { actorOf, requireAnyManager } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { companyOf, readMultipart } from "../http.ts";
 
@@ -77,12 +77,12 @@ export async function mailRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Process a message with a specific agent (manual triage). */
   app.post("/api/companies/:company/mail/messages/:id/process", async (request) => {
     const company = await companyOf(platform, request);
-    requireAnyManager(request);
+    const viewer = requireAnyManager(request);
     const { id } = request.params as { id: string };
     const { agent, wait } = z.object({ agent: z.string(), wait: z.boolean().default(true) }).parse(request.body);
     const message = await platform.mail.get(company.id, id);
     await platform.mail.update(company.id, id, { status: "processing" });
-    const run = await platform.engine.start(company.id, agent, { email: MailService.toEmailInput(message) }, { trigger: "mailbox", triggerRef: id, wait, actor: "user" });
+    const run = await platform.engine.start(company.id, agent, { email: MailService.toEmailInput(message) }, { trigger: "mailbox", triggerRef: id, wait, actor: actorOf(viewer) });
     await platform.mail.update(company.id, id, { runId: run.id, status: run.status === "failed" ? "error" : "triaged", classification: (run.output as Record<string, unknown> | null) ?? null });
     return { ...run, context: undefined };
   });

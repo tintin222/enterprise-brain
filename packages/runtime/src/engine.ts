@@ -183,10 +183,15 @@ export class RunEngine {
 
   /** This month's model cost of an AI employee's work (test runs included: they cost the same). */
   async costThisMonth(agentId: string, now = new Date()): Promise<number> {
+    return this.costSince(agentId, monthStart(now));
+  }
+
+  /** Model cost of an AI employee's work since a moment (e.g. midnight for "today"). */
+  async costSince(agentId: string, since: Date): Promise<number> {
     const [row] = await this.deps.handle.db
       .select({ usd: sql<number>`coalesce(sum((${runs.usage}->>'costUsd')::numeric), 0)::float` })
       .from(runs)
-      .where(and(eq(runs.agentId, agentId), gte(runs.createdAt, monthStart(now))));
+      .where(and(eq(runs.agentId, agentId), gte(runs.createdAt, since)));
     return Number(row?.usd ?? 0);
   }
 
@@ -959,6 +964,20 @@ export class RunEngine {
     });
     const action = approval.action as unknown as ApprovalAction;
     const corrected = Boolean(decision.approved && decision.edits && Object.keys(decision.edits).length);
+    if (corrected || (!decision.approved && decision.note?.trim())) {
+      // A correction or a reasoned "no" is coaching: kept on the AI employee for its next version.
+      const fields = Object.keys(isRecord(decision.edits?.input) ? decision.edits.input : (decision.edits ?? {}));
+      await this.deps.activity.record(companyId, {
+        actor: decidedBy,
+        action: "agent.coaching_note",
+        entityType: "agent",
+        entityId: approval.agentId,
+        summary: corrected
+          ? `${decidedBy} corrected “${approval.title}” before approving (${fields.join(", ")})${decision.note ? `: ${decision.note}` : ""}`
+          : `${decidedBy} rejected “${approval.title}”: ${decision.note}`,
+        data: { approvalId, edits: decision.edits ?? null, note: decision.note ?? null },
+      });
+    }
 
     if (approval.origin === "workflow" && approval.runId) {
       const run = await this.getRow(companyId, approval.runId);
@@ -1199,6 +1218,10 @@ function outputText(output: unknown): string {
   for (const key of ["summary", "text", "result", "answer", "reply"]) {
     const value = output[key];
     if (typeof value === "string" && value.trim()) return truncate(value.trim(), 600);
+  }
+  // A task that ends with an email: say so in words.
+  if (output.sent === true && typeof output.to === "string") {
+    return truncate(`Sent “${typeof output.subject === "string" ? output.subject : "an email"}” to ${output.to}${typeof output.approvedBy === "string" ? `, approved by ${output.approvedBy}` : ""}`, 600);
   }
   return truncate(stringify(output), 600) || "Finished";
 }

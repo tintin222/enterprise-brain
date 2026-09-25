@@ -82,7 +82,7 @@ function NewCollectionDialog({ open, onClose, onCreated }: { open: boolean; onCl
             />
           )}
         </Field>
-        <Field label="Key" optional hint="Used by agents to refer to the collection. Derived from the name when empty.">
+        <Field label="Key" optional hint="How AI employees refer to the collection. Derived from the name when empty.">
           {(id) => (
             <input
               id={id}
@@ -193,11 +193,7 @@ function SearchPlayground({ collection }: { collection?: string }) {
   };
   return (
     <Card>
-      <CardHeader
-        title="Search playground"
-        subtitle="See exactly what agents retrieve: hybrid vector + full-text search with reciprocal-rank fusion."
-        icon={Search}
-      />
+      <CardHeader title="Search playground" subtitle="See exactly what AI employees find: vector and full-text search combined." icon={Search} />
       <div className="space-y-4 p-5">
         <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row">
           <input
@@ -327,7 +323,7 @@ export default function Knowledge() {
       <PageHeader
         icon={BookOpen}
         title="Knowledge base"
-        description="The governed company knowledge every assistant and agent answers from — with citations. Upload documents or paste text into collections."
+        description="Documents and policies AI employees answer from, with sources. Upload documents or paste text into collections."
         actions={
           <Button variant="primary" icon={FolderPlus} onClick={() => setNewCollection(true)}>
             New collection
@@ -420,7 +416,7 @@ export default function Knowledge() {
                 title="No documents yet"
                 description={
                   current
-                    ? "Drop files above or paste text. Agents can use them right away."
+                    ? "Drop files above or paste text. AI employees can use them right away."
                     : "Create a collection, then add your policies, procedures and manuals."
                 }
               />
@@ -491,7 +487,7 @@ export default function Knowledge() {
         onClose={() => setConfirmDelete(null)}
         size="sm"
         title={`Delete “${confirmDelete?.name}”?`}
-        description="All documents in the collection are removed from the knowledge base. Agents using it will no longer find them."
+        description="All documents in the collection are removed. AI employees using it will no longer find them."
         footer={
           <>
             <Button onClick={() => setConfirmDelete(null)}>Cancel</Button>

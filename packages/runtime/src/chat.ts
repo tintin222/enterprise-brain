@@ -39,6 +39,16 @@ const DEFAULT_ASSISTANT: AgentDefinition = {
   tests: [],
 };
 
+export class ChatError extends Error {
+  constructor(
+    message: string,
+    readonly statusCode = 400,
+  ) {
+    super(message);
+    this.name = "ChatError";
+  }
+}
+
 /** Conversational AI: persistent conversations with a (conversational) agent, grounded in knowledge and connectors. */
 export class ChatService {
   constructor(
@@ -49,18 +59,21 @@ export class ChatService {
     private readonly toolDeps: ToolDeps,
   ) {}
 
-  async createConversation(companyId: string, input: { agentRef?: string; title?: string } = {}) {
+  /** userId: the person starting it (the conversation is private to them). */
+  async createConversation(companyId: string, input: { agentRef?: string; title?: string; userId?: string | null } = {}) {
     const agent = input.agentRef ? await this.agents.get(companyId, input.agentRef) : undefined;
     const [row] = await this.handle.db
       .insert(chatConversations)
-      .values({ companyId, agentId: agent?.row.id ?? null, title: input.title ?? "New conversation" })
+      .values({ companyId, agentId: agent?.row.id ?? null, userId: input.userId ?? null, title: input.title ?? "New conversation" })
       .returning();
     return row!;
   }
 
-  async listConversations(companyId: string, agentId?: string) {
+  /** userId: only that person's conversations (omit it for all, in open mode). */
+  async listConversations(companyId: string, filter: { agentId?: string; userId?: string } = {}) {
     const conditions = [eq(chatConversations.companyId, companyId)];
-    if (agentId) conditions.push(eq(chatConversations.agentId, agentId));
+    if (filter.agentId) conditions.push(eq(chatConversations.agentId, filter.agentId));
+    if (filter.userId) conditions.push(eq(chatConversations.userId, filter.userId));
     return this.handle.db
       .select()
       .from(chatConversations)
@@ -69,17 +82,18 @@ export class ChatService {
       .limit(50);
   }
 
-  async conversation(companyId: string, conversationId: string) {
+  /** A conversation; with userId, only if it is that person's. */
+  async conversation(companyId: string, conversationId: string, userId?: string) {
     const [row] = await this.handle.db
       .select()
       .from(chatConversations)
       .where(and(eq(chatConversations.companyId, companyId), eq(chatConversations.id, conversationId)));
-    if (!row) throw new Error(`Conversation ${conversationId} not found`);
+    if (!row || (userId && row.userId !== userId)) throw new ChatError(`Conversation ${conversationId} not found`, 404);
     return row;
   }
 
-  async messages(companyId: string, conversationId: string) {
-    await this.conversation(companyId, conversationId);
+  async messages(companyId: string, conversationId: string, userId?: string) {
+    await this.conversation(companyId, conversationId, userId);
     return this.handle.db
       .select()
       .from(chatMessages)
@@ -87,8 +101,8 @@ export class ChatService {
       .orderBy(asc(chatMessages.createdAt));
   }
 
-  async send(companyId: string, conversationId: string, text: string, options: { onText?: (delta: string) => void } = {}) {
-    const conversation = await this.conversation(companyId, conversationId);
+  async send(companyId: string, conversationId: string, text: string, options: { onText?: (delta: string) => void; userId?: string } = {}) {
+    const conversation = await this.conversation(companyId, conversationId, options.userId);
     const agent = conversation.agentId ? await this.agents.get(companyId, conversation.agentId) : undefined;
     const definition = agent?.definition ?? DEFAULT_ASSISTANT;
     const history = await this.messages(companyId, conversationId);

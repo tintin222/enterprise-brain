@@ -196,7 +196,7 @@ export function LiveRunResult({
           icon={Hourglass}
           title="Waiting for a person to approve"
           actions={
-            <ButtonLink size="sm" variant="secondary" to="/approvals">
+            <ButtonLink size="sm" variant="secondary" to="/work">
               Open approvals
             </ButtonLink>
           }
@@ -330,7 +330,7 @@ export function RunsTable({
         <thead className="border-b border-line bg-subtle/50 text-xs text-muted">
           <tr>
             <th className="px-4 py-2.5 font-medium">Status</th>
-            {showAgent && <th className="px-4 py-2.5 font-medium">Agent</th>}
+            {showAgent && <th className="px-4 py-2.5 font-medium">AI employee</th>}
             {highlight.map((k) => (
               <th key={k} className="px-4 py-2.5 font-medium whitespace-nowrap">
                 {byKey.get(k)?.label ?? k}
@@ -364,7 +364,7 @@ export function RunsTable({
               {showAgent && (
                 <td className="max-w-[14rem] truncate px-4 py-2.5 font-medium text-fg">
                   {agentOf(run).slug ? (
-                    <Link to={`/agents/${agentOf(run).slug}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
+                    <Link to={`/ai/${agentOf(run).slug}`} onClick={(e) => e.stopPropagation()} className="hover:underline">
                       {agentOf(run).name}
                     </Link>
                   ) : (

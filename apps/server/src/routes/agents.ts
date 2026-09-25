@@ -97,11 +97,12 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     const { agent: ref } = request.params as { agent: string };
     const agent = await agentFor(request, company.id, ref);
     const canManage = canManageDepartment(viewerOf(request), agent.row.departmentId);
-    const [versions, recentRuns, employment, managers] = await Promise.all([
+    const [versions, recentRuns, employment, managers, activity] = await Promise.all([
       platform.agents.versions(company.id, ref),
       platform.engine.list(company.id, { agentId: agent.row.id, limit: 20 }),
       platform.employment.view(company.id, agent),
       canManage ? platform.employment.candidates(company.id, agent) : Promise.resolve([]),
+      platform.activity.forEntity(company.id, "agent", agent.row.id, 50),
     ]);
     return {
       agent: agent.row,
@@ -112,6 +113,8 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
       canManage,
       /** Who may be its manager (for those who may change it). */
       managerCandidates: managers.map((p) => ({ id: p.id, name: p.name, title: p.title })),
+      /** Changes to it and coaching notes from people, newest first. */
+      activity: activity.map((a) => ({ id: a.id, actor: a.actor, action: a.action, summary: a.summary, createdAt: a.createdAt })),
     };
   });
 
@@ -120,8 +123,9 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     const { agent: ref } = request.params as { agent: string };
     const body = z.object({ definition: z.record(z.string(), z.unknown()), note: z.string().optional() }).parse(request.body);
     await agentFor(request, company.id, ref, true);
-    const agent = await platform.agents.update(company.id, ref, body.definition as never, { note: body.note, createdBy: "user" });
-    await platform.activity.record(company.id, { actor: "user", action: "agent.updated", entityType: "agent", entityId: agent.row.id, summary: `Updated ${agent.definition.name} (v${agent.row.version})` });
+    const actor = actorOf(viewerOf(request));
+    const agent = await platform.agents.update(company.id, ref, body.definition as never, { note: body.note, createdBy: viewerOf(request).name });
+    await platform.activity.record(company.id, { actor, action: "agent.updated", entityType: "agent", entityId: agent.row.id, summary: `Updated ${agent.definition.name} (v${agent.row.version})` });
     return { agent: agent.row, definition: agent.definition };
   });
 
@@ -131,7 +135,7 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     const { status } = z.object({ status: AgentStatus }).parse(request.body);
     await agentFor(request, company.id, ref, true);
     const agent = await platform.agents.setStatus(company.id, ref, status);
-    await platform.activity.record(company.id, { actor: "user", action: `agent.${status}`, entityType: "agent", entityId: agent.row.id, summary: `${agent.definition.name} → ${status}` });
+    await platform.activity.record(company.id, { actor: actorOf(viewerOf(request)), action: `agent.${status}`, entityType: "agent", entityId: agent.row.id, summary: `${agent.definition.name} → ${status}` });
     return agent.row;
   });
 

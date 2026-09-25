@@ -2,29 +2,19 @@ import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import {
   Bell,
-  BookOpen,
-  Bot,
   Building,
-  CirclePlay,
-  FileSpreadsheet,
-  Inbox,
-  LayoutDashboard,
-  LibraryBig,
+  Building2,
+  House,
+  ListChecks,
   LogOut,
   Menu,
   MessageSquare,
   Moon,
-  Paperclip,
-  Plug,
-  ScanText,
-  ScrollText,
   Search,
+  Send,
   Settings,
-  Sparkles,
   Sun,
-  UserCheck,
-  Users,
-  WandSparkles,
+  UserPlus,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -33,72 +23,42 @@ import { Link, NavLink, Outlet, useLocation } from "react-router";
 import { signOut, useViewer } from "../lib/auth.tsx";
 import { useCompany } from "../lib/company.tsx";
 import { initials } from "../lib/format.ts";
-import { useApprovals } from "../lib/queries.ts";
+import { useWork } from "../lib/queries.ts";
 import { useTheme } from "../lib/theme.ts";
+import { GiveWorkDialog } from "./GiveWork.tsx";
 import { Wordmark } from "./Logo.tsx";
 import { LoadingBlock } from "./Spinner.tsx";
 
-interface NavItem {
+interface Place {
   to: string;
   label: string;
   icon: LucideIcon;
+  hint: string;
   end?: boolean;
-  badge?: "approvals";
+  /** Who sees the place: everyone unless it says otherwise. */
+  for?: "managers";
 }
 
-const NAV: { title: string; items: NavItem[] }[] = [
-  { title: "Overview", items: [{ to: "/", label: "Dashboard", icon: LayoutDashboard, end: true }] },
-  {
-    title: "Build",
-    items: [
-      { to: "/builder", label: "Agent Builder", icon: WandSparkles },
-      { to: "/catalog", label: "Catalog", icon: LibraryBig },
-    ],
-  },
-  {
-    title: "Operate",
-    items: [
-      { to: "/agents", label: "Agents", icon: Bot },
-      { to: "/runs", label: "Runs", icon: CirclePlay },
-      { to: "/approvals", label: "Approvals", icon: UserCheck, badge: "approvals" },
-      { to: "/inbox", label: "Inbox", icon: Inbox },
-    ],
-  },
-  {
-    title: "Use cases",
-    items: [
-      { to: "/assistant", label: "Assistant", icon: MessageSquare },
-      { to: "/search", label: "Search", icon: Search },
-      { to: "/knowledge", label: "Knowledge", icon: BookOpen },
-      { to: "/documents", label: "Documents", icon: ScanText },
-      { to: "/excel", label: "Excel", icon: FileSpreadsheet },
-    ],
-  },
-  {
-    title: "Integrate",
-    items: [
-      { to: "/connectors", label: "Connectors", icon: Plug },
-      { to: "/paperclip", label: "Paperclip", icon: Paperclip },
-    ],
-  },
-  {
-    title: "Admin",
-    items: [
-      { to: "/departments", label: "Departments", icon: Building },
-      { to: "/people", label: "People", icon: Users },
-      { to: "/activity", label: "Activity", icon: ScrollText },
-      { to: "/settings", label: "Settings", icon: Settings },
-    ],
-  },
+/** The five places: everything else lives inside one of them. */
+const PLACES: Place[] = [
+  { to: "/", label: "Home", icon: House, end: true, hint: "What needs you, and what your AI employees did today" },
+  { to: "/company", label: "Company", icon: Building2, hint: "Departments, their people and AI employees" },
+  { to: "/hire", label: "Hire", icon: UserPlus, for: "managers", hint: "The Studio and ready-made AI employees" },
+  { to: "/work", label: "Work", icon: ListChecks, hint: "Every task, and what needs a person" },
+  { to: "/settings", label: "Settings", icon: Settings, for: "managers", hint: "Connections, knowledge, people, costs" },
 ];
 
-function usePendingApprovals(): number {
-  const { data } = useApprovals("pending");
+/** Things waiting for the viewer (approvals, questions, checks): the Work badge and the bell. */
+function useNeedsYou(): number {
+  const { data } = useWork("mine");
   return data?.length ?? 0;
 }
 
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
-  const pending = usePendingApprovals();
+  const viewer = useViewer();
+  const needsYou = useNeedsYou();
+  const [giving, setGiving] = useState(false);
+  const isManager = !viewer || viewer.isAdmin || viewer.departments.some((d) => d.role === "manager");
   return (
     <nav className="flex h-full flex-col" aria-label="Main">
       <div className="flex h-14 shrink-0 items-center border-b border-line px-4">
@@ -106,56 +66,55 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           <Wordmark />
         </Link>
       </div>
-      <div className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
-        {NAV.map((group) => (
-          <div key={group.title}>
-            <p className="mb-1 px-2 text-[11px] font-semibold tracking-wider text-faint uppercase">{group.title}</p>
-            <ul className="space-y-0.5">
-              {group.items.map((item) => {
-                const Icon = item.icon;
-                const count = item.badge === "approvals" ? pending : 0;
-                return (
-                  <li key={item.to}>
-                    <NavLink
-                      to={item.to}
-                      end={item.end}
-                      onClick={onNavigate}
-                      className={({ isActive }) =>
-                        clsx(
-                          "group flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm font-medium transition-colors",
-                          isActive ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200" : "text-muted hover:bg-subtle hover:text-fg",
-                        )
-                      }
-                    >
-                      {({ isActive }) => (
-                        <>
-                          <Icon
-                            className={clsx("size-[18px] shrink-0", isActive ? "text-brand-600 dark:text-brand-300" : "text-faint group-hover:text-muted")}
-                          />
-                          <span className="flex-1 truncate">{item.label}</span>
-                          {count > 0 && (
-                            <span className="rounded-full bg-amber-500 px-1.5 text-[11px] leading-[18px] font-semibold text-white tabular-nums">{count}</span>
-                          )}
-                        </>
-                      )}
-                    </NavLink>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
-      </div>
+      <ul className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+        {PLACES.filter((place) => place.for !== "managers" || isManager).map((place) => {
+          const Icon = place.icon;
+          const count = place.to === "/work" ? needsYou : 0;
+          return (
+            <li key={place.to}>
+              <NavLink
+                to={place.to}
+                end={place.end}
+                onClick={onNavigate}
+                title={place.hint}
+                className={({ isActive }) =>
+                  clsx(
+                    "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] font-medium transition-colors",
+                    isActive ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200" : "text-muted hover:bg-subtle hover:text-fg",
+                  )
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <Icon className={clsx("size-5 shrink-0", isActive ? "text-brand-600 dark:text-brand-300" : "text-faint group-hover:text-muted")} />
+                    <span className="flex-1 truncate">{place.label}</span>
+                    {count > 0 && (
+                      <span
+                        className="rounded-full bg-amber-500 px-1.5 text-[11px] leading-[18px] font-semibold text-white tabular-nums"
+                        title={`${count} waiting for you`}
+                      >
+                        {count}
+                      </span>
+                    )}
+                  </>
+                )}
+              </NavLink>
+            </li>
+          );
+        })}
+      </ul>
       <div className="shrink-0 border-t border-line p-3">
-        <Link
-          to="/builder/new"
-          onClick={onNavigate}
-          className="flex items-center gap-2 rounded-lg bg-gradient-to-r from-brand-600 to-violet-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:from-brand-700 hover:to-violet-700"
+        <button
+          type="button"
+          onClick={() => setGiving(true)}
+          title="Give work to an AI employee"
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-brand-600 to-violet-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:from-brand-700 hover:to-violet-700"
         >
-          <Sparkles className="size-4" />
-          Build an agent
-        </Link>
+          <Send className="size-4" />
+          Give work
+        </button>
       </div>
+      <GiveWorkDialog open={giving} onClose={() => setGiving(false)} />
     </nav>
   );
 }
@@ -252,27 +211,38 @@ function PersonMenu() {
 function TopBar({ onMenu }: { onMenu: () => void }) {
   const { companyName } = useCompany();
   const { theme, toggle } = useTheme();
-  const pending = usePendingApprovals();
+  const pending = useNeedsYou();
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-surface/70 sm:px-6">
       <button type="button" onClick={onMenu} className="-ml-1 rounded-lg p-1.5 text-muted hover:bg-subtle hover:text-fg lg:hidden" aria-label="Open navigation">
         <Menu className="size-5" />
       </button>
       <Link
-        to="/settings"
+        to="/company"
         className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold text-fg hover:text-brand-700 dark:hover:text-brand-300"
         title="Company"
       >
         <Building className="size-4 shrink-0 text-muted" />
-        <span className="truncate">{companyName}</span>
+        <span className="hidden truncate sm:inline">{companyName}</span>
       </Link>
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
         <LlmBadge />
+        <Link to="/search" className="rounded-lg p-2 text-muted hover:bg-subtle hover:text-fg" aria-label="Search" title="Search knowledge and AI employees">
+          <Search className="size-[18px]" />
+        </Link>
         <Link
-          to="/approvals"
+          to="/assistant"
+          className="rounded-lg p-2 text-muted hover:bg-subtle hover:text-fg"
+          aria-label="Ask the company assistant"
+          title="Ask the company assistant"
+        >
+          <MessageSquare className="size-[18px]" />
+        </Link>
+        <Link
+          to="/work"
           className="relative rounded-lg p-2 text-muted hover:bg-subtle hover:text-fg"
-          aria-label={pending ? `${pending} pending approvals` : "Approvals"}
-          title={pending ? `${pending} pending approval${pending === 1 ? "" : "s"}` : "Approvals"}
+          aria-label={pending ? `${pending} waiting for you` : "Nothing waiting for you"}
+          title={pending ? `${pending} waiting for you` : "Nothing waiting for you"}
         >
           <Bell className="size-[18px]" />
           {pending > 0 && (

@@ -8,6 +8,8 @@ import type {
   CatalogResponse,
   ConnectorInstance,
   ConnectorManifest,
+  CostOverview,
+  HomeData,
   InstalledDepartment,
   KnowledgeCollection,
   Mailbox,
@@ -15,6 +17,9 @@ import type {
   RunRow,
   SessionView,
   StoredFile,
+  TaskDetail,
+  TaskRow,
+  WorkEntry,
 } from "../types.ts";
 import { useCompany } from "./company.tsx";
 
@@ -38,6 +43,9 @@ export const keys = {
   files: (company: string) => [company, "files"] as const,
   activity: (company: string) => [company, "activity"] as const,
   people: (company: string) => [company, "people"] as const,
+  tasks: (company: string) => [company, "tasks"] as const,
+  work: (company: string) => [company, "work"] as const,
+  home: (company: string) => [company, "home"] as const,
 };
 
 export function useCatalog() {
@@ -168,4 +176,44 @@ export function useDepartmentName(): (id: string | null | undefined) => string {
     if (name) return name;
     return id.length <= 3 ? id.toUpperCase() : id.replace(/[-_]+/g, " ").replace(/^./, (c) => c.toUpperCase());
   };
+}
+
+/** Home: what the viewer's AI employees did today. */
+export function useHome() {
+  const { company, path } = useCompany();
+  return useQuery({ queryKey: keys.home(company), queryFn: () => api.get<HomeData>(path("/home")), refetchInterval: 30_000 });
+}
+
+/** The work queue: what needs a person ("mine": the viewer's to do). */
+export function useWork(scope: "mine" | "all" = "mine", status: "open" | "closed" = "open") {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.work(company), scope, status],
+    queryFn: () => api.get<WorkEntry[]>(path(`/work${qs({ scope, status })}`)),
+    refetchInterval: 20_000,
+  });
+}
+
+export function useTasks(filter: { status?: string; agent?: string; limit?: number } = {}) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.tasks(company), "list", filter],
+    queryFn: () => api.get<TaskRow[]>(path(`/tasks${qs(filter)}`)),
+    refetchInterval: 20_000,
+  });
+}
+
+export function useTask(ref: string | undefined) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.tasks(company), ref],
+    queryFn: () => api.get<TaskDetail>(path(`/tasks/${encodeURIComponent(ref ?? "")}`)),
+    enabled: Boolean(ref),
+    refetchInterval: (query) => (["working"].includes(query.state.data?.task.status ?? "") ? 3_000 : 20_000),
+  });
+}
+
+export function useCosts(enabled = true) {
+  const { company, path } = useCompany();
+  return useQuery({ queryKey: [company, "costs"], queryFn: () => api.get<CostOverview>(path("/costs")), enabled });
 }

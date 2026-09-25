@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { activityLog, type DatabaseHandle } from "@enterprise-brain/db";
 
 export interface ActivityEntry {
@@ -31,6 +31,16 @@ export class ActivityService {
       .select()
       .from(activityLog)
       .where(eq(activityLog.companyId, companyId))
+      .orderBy(desc(activityLog.createdAt))
+      .limit(limit);
+  }
+
+  /** What happened to one thing, newest first: an AI employee's changes and coaching notes, for example. */
+  async forEntity(companyId: string, entityType: string, entityId: string, limit = 50) {
+    return this.handle.db
+      .select()
+      .from(activityLog)
+      .where(and(eq(activityLog.companyId, companyId), eq(activityLog.entityType, entityType), eq(activityLog.entityId, entityId)))
       .orderBy(desc(activityLog.createdAt))
       .limit(limit);
   }

@@ -47,7 +47,7 @@ Base URL: `http://localhost:3200` (configurable with `PORT` / `EB_PUBLIC_URL`).
 | POST | `/api/companies/:company/catalog/departments/:department/install` | `{ processes?: string[], activate?: boolean }` → `{ department, processes[], agents[] }` |
 | POST | `/api/companies/:company/catalog/agents/:template/install` | `{ activate?: boolean }` → agent row |
 | POST | `/api/companies/:company/catalog/use-cases/:useCase/install` | → `{ useCase, agent }` |
-| GET | `/api/companies/:company/departments` | Installed departments with `processes[]` and `agents[] {id, slug, name, status, archetype, processId, source}` |
+| GET | `/api/companies/:company/departments` | Installed departments with `visible`, `processes[]` and `agents[] {id, slug, name, status, archetype, processId, source}`. Everyone sees which departments exist; `agents` lists only those of departments the viewer works in (`visible: true`) |
 
 Template shapes are defined in `packages/core/src/catalog.ts` (`DepartmentTemplate`, `ProcessTemplate`, `AgentTemplate`, `UseCase`). A department has `id, name, icon, summary, mission, kpis[], roles[], systems[], processes[]`. A process has `id, department, name, summary, trigger {type, description}, frequency, steps[] {id, name, actor ("agent:…" | "human:…" | "system:…"), approval}, agents[], kpis[], integrations[], useCases[], value {hoursSavedPerMonth}, maturity`.
 
@@ -57,7 +57,7 @@ Template shapes are defined in `packages/core/src/catalog.ts` (`DepartmentTempla
 |---|---|---|
 | GET | `/api/companies/:company/agents?status=` | Agent rows `{ id, slug, name, summary, archetype, status (draft/testing/active/paused/archived), source (template/builder/manual), templateId, version, departmentId, processId, managerUserId, probation (shadow/supervised/trusted), limits, monthlyBudgetUsd, title, department, triggers, ui, steps, createdAt, updatedAt }`: the AI employees the viewer may see |
 | POST | `/api/companies/:company/agents` | `{ definition: AgentDefinition, status? }` |
-| GET | `/api/companies/:company/agents/:agent` | `{ agent, definition: AgentDefinition, versions[] {version, note, createdBy, createdAt}, recentRuns[], employment, canManage, managerCandidates[] {id, name, title} }` (`:agent` = slug or id). `employment`: `{ manager {id, name, email, title} \| null, probation, limits, monthlyBudgetUsd, costThisMonthUsd, stoppedByBudget, changesToday, duties[] {kind, text} }` |
+| GET | `/api/companies/:company/agents/:agent` | `{ agent, definition: AgentDefinition, versions[] {version, note, createdBy, createdAt}, recentRuns[], employment, canManage, managerCandidates[] {id, name, title}, activity[] {id, actor, action, summary, createdAt} }` (`:agent` = slug or id). `employment`: `{ manager {id, name, email, title} \| null, probation, limits, monthlyBudgetUsd, costThisMonthUsd, stoppedByBudget, changesToday, duties[] {kind, text} }`. `activity`: changes to it and coaching notes (`agent.coaching_note`: a correction before approving, a rejection with a reason, or a check marked wrong), newest first |
 | PUT | `/api/companies/:company/agents/:agent/employment` | A manager of its department (or an admin): `{ managerUserId?: uuid \| null, probation?: "shadow"\|"supervised"\|"trusted", limits?: { maxAmount?, currency?, maxActionsPerDay?, mailDomains?[] }, monthlyBudgetUsd?: number \| null }` → `{ agent, employment }`. The manager must manage its department or be an admin (400 otherwise) |
 | PUT | `/api/companies/:company/agents/:agent` | `{ definition, note? }` → new version |
 | POST | `/api/companies/:company/agents/:agent/status` | `{ status }` |
@@ -94,6 +94,13 @@ How tasks move:
 * A workflow's `wait` step (`{ type: "wait", for: "reply" | "time", days?, until? }`) holds the run (status `waiting`) until a reply arrives or the time passes; the step's result is `{ replied: true, reply: {from, subject, body, …} }` or `{ replied: false, timedOut: true }` (reply waits) and `{ waited: true }` (time waits), for the next steps' `when` conditions.
 * Autonomous AI employees plan with task tools: `task_note`, `task_wait_for_reply` (`days`), `task_follow_up` (`days` or `date`) and `task_complete` (`outcome`). When a run ends the task follows that plan, unless a person still has to decide on one of its changes (`needs_person`). Once everything is decided, a rejection wakes it to rethink; otherwise it follows the plan.
 * The scheduler wakes waiting tasks whose next check has come, every minute. A task that wakes continues from a brief of what happened so far and why it woke.
+
+## Home and costs
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/companies/:company/home` | `{ person {name, departments[], isManager}, aiEmployees[] {id, slug, name, title, department, departmentId, status, probation, today {started, done, open, needsPerson, failed}, costTodayUsd}, aiMailbox }`: the AI employees of the viewer's departments (and those they manage), most in need of a person first |
+| GET | `/api/companies/:company/costs` | Managers and admins: `{ month (YYYY-MM), totalUsd, aiEmployees[] {slug, name, department, manager, status, probation, costThisMonthUsd, monthlyBudgetUsd, stoppedByBudget} }` for the AI employees they manage |
 
 ## Work queue
 
@@ -180,8 +187,8 @@ A new email goes back to its task when it is a reply (the task's reference, or i
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/companies/:company/chat/conversations?agent=` | Conversations |
-| POST | `/api/companies/:company/chat/conversations` | `{ agent?, title? }` (no agent = company assistant) |
+| GET | `/api/companies/:company/chat/conversations?agent=` | The viewer's own conversations (a signed-in person sees only theirs) |
+| POST | `/api/companies/:company/chat/conversations` | `{ agent?, title? }` (no agent = company assistant). The conversation belongs to the person who starts it; people talk only to the AI employees of their departments (404 otherwise) |
 | GET | `/api/companies/:company/chat/conversations/:id/messages` | `{ id, role (user/assistant), content (markdown), citations[] {n, title, collection, documentId, snippet}, createdAt }` |
 | POST | `/api/companies/:company/chat/conversations/:id/messages` | `{ text }` → assistant message |
 | POST | `/api/companies/:company/chat/conversations/:id/messages/stream` | *SSE* `{ text }` → `delta` events, then `message` |

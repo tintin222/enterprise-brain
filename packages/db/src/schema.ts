@@ -596,6 +596,8 @@ export const chatConversations = pgTable(
     id: id(),
     companyId: companyId(),
     agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    /** The person who started it: conversations are private to them. Null in open mode and for machines. */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     title: text("title").notNull().default("New conversation"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

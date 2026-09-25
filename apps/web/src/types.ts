@@ -218,6 +218,8 @@ export interface AgentDetail {
   /** The viewer may change it (a manager of its department, or an admin). */
   canManage?: boolean;
   managerCandidates?: { id: string; name: string; title: string | null }[];
+  /** Changes to it and coaching notes from people, newest first. */
+  activity?: { id: string; actor: string; action: string; summary: string; createdAt: string }[];
 }
 
 /** How much an AI employee may do alone. */
@@ -814,6 +816,8 @@ export interface InstalledDepartment {
   icon: string | null;
   data: Partial<DepartmentTemplate>;
   createdAt?: string;
+  /** The viewer works there (or is an admin): its AI employees are listed. */
+  visible?: boolean;
   processes: ProcessRow[];
   agents: { id: string; slug: string; name: string; status: AgentStatus; archetype: Archetype; processId: string | null; source: AgentSource }[];
 }
@@ -1043,4 +1047,135 @@ export interface PaperclipConnection {
   paperclip: { url: string | null; configured: boolean; companyId: string | null; agentsWithKeys: number };
   /** EB_PAPERCLIP_AUTOCONNECT (the Docker bundle): Enterprise Brain connects itself to Paperclip on start. */
   autoConnect: { state: "off" | "waiting" | "connecting" | "connected" | "failed"; message: string; updatedAt: string };
+}
+
+// ---------------------------------------------------------------------------
+// Tasks, the work queue, Home
+// ---------------------------------------------------------------------------
+
+export type TaskStatus = "working" | "waiting" | "needs_person" | "paused" | "done" | "stopped" | "failed";
+
+export interface TaskRow {
+  id: string;
+  ref: string;
+  title: string;
+  status: TaskStatus;
+  source: string;
+  sourceRef: string | null;
+  requestedBy: string | null;
+  input: Record<string, unknown>;
+  waitingFor: { kind?: "reply" | "time"; since?: string; days?: number; note?: string; replyMessageId?: string; pausedFrom?: string } | null;
+  nextCheckAt: string | null;
+  outcome: string | null;
+  wakeups: number;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+  agent?: { id: string; slug: string; name: string; departmentId: string | null } | null;
+}
+
+export interface TaskEvent {
+  id: string;
+  type: string;
+  message: string;
+  actor: string;
+  runId: string | null;
+  data: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface TaskDetail {
+  task: TaskRow;
+  agent: { id: string; slug: string; name: string; departmentId: string | null; status: AgentStatus };
+  events: TaskEvent[];
+  runs: RunRow[];
+  mails: { id: string; direction: "inbound" | "outbound"; from: string; to: string[]; subject: string; body: string; receivedAt: string }[];
+  approvals: Approval[];
+  canManage: boolean;
+}
+
+export type WorkType = "approval" | "question" | "review" | "failure" | "notice";
+
+export interface WorkEntry {
+  type: WorkType;
+  id: string;
+  title: string;
+  details: string;
+  reason: string | null;
+  suggestion: string | null;
+  options: string[] | null;
+  action: ApprovalAction | null;
+  task: { id: string; ref: string; title: string; status: TaskStatus } | null;
+  agent: { id: string; slug: string; name: string } | null;
+  departmentId: string | null;
+  assignee: { id: string; name: string } | null;
+  forMe: boolean;
+  canHandle: boolean;
+  status: string;
+  resolvedBy: string | null;
+  createdAt: string;
+}
+
+export interface HomeData {
+  person: { name: string; departments: string[]; isManager: boolean };
+  aiEmployees: {
+    id: string;
+    slug: string;
+    name: string;
+    title: string | null;
+    department: string | null;
+    departmentId: string | null;
+    status: AgentStatus;
+    probation: Probation;
+    today: { started: number; done: number; open: number; needsPerson: number; failed: number };
+    costTodayUsd: number;
+  }[];
+  aiMailbox: string | null;
+}
+
+export interface CostOverview {
+  month: string;
+  totalUsd: number;
+  aiEmployees: {
+    slug: string;
+    name: string;
+    department: string | null;
+    manager: string | null;
+    status: AgentStatus;
+    probation: Probation;
+    costThisMonthUsd: number;
+    monthlyBudgetUsd: number | null;
+    stoppedByBudget: boolean;
+  }[];
+}
+
+export interface ActionParam {
+  key: string;
+  type: "string" | "number" | "integer" | "boolean" | "date";
+  description?: string;
+  required: boolean;
+}
+
+export interface NamedAction {
+  id: string;
+  name: string;
+  description: string;
+  kind: "read" | "write";
+  requiresApproval?: boolean;
+  params: ActionParam[];
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  path?: string;
+  query?: Record<string, string>;
+  body?: unknown;
+  sql?: string;
+  watch?: { cursorField: string; idField?: string; start?: string };
+}
+
+export interface WatcherStatus {
+  connection: string;
+  connectionId: string;
+  watching: string;
+  lastPolledAt: string | null;
+  lastCount: number;
+  lastError: string | null;
 }

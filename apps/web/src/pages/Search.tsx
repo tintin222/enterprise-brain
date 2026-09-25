@@ -135,7 +135,9 @@ export default function Search() {
     <Page className="max-w-5xl">
       <div className="mx-auto max-w-3xl pt-2 pb-8 text-center">
         <h1 className="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">Search the company</h1>
-        <p className="mt-2 text-sm text-muted">Policies, procedures and documents in the knowledge base — plus agents and templates that can do the job.</p>
+        <p className="mt-2 text-sm text-muted">
+          Policies, procedures and documents in the knowledge base — plus AI employees, working or ready-made, that can do the job.
+        </p>
         <form onSubmit={submit} className="relative mt-6">
           <SearchIcon className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-faint" />
           <input
@@ -193,7 +195,7 @@ export default function Search() {
                 title="Nothing in the knowledge base"
                 description="Try other words, or add the document to a collection."
                 action={
-                  <Link to="/knowledge" className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-300">
+                  <Link to="/settings/knowledge" className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-300">
                     Open the knowledge base
                   </Link>
                 }
@@ -204,7 +206,7 @@ export default function Search() {
                 <Card key={h.chunkId} className="p-4 transition-colors hover:border-brand-300 dark:hover:border-brand-400/40">
                   <div className="flex flex-wrap items-center gap-2">
                     <Link
-                      to={`/knowledge?collection=${encodeURIComponent(h.collectionKey)}&doc=${encodeURIComponent(h.documentId)}`}
+                      to={`/settings/knowledge?collection=${encodeURIComponent(h.collectionKey)}&doc=${encodeURIComponent(h.documentId)}`}
                       className="text-[15px] font-semibold text-brand-700 hover:underline dark:text-brand-300"
                     >
                       {h.title}
@@ -228,12 +230,12 @@ export default function Search() {
           </section>
 
           <aside className="space-y-8">
-            <section aria-label="Agents">
+            <section aria-label="AI employees">
               <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-fg">
                 <Bot className="size-4 text-muted" /> Your agents
               </h2>
               {agentHits.length === 0 ? (
-                <p className="text-sm text-muted">No installed agent matches.</p>
+                <p className="text-sm text-muted">No AI employee matches.</p>
               ) : (
                 <ul className="space-y-2">
                   {agentHits.map((a) => {
@@ -286,10 +288,10 @@ export default function Search() {
               </ul>
               {q && (
                 <Link
-                  to={`/builder/new`}
+                  to={`/hire/studio/new`}
                   className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
                 >
-                  Nothing fits? Build an agent <ArrowRight className="size-3" />
+                  Nothing fits? Hire one in the Studio <ArrowRight className="size-3" />
                 </Link>
               )}
             </section>

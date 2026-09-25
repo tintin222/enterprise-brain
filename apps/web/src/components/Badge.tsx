@@ -75,7 +75,7 @@ interface StatusMeta {
 const STATUS: Record<string, StatusMeta> = {
   // agents
   draft: { tone: "neutral", label: "Draft" },
-  testing: { tone: "amber", label: "Testing" },
+  testing: { tone: "amber", label: "On trial" },
   active: { tone: "green", label: "Active" },
   paused: { tone: "neutral", label: "Paused" },
   archived: { tone: "neutral", label: "Archived" },
@@ -87,6 +87,17 @@ const STATUS: Record<string, StatusMeta> = {
   succeeded: { tone: "green", label: "Succeeded" },
   failed: { tone: "red", label: "Failed" },
   cancelled: { tone: "neutral", label: "Cancelled" },
+  // tasks
+  working: { tone: "blue", label: "Working", pulse: true },
+  needs_person: { tone: "amber", label: "Needs a person" },
+  done: { tone: "green", label: "Done" },
+  stopped: { tone: "neutral", label: "Stopped" },
+  dismissed: { tone: "neutral", label: "Dismissed" },
+  open: { tone: "amber", label: "Open" },
+  // probation levels
+  shadow: { tone: "violet", label: "Shadow" },
+  supervised: { tone: "amber", label: "Supervised" },
+  trusted: { tone: "green", label: "Trusted" },
   // builder sessions
   interviewing: { tone: "brand", label: "Interviewing" },
   "awaiting-stakeholders": { tone: "amber", label: "Waiting on others" },

@@ -44,7 +44,7 @@ export default function Activity() {
     if (a.entityType === "run") return `/runs/${a.entityId}`;
     if (a.entityType === "agent") {
       const slug = agents.data?.find((x) => x.id === a.entityId)?.slug;
-      return slug ? `/agents/${slug}` : null;
+      return slug ? `/ai/${slug}` : null;
     }
     if (a.entityType === "approval") return "/approvals";
     if (a.entityType === "connector") return "/connectors";
@@ -55,7 +55,7 @@ export default function Activity() {
 
   return (
     <Page>
-      <PageHeader icon={ScrollText} title="Activity" description="The audit log: who did what, when — people, agents, stakeholders and the system." />
+      <PageHeader icon={ScrollText} title="Audit log" description="Who did what, and when: people, AI employees and the system." />
       <Card className="overflow-hidden">
         <div className="flex flex-col gap-2 border-b border-line p-4 sm:flex-row sm:items-center">
           <div className="relative flex-1 sm:max-w-xs">

@@ -36,7 +36,7 @@ function Departments({ catalog }: { catalog: CatalogResponse }) {
         return (
           <Link
             key={d.id}
-            to={`/catalog/departments/${d.id}`}
+            to={`/hire/ready-made/${d.id}`}
             className="group flex flex-col rounded-xl border border-line bg-surface p-5 shadow-xs transition-colors hover:border-brand-300 dark:hover:border-brand-400/40"
           >
             <div className="flex items-start justify-between gap-3">
@@ -56,7 +56,7 @@ function Departments({ catalog }: { catalog: CatalogResponse }) {
                 <Workflow className="size-3.5" /> {processes.length || d.processes.length} processes
               </span>
               <span className="flex items-center gap-1">
-                <Bot className="size-3.5" /> {agents.length} agents
+                <Bot className="size-3.5" /> {agents.length} AI employees
               </span>
               {hours > 0 && <span className="text-emerald-700 dark:text-emerald-300">~{hours} h/month saved</span>}
               <ArrowRight className="ml-auto size-4 text-faint transition-transform group-hover:translate-x-0.5" />
@@ -87,7 +87,13 @@ function AgentTemplates({ catalog, installed, onOpen }: { catalog: CatalogRespon
       <div className="mb-4 flex flex-col gap-2 sm:flex-row">
         <div className="relative flex-1 sm:max-w-xs">
           <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-faint" />
-          <input className="input pl-9" placeholder="Search templates" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search templates" />
+          <input
+            className="input pl-9"
+            placeholder="Search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="Search ready-made AI employees"
+          />
         </div>
         <select className="input w-auto" value={department} onChange={(e) => setDepartment(e.target.value)} aria-label="Department">
           <option value="">All departments</option>
@@ -106,7 +112,7 @@ function AgentTemplates({ catalog, installed, onOpen }: { catalog: CatalogRespon
           ))}
         </select>
       </div>
-      {list.length === 0 && <p className="py-10 text-center text-sm text-muted">No templates match.</p>}
+      {list.length === 0 && <p className="py-10 text-center text-sm text-muted">Nothing matches.</p>}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
         {list.map((a) => {
           const Icon = archetypeIcon(a.archetype);
@@ -243,8 +249,8 @@ export default function Catalog() {
     <Page>
       <PageHeader
         icon={LibraryBig}
-        title="Catalog"
-        description="Ready-made operating models: departments with their processes, human roles and systems, predefined agents and the default use cases. Install as-is or customise with the Agent Builder."
+        title="Ready-made AI employees"
+        description="Ready-made AI employees and departments, with their processes, roles and systems. Hire one as it is, or adapt it in the Studio."
       />
       <Tabs<Tab>
         className="mb-6"
@@ -252,7 +258,7 @@ export default function Catalog() {
         onChange={(t) => update({ tab: t === "departments" ? null : t })}
         tabs={[
           { id: "departments", label: "Departments", count: catalog.data?.departments.length },
-          { id: "agents", label: "Agent templates", count: catalog.data?.agents.length },
+          { id: "agents", label: "AI employees", count: catalog.data?.agents.length },
           { id: "usecases", label: "Use cases", count: catalog.data?.useCases.length },
         ]}
       />

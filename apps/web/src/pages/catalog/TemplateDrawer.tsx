@@ -54,7 +54,7 @@ export function useInstallTemplate() {
       void queryClient.invalidateQueries({ queryKey: keys.agents(company) });
       void queryClient.invalidateQueries({ queryKey: keys.departments(company) });
       void queryClient.invalidateQueries({ queryKey: keys.dashboard(company) });
-      toast.success(`${row.name} installed`, { link: { to: `/agents/${row.slug}`, label: "Open agent" } });
+      toast.success(`${row.name} hired`, { link: { to: `/ai/${row.slug}`, label: "Open its page" } });
     },
     onError: (e) => toast.error(e),
   });
@@ -79,7 +79,7 @@ export function TemplateDrawer({ id, onClose }: { id: string | null; onClose: ()
       open={Boolean(id)}
       onClose={onClose}
       width="lg"
-      title={t?.name ?? "Agent template"}
+      title={t?.name ?? "Ready-made AI employee"}
       description={
         t ? (
           <span className="flex flex-wrap items-center gap-1.5">
@@ -93,7 +93,7 @@ export function TemplateDrawer({ id, onClose }: { id: string | null; onClose: ()
         t ? (
           <>
             {installed ? (
-              <ButtonLink to={`/agents/${installed.slug}`} icon={ExternalLink}>
+              <ButtonLink to={`/ai/${installed.slug}`} icon={ExternalLink}>
                 Installed — open agent
               </ButtonLink>
             ) : (
@@ -101,8 +101,8 @@ export function TemplateDrawer({ id, onClose }: { id: string | null; onClose: ()
                 <Checkbox checked={activate} onChange={setActivate} label="Activate after install" />
               </div>
             )}
-            <ButtonLink to={`/builder/new?template=${encodeURIComponent(t.id)}`} icon={Sparkles}>
-              Customize with the Agent Builder
+            <ButtonLink to={`/hire/studio/new?template=${encodeURIComponent(t.id)}`} icon={Sparkles}>
+              Adapt it in the Studio
             </ButtonLink>
             {!installed && (
               <Button variant="primary" icon={Download} loading={install.isPending} onClick={() => install.mutate({ id: t.id, activate })}>

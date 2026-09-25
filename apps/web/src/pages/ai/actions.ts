@@ -11,6 +11,7 @@ export function useAgentMutations() {
   const toast = useToast();
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: keys.agents(company) });
+    void queryClient.invalidateQueries({ queryKey: keys.home(company) });
     void queryClient.invalidateQueries({ queryKey: keys.dashboard(company) });
     void queryClient.invalidateQueries({ queryKey: keys.departments(company) });
   };
@@ -19,7 +20,13 @@ export function useAgentMutations() {
     mutationFn: ({ slug, status }: { slug: string; status: AgentStatus }) => api.post<AgentRow>(path(`/agents/${encodeURIComponent(slug)}/status`), { status }),
     onSuccess: (row) => {
       invalidate();
-      toast.success(`${row.name} is now ${row.status}`);
+      toast.success(
+        row.status === "active"
+          ? `${row.name} is at work`
+          : row.status === "paused"
+            ? `${row.name} is paused: its duties wait until you put it back to work`
+            : `${row.name} is now ${row.status}`,
+      );
     },
     onError: (error) => toast.error(error),
   });
@@ -48,7 +55,7 @@ export function useAgentMutations() {
     mutationFn: (slug: string) => api.del<{ ok: boolean }>(path(`/agents/${encodeURIComponent(slug)}`)),
     onSuccess: () => {
       invalidate();
-      toast.success("Agent deleted");
+      toast.success("Let go");
     },
     onError: (error) => toast.error(error),
   });

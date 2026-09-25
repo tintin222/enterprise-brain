@@ -8,7 +8,7 @@ import { useCompany } from "../lib/company.tsx";
 import { formatDateTime, timeAgo } from "../lib/format.ts";
 import { keys, useAgents } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
-import type { Approval } from "../types.ts";
+import type { Approval, ApprovalAction } from "../types.ts";
 import { Badge, StatusPill } from "./Badge.tsx";
 import { Button } from "./Button.tsx";
 import { JsonDetails } from "./JsonView.tsx";
@@ -37,8 +37,7 @@ export function useDecideApproval() {
 }
 
 /** What happens when the approval is granted: a system write, an outgoing email, or a plain decision. */
-export function ActionPreview({ approval }: { approval: Approval }) {
-  const action = approval.action;
+export function ActionPreview({ action }: { action: ApprovalAction }) {
   if (action.type === "mail.send") {
     return (
       <div className="overflow-hidden rounded-lg border border-line">
@@ -137,7 +136,7 @@ export function ApprovalCard({ approval, showAgent = true, className }: { approv
             {approval.details}
           </Markdown>
         )}
-        <ActionPreview approval={approval} />
+        <ActionPreview action={approval.action} />
         {!pending && (
           <p className="text-xs text-muted">
             {approval.status === "approved" ? "Approved" : approval.status === "rejected" ? "Rejected" : "Closed"}
