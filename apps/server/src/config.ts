@@ -12,6 +12,27 @@ function keyFile(path: string): string {
   return key;
 }
 
+/** A Microsoft Entra ID or Google Workspace sign-in (OpenID Connect) set in the environment. */
+export interface OidcProviderEnv {
+  id: "microsoft" | "google";
+  clientId: string;
+  clientSecret: string;
+  /** Microsoft: the organisation's tenant id or primary domain (required: Microsoft sign-in is off without it). */
+  tenant?: string;
+  /** Google: only accounts of this Workspace domain. */
+  hostedDomain?: string;
+}
+
+export interface AuthConfig {
+  /**
+   * "accounts" (default): people sign in, and see what their role and departments allow.
+   * "open": no sign-in, everyone acts as the owner (local trials and tests).
+   */
+  mode: "accounts" | "open";
+  sessionHours: number;
+  providers: OidcProviderEnv[];
+}
+
 export interface ServerConfig {
   port: number;
   host: string;
@@ -30,6 +51,8 @@ export interface ServerConfig {
   defaultCompany: { slug: string; name: string; mailDomain?: string };
   seedDemo: boolean;
   webDist?: string;
+  /** Sign-in. Omitted = "open" (tests). */
+  auth?: AuthConfig;
   paperclip?: {
     url: string;
     apiKey?: string;
@@ -80,5 +103,31 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
         }
       : undefined,
     schedulerEnabled: env.EB_SCHEDULER !== "false",
+    auth: {
+      mode: env.EB_AUTH === "open" ? "open" : "accounts",
+      sessionHours: Number(env.EB_SESSION_HOURS ?? 12) || 12,
+      providers: [
+        ...(env.EB_AUTH_MICROSOFT_CLIENT_ID && env.EB_AUTH_MICROSOFT_CLIENT_SECRET
+          ? [
+              {
+                id: "microsoft" as const,
+                clientId: env.EB_AUTH_MICROSOFT_CLIENT_ID,
+                clientSecret: env.EB_AUTH_MICROSOFT_CLIENT_SECRET,
+                tenant: env.EB_AUTH_MICROSOFT_TENANT || undefined,
+              },
+            ]
+          : []),
+        ...(env.EB_AUTH_GOOGLE_CLIENT_ID && env.EB_AUTH_GOOGLE_CLIENT_SECRET
+          ? [
+              {
+                id: "google" as const,
+                clientId: env.EB_AUTH_GOOGLE_CLIENT_ID,
+                clientSecret: env.EB_AUTH_GOOGLE_CLIENT_SECRET,
+                hostedDomain: env.EB_AUTH_GOOGLE_HOSTED_DOMAIN || undefined,
+              },
+            ]
+          : []),
+      ],
+    },
   };
 }

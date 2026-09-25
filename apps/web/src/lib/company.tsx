@@ -64,7 +64,11 @@ export function CompanyProvider({ children }: { children: ReactNode }) {
 
   if (info.isLoading) return <Splash />;
   if (info.error || !value) return <ServerDown error={info.error} onRetry={() => void info.refetch()} />;
-  if (needsKey || isApiError(companies.error, 401)) return <ApiKeyGate invalid={isApiError(companies.error, 401) && Boolean(getApiKey())} />;
+  if (needsKey || isApiError(companies.error, 401)) {
+    // With accounts, a 401 means the session ended: the sign-in gate takes over.
+    if (info.data?.auth?.mode === "accounts") return <Splash />;
+    return <ApiKeyGate invalid={isApiError(companies.error, 401) && Boolean(getApiKey())} />;
+  }
   return <CompanyContext.Provider value={value}>{children}</CompanyContext.Provider>;
 }
 
@@ -74,7 +78,7 @@ export function useCompany(): CompanyContextValue {
   return ctx;
 }
 
-function Splash() {
+export function Splash() {
   return (
     <div className="flex min-h-screen items-center justify-center">
       <div className="flex flex-col items-center gap-4 text-muted">

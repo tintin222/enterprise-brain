@@ -14,6 +14,7 @@ import { ConnectorService } from "./connectors.ts";
 import { RunEngine } from "./engine.ts";
 import { FileService } from "./files.ts";
 import { MailService } from "./mail.ts";
+import { PeopleService } from "./people.ts";
 import { SecretBox } from "./secrets.ts";
 import { TriggerService } from "./triggers.ts";
 
@@ -46,6 +47,7 @@ export class Platform {
   readonly chat: ChatService;
   readonly catalog: CatalogService;
   readonly triggers: TriggerService;
+  readonly people: PeopleService;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -54,6 +56,7 @@ export class Platform {
     this.embedder = options.embedder;
     this.secretBox = options.secretBox;
     this.activity = new ActivityService(this.handle);
+    this.people = new PeopleService(this.handle);
     this.files = new FileService(this.handle, join(options.dataDir, "files"));
     this.connectors = new ConnectorService(this.handle, options.registry ?? createDefaultRegistry(), this.secretBox);
     this.knowledge = new KnowledgeService(this.handle, this.embedder);

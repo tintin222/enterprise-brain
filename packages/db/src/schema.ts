@@ -56,6 +56,67 @@ export const departments = pgTable(
   (t) => [uniqueIndex("departments_company_key").on(t.companyId, t.key)],
 );
 
+/**
+ * People who use the product. "admin" runs the installation (usually IT); everyone else is a
+ * "member" whose rights come from their departments (manager or worker).
+ */
+export const users = pgTable(
+  "users",
+  {
+    id: id(),
+    companyId: companyId(),
+    /** Lower-case; the sign-in identity for passwords, Microsoft and Google alike. */
+    email: text("email").notNull(),
+    name: text("name").notNull(),
+    title: text("title"),
+    role: text("role").notNull().default("member"),
+    status: text("status").notNull().default("active"),
+    /** scrypt hash; null for people who only sign in with Microsoft or Google. */
+    passwordHash: text("password_hash"),
+    /** The identity provider of the last sign-in ("password", "microsoft", "google", "demo") and its subject id. */
+    authProvider: text("auth_provider"),
+    externalId: text("external_id"),
+    lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("users_company_email").on(t.companyId, t.email)],
+);
+
+/** Who works in which department, as its manager or as a worker. */
+export const departmentMembers = pgTable(
+  "department_members",
+  {
+    id: id(),
+    companyId: companyId(),
+    departmentId: uuid("department_id")
+      .notNull()
+      .references(() => departments.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("worker"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("department_members_department_user").on(t.departmentId, t.userId), index("department_members_user").on(t.userId)],
+);
+
+/** Browser sessions. The id is the SHA-256 of the cookie's token, so a leaked table can't be replayed. */
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    companyId: companyId(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: createdAt(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("sessions_user").on(t.userId)],
+);
+
 export const processes = pgTable(
   "processes",
   {

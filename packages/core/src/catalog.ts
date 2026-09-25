@@ -62,6 +62,8 @@ export const DepartmentTemplate = z.object({
     .default([]),
   processes: z.array(z.string()).default([]),
   tags: z.array(z.string()).default([]),
+  /** Its AI employees serve the whole company (e.g. the company assistant): everyone may use them. */
+  openToEveryone: z.boolean().default(false),
 });
 export type DepartmentTemplate = z.infer<typeof DepartmentTemplate>;
 

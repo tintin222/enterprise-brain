@@ -5,6 +5,8 @@ import type { FastifyInstance } from "fastify";
 import { BuilderService } from "@enterprise-brain/builder";
 import { LocalHashEmbedder, UnavailableLlm, type LlmClient } from "@enterprise-brain/llm";
 import { Platform } from "@enterprise-brain/runtime";
+import { AuthService } from "../src/auth/service.ts";
+import type { OidcProvider } from "../src/auth/oidc.ts";
 import type { ServerConfig } from "../src/config.ts";
 import { seedDemo } from "../src/seed.ts";
 import { buildServer } from "../src/server.ts";
@@ -18,7 +20,9 @@ export interface TestApp {
   close(): Promise<void>;
 }
 
-export async function createTestApp(options: { llm?: LlmClient; seed?: boolean; config?: Partial<ServerConfig> } = {}): Promise<TestApp> {
+export async function createTestApp(
+  options: { llm?: LlmClient; seed?: boolean; config?: Partial<ServerConfig>; oidcProviders?: OidcProvider[] } = {},
+): Promise<TestApp> {
   const dataDir = mkdtempSync(join(tmpdir(), "eb-test-"));
   const platform = await Platform.create({ dataDir, inMemory: true, llm: options.llm ?? new UnavailableLlm(), embedder: new LocalHashEmbedder(), env: {} });
   const company = await platform.ensureCompany({ slug: "acme", name: "Acme Endüstri A.Ş.", settings: { mailDomain: "acme.com.tr" } });
@@ -34,7 +38,8 @@ export async function createTestApp(options: { llm?: LlmClient; seed?: boolean; 
     ...options.config,
   };
   const builder = new BuilderService(platform, { publicBaseUrl: config.publicUrl });
-  const app = await buildServer({ platform, builder, config });
+  const auth = new AuthService(platform, config, { extraProviders: options.oidcProviders });
+  const app = await buildServer({ platform, builder, config, auth });
   return {
     app,
     platform,

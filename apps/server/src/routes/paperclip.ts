@@ -4,6 +4,7 @@ import JSZip from "jszip";
 import { z } from "zod";
 import { approvals, runs } from "@enterprise-brain/db";
 import { hermesRunBody, parseHermesRunRequest, toHermesStatus, type EbRunSnapshot } from "@enterprise-brain/paperclip";
+import { requireAdmin } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, bearer, companyOf, sse } from "../http.ts";
 import { PaperclipBridge } from "../paperclip-bridge.ts";
@@ -32,6 +33,7 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get("/api/companies/:company/paperclip/package", async (request) => {
     const company = await companyOf(platform, request);
+    requireAdmin(request);
     const q = PackageQuery.parse(request.query);
     const model = await packageModel(ctx, company, q.scope, q.departments?.split(",").filter(Boolean));
     return buildPackage(ctx, company, model, q.ceo === "true");
@@ -39,6 +41,7 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get("/api/companies/:company/paperclip/package.zip", async (request, reply) => {
     const company = await companyOf(platform, request);
+    requireAdmin(request);
     const q = PackageQuery.parse(request.query);
     const model = await packageModel(ctx, company, q.scope, q.departments?.split(",").filter(Boolean));
     const result = buildPackage(ctx, company, model, q.ceo === "true");
@@ -53,6 +56,7 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Import the package into a Paperclip instance, wiring the hermes_gateway API key via adapterOverrides. */
   app.post("/api/companies/:company/paperclip/push", async (request) => {
     const company = await companyOf(platform, request);
+    requireAdmin(request);
     const body = z
       .object({
         paperclipUrl: z.string().url().optional(),
@@ -77,6 +81,7 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
   /** What Paperclip needs to call Enterprise Brain, and what is known about the linked Paperclip company. */
   app.get("/api/companies/:company/paperclip/connection", async (request) => {
     const company = await companyOf(platform, request);
+    requireAdmin(request);
     const link = await bridge.link(company.id);
     return {
       hermes: { apiBaseUrl: `${config.publicUrl}/api/hermes`, apiKey: config.hermesApiKey ?? null, keySource: config.hermesApiKeySource ?? null },

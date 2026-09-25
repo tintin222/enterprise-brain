@@ -25,6 +25,11 @@ export function setApiKey(key: string | null): void {
   }
 }
 
+/** The server's answer when a request needs a signed-in person. */
+const SIGN_IN_ERROR = "Sign in to continue";
+/** Fired on window when the server stops accepting this browser's session. */
+export const SIGNED_OUT_EVENT = "eb:signed-out";
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -78,6 +83,8 @@ async function toError(response: Response): Promise<ApiError> {
     // ignore unreadable bodies
   }
   if (response.status === 401 && message.startsWith("401")) message = "Missing or invalid API key";
+  // The session ended (expired, signed out in another tab, account disabled): show sign-in.
+  if (response.status === 401 && message === SIGN_IN_ERROR) window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
   return new ApiError(message, response.status, issues);
 }
 

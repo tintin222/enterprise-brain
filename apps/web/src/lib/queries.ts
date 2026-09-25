@@ -11,6 +11,7 @@ import type {
   InstalledDepartment,
   KnowledgeCollection,
   Mailbox,
+  Person,
   RunRow,
   SessionView,
   StoredFile,
@@ -36,6 +37,7 @@ export const keys = {
   chat: (company: string) => [company, "chat"] as const,
   files: (company: string) => [company, "files"] as const,
   activity: (company: string) => [company, "activity"] as const,
+  people: (company: string) => [company, "people"] as const,
 };
 
 export function useCatalog() {
@@ -109,6 +111,11 @@ export function useBuilderSession(id: string | undefined) {
 export function useDepartments() {
   const { company, path } = useCompany();
   return useQuery({ queryKey: keys.departments(company), queryFn: () => api.get<InstalledDepartment[]>(path("/departments")) });
+}
+
+export function usePeople() {
+  const { company, path } = useCompany();
+  return useQuery({ queryKey: keys.people(company), queryFn: () => api.get<Person[]>(path("/people")) });
 }
 
 export function useCollections() {

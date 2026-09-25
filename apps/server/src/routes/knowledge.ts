@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { humanizeKey, slugify } from "@enterprise-brain/core";
 import { extractDocument } from "@enterprise-brain/documents";
+import { requireAnyManager } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf, readMultipart } from "../http.ts";
 
@@ -15,12 +16,14 @@ export async function knowledgeRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post("/api/companies/:company/knowledge/collections", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const body = z.object({ name: z.string().min(1), key: z.string().optional(), description: z.string().optional() }).parse(request.body);
     return platform.knowledge.ensureCollection(company.id, { key: body.key ?? slugify(body.name), name: body.name, description: body.description });
   });
 
   app.delete("/api/companies/:company/knowledge/collections/:collection", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { collection } = request.params as { collection: string };
     await platform.knowledge.deleteCollection(company.id, collection);
     return { ok: true };
@@ -35,6 +38,7 @@ export async function knowledgeRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Add documents: multipart files (+ `collection` field) or JSON {collection, title, text}. */
   app.post("/api/companies/:company/knowledge/documents", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     if (request.isMultipart()) {
       const { fields, files } = await readMultipart(platform, company.id, request, "knowledge");
       const collection = fields.collection || "general";
@@ -72,6 +76,7 @@ export async function knowledgeRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.delete("/api/companies/:company/knowledge/documents/:document", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { document } = request.params as { document: string };
     await platform.knowledge.deleteDocument(company.id, document);
     return { ok: true };

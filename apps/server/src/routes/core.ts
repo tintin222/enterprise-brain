@@ -3,7 +3,8 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { agents, approvals, builderSessions, departments, knowledgeDocuments, runs } from "@enterprise-brain/db";
 import type { AppContext } from "../context.ts";
-import { companyOf } from "../http.ts";
+import { requireAdmin, viewerOf } from "../auth/viewer.ts";
+import { HttpError, companyOf } from "../http.ts";
 
 export const VERSION = "0.1.0";
 
@@ -20,13 +21,20 @@ export async function coreRoutes(app: FastifyInstance, ctx: AppContext) {
     database: platform.handle.kind,
     defaultCompany: config.defaultCompany.slug,
     publicUrl: config.publicUrl,
-    authRequired: Boolean(config.apiKey),
+    /** Legacy: open mode protected by EB_API_KEY (the console asks for the key). */
+    authRequired: Boolean(config.apiKey) && (config.auth?.mode ?? "open") === "open",
+    auth: { mode: config.auth?.mode ?? "open" },
     paperclip: { configured: Boolean(config.paperclip), url: config.paperclip?.url ?? null },
   }));
 
-  app.get("/api/companies", async () => platform.companies());
+  app.get("/api/companies", async (request) => {
+    const viewer = viewerOf(request);
+    const all = await platform.companies();
+    return viewer.companyId ? all.filter((c) => c.id === viewer.companyId) : all;
+  });
 
   app.post("/api/companies", async (request) => {
+    if (viewerOf(request).kind === "session") throw new HttpError(403, "Each installation holds one company");
     const body = z
       .object({ name: z.string().min(1), slug: z.string().regex(/^[a-z0-9-]+$/), mailDomain: z.string().regex(/^[a-z0-9-]+(\.[a-z0-9-]+)+$/i).optional() })
       .parse(request.body);
@@ -87,6 +95,7 @@ export async function coreRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get("/api/companies/:company/activity", async (request) => {
     const company = await companyOf(platform, request);
+    requireAdmin(request);
     const { limit } = z.object({ limit: z.coerce.number().int().positive().max(500).default(100) }).parse(request.query);
     return platform.activity.list(company.id, limit);
   });

@@ -1,6 +1,7 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AgentStatus, type AgentDefinition } from "@enterprise-brain/core";
+import { canManageDepartment, canSeeDepartment, requireAdmin, viewerOf } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf, readMultipart, sse } from "../http.ts";
 
@@ -49,10 +50,26 @@ const RUN_STATUS_AFTER: Record<string, string> = {
 export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
   const { platform } = ctx;
 
+  /** An AI employee the viewer may see (404 otherwise), or manage (403 otherwise). */
+  const agentFor = async (request: FastifyRequest, companyId: string, ref: string, manage = false) => {
+    const agent = await platform.agents.get(companyId, ref);
+    const viewer = viewerOf(request);
+    if (!canSeeDepartment(viewer, agent.row.departmentId)) throw new HttpError(404, `Agent "${ref}" not found`);
+    if (manage && !canManageDepartment(viewer, agent.row.departmentId)) throw new HttpError(403, "Only a manager of this department can change this AI employee");
+    return agent;
+  };
+  /** The AI employees the viewer may see, by id. */
+  const visibleAgents = async (request: FastifyRequest, companyId: string) => {
+    const viewer = viewerOf(request);
+    const list = await platform.agents.list(companyId);
+    return new Map(list.filter((a) => canSeeDepartment(viewer, a.row.departmentId)).map((a) => [a.row.id, a]));
+  };
+
   app.get("/api/companies/:company/agents", async (request) => {
     const company = await companyOf(platform, request);
     const { status } = z.object({ status: z.string().optional() }).parse(request.query);
-    const list = await platform.agents.list(company.id, { status });
+    const viewer = viewerOf(request);
+    const list = (await platform.agents.list(company.id, { status })).filter((a) => canSeeDepartment(viewer, a.row.departmentId));
     return list.map((a) => ({
       ...a.row,
       definition: undefined,
@@ -66,6 +83,7 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.post("/api/companies/:company/agents", async (request) => {
     const company = await companyOf(platform, request);
+    requireAdmin(request);
     const body = z.object({ definition: z.record(z.string(), z.unknown()), status: AgentStatus.optional() }).parse(request.body);
     const agent = await platform.agents.create(company.id, { definition: body.definition as never, status: body.status, source: "manual", createdBy: "user" });
     return agent.row;
@@ -74,7 +92,7 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get("/api/companies/:company/agents/:agent", async (request) => {
     const company = await companyOf(platform, request);
     const { agent: ref } = request.params as { agent: string };
-    const agent = await platform.agents.get(company.id, ref);
+    const agent = await agentFor(request, company.id, ref);
     const [versions, recentRuns] = await Promise.all([
       platform.agents.versions(company.id, ref),
       platform.engine.list(company.id, { agentId: agent.row.id, limit: 20 }),
@@ -91,6 +109,7 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     const company = await companyOf(platform, request);
     const { agent: ref } = request.params as { agent: string };
     const body = z.object({ definition: z.record(z.string(), z.unknown()), note: z.string().optional() }).parse(request.body);
+    await agentFor(request, company.id, ref, true);
     const agent = await platform.agents.update(company.id, ref, body.definition as never, { note: body.note, createdBy: "user" });
     await platform.activity.record(company.id, { actor: "user", action: "agent.updated", entityType: "agent", entityId: agent.row.id, summary: `Updated ${agent.definition.name} (v${agent.row.version})` });
     return { agent: agent.row, definition: agent.definition };
@@ -100,6 +119,7 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     const company = await companyOf(platform, request);
     const { agent: ref } = request.params as { agent: string };
     const { status } = z.object({ status: AgentStatus }).parse(request.body);
+    await agentFor(request, company.id, ref, true);
     const agent = await platform.agents.setStatus(company.id, ref, status);
     await platform.activity.record(company.id, { actor: "user", action: `agent.${status}`, entityType: "agent", entityId: agent.row.id, summary: `${agent.definition.name} → ${status}` });
     return agent.row;
@@ -109,6 +129,7 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     const company = await companyOf(platform, request);
     const { agent: ref } = request.params as { agent: string };
     const { version } = z.object({ version: z.number().int().positive() }).parse(request.body);
+    await agentFor(request, company.id, ref, true);
     const agent = await platform.agents.rollback(company.id, ref, version);
     return { agent: agent.row, definition: agent.definition };
   });
@@ -116,6 +137,7 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
   app.delete("/api/companies/:company/agents/:agent", async (request) => {
     const company = await companyOf(platform, request);
     const { agent: ref } = request.params as { agent: string };
+    await agentFor(request, company.id, ref, true);
     await platform.agents.remove(company.id, ref);
     return { ok: true };
   });
@@ -124,7 +146,7 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
   app.post("/api/companies/:company/agents/:agent/runs", async (request) => {
     const company = await companyOf(platform, request);
     const { agent: ref } = request.params as { agent: string };
-    const agent = await platform.agents.get(company.id, ref);
+    const agent = await agentFor(request, company.id, ref);
     let input: Record<string, unknown>;
     let wait = true;
     let isTest = false;
@@ -161,23 +183,25 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     const query = z
       .object({ agent: z.string().optional(), status: z.string().optional(), limit: z.coerce.number().int().positive().max(200).default(50) })
       .parse(request.query);
-    const agentId = query.agent ? (await platform.agents.get(company.id, query.agent)).row.id : undefined;
-    const list = await platform.engine.list(company.id, { agentId, status: query.status as never, limit: query.limit });
-    const names = new Map((await platform.agents.list(company.id)).map((a) => [a.row.id, { name: a.row.name, slug: a.row.slug }]));
-    return list.map((r) => ({ ...r, context: undefined, agentName: names.get(r.agentId)?.name, agentSlug: names.get(r.agentId)?.slug }));
+    const agentId = query.agent ? (await agentFor(request, company.id, query.agent)).row.id : undefined;
+    const visible = await visibleAgents(request, company.id);
+    const list = (await platform.engine.list(company.id, { agentId, status: query.status as never, limit: query.limit })).filter((r) => visible.has(r.agentId));
+    return list.map((r) => ({ ...r, context: undefined, agentName: visible.get(r.agentId)?.row.name, agentSlug: visible.get(r.agentId)?.row.slug }));
   });
 
   app.get("/api/companies/:company/runs/:run", async (request) => {
     const company = await companyOf(platform, request);
     const { run: runId } = request.params as { run: string };
     const detail = await platform.engine.get(company.id, runId);
-    const agent = await platform.agents.find(company.id, detail.run.agentId);
+    const agent = await agentFor(request, company.id, detail.run.agentId);
     return { ...detail, agent: agent ? { id: agent.row.id, slug: agent.row.slug, name: agent.row.name, outputs: agent.definition.outputs, ui: agent.definition.ui } : null };
   });
 
   app.post("/api/companies/:company/runs/:run/cancel", async (request) => {
     const company = await companyOf(platform, request);
     const { run: runId } = request.params as { run: string };
+    const run = await platform.engine.getRow(company.id, runId);
+    await agentFor(request, company.id, run.agentId);
     return platform.engine.cancel(company.id, runId);
   });
 
@@ -186,6 +210,7 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     const company = await companyOf(platform, request);
     const { run: runId } = request.params as { run: string };
     const detail = await platform.engine.get(company.id, runId);
+    await agentFor(request, company.id, detail.run.agentId);
     const stream = sse(reply);
     for (const event of detail.events) stream.send("event", event);
     if (!["running"].includes(detail.run.status)) {
@@ -212,16 +237,20 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get("/api/companies/:company/approvals", async (request) => {
     const company = await companyOf(platform, request);
     const { status } = z.object({ status: z.string().optional() }).parse(request.query);
-    const list = await platform.engine.listApprovals(company.id, { status });
-    const names = new Map((await platform.agents.list(company.id)).map((a) => [a.row.id, a.row.name]));
-    return list.map((a) => ({ ...a, agentName: names.get(a.agentId) ?? "Agent" }));
+    const visible = await visibleAgents(request, company.id);
+    const list = (await platform.engine.listApprovals(company.id, { status })).filter((a) => visible.has(a.agentId));
+    return list.map((a) => ({ ...a, agentName: visible.get(a.agentId)?.row.name ?? "Agent" }));
   });
 
   app.post("/api/companies/:company/approvals/:approval/decide", async (request) => {
     const company = await companyOf(platform, request);
     const { approval } = request.params as { approval: string };
     const body = z.object({ approved: z.boolean(), note: z.string().optional(), decidedBy: z.string().optional(), wait: z.boolean().default(true) }).parse(request.body);
-    return platform.engine.decide(company.id, approval, { approved: body.approved, note: body.note, decidedBy: body.decidedBy ?? "user" }, { wait: body.wait });
+    const viewer = viewerOf(request);
+    const pending = (await platform.engine.listApprovals(company.id)).find((a) => a.id === approval);
+    if (pending) await agentFor(request, company.id, pending.agentId);
+    const decidedBy = viewer.kind === "session" ? viewer.name : (body.decidedBy ?? "user");
+    return platform.engine.decide(company.id, approval, { approved: body.approved, note: body.note, decidedBy }, { wait: body.wait });
   });
 
   app.post("/api/companies/:company/files", async (request) => {
@@ -233,6 +262,7 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get("/api/companies/:company/files", async (request) => {
     const company = await companyOf(platform, request);
+    requireAdmin(request);
     return platform.files.list(company.id);
   });
 

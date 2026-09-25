@@ -4,6 +4,7 @@ import { createBrowserRouter, Outlet, RouterProvider } from "react-router";
 import { isApiError } from "./api.ts";
 import { AppShell } from "./components/Layout.tsx";
 import { LoadingBlock } from "./components/Spinner.tsx";
+import { AuthGate } from "./lib/auth.tsx";
 import { CompanyProvider } from "./lib/company.tsx";
 import { ToastProvider } from "./lib/toast.tsx";
 import { RouteError } from "./pages/RouteError.tsx";
@@ -31,7 +32,9 @@ const Connectors = lazy(() => import("./pages/Connectors.tsx"));
 const Paperclip = lazy(() => import("./pages/Paperclip.tsx"));
 const ActivityPage = lazy(() => import("./pages/Activity.tsx"));
 const SettingsPage = lazy(() => import("./pages/Settings.tsx"));
+const People = lazy(() => import("./pages/People.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+const SignIn = lazy(() => import("./pages/SignIn.tsx"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -52,12 +55,14 @@ function Root() {
   );
 }
 
-/** The console: company context + chrome. */
+/** The console: signed-in person, company context and chrome. */
 function Console() {
   return (
-    <CompanyProvider>
-      <AppShell />
-    </CompanyProvider>
+    <AuthGate>
+      <CompanyProvider>
+        <AppShell />
+      </CompanyProvider>
+    </AuthGate>
   );
 }
 
@@ -72,6 +77,14 @@ const router = createBrowserRouter([
         element: (
           <Suspense fallback={<LoadingBlock className="min-h-screen" />}>
             <AnswerPage />
+          </Suspense>
+        ),
+      },
+      {
+        path: "/signin",
+        element: (
+          <Suspense fallback={<LoadingBlock className="min-h-screen" />}>
+            <SignIn />
           </Suspense>
         ),
       },
@@ -101,6 +114,7 @@ const router = createBrowserRouter([
           { path: "connectors", element: <Connectors /> },
           { path: "paperclip", element: <Paperclip /> },
           { path: "departments", element: <Departments /> },
+          { path: "people", element: <People /> },
           { path: "activity", element: <ActivityPage /> },
           { path: "settings", element: <SettingsPage /> },
           { path: "*", element: <NotFound /> },

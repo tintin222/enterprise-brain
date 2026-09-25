@@ -2,7 +2,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { ZodError } from "zod";
 import { BuilderError } from "@enterprise-brain/builder";
 import { ConnectorError } from "@enterprise-brain/connectors";
-import { AgentNotFoundError, RunError, type CompanyRow, type Platform } from "@enterprise-brain/runtime";
+import { AgentNotFoundError, PeopleError, RunError, type CompanyRow, type Platform } from "@enterprise-brain/runtime";
 import { KnowledgeError } from "@enterprise-brain/knowledge";
 import { HermesRequestError } from "@enterprise-brain/paperclip";
 
@@ -20,6 +20,7 @@ export function statusFor(error: unknown): number {
   if (error instanceof HttpError) return error.statusCode;
   if (error instanceof RunError || error instanceof BuilderError || error instanceof HermesRequestError) return error.status;
   if (error instanceof AgentNotFoundError) return 404;
+  if (error instanceof PeopleError) return error.status;
   if (error instanceof KnowledgeError) return error.code === "not_found" ? 404 : 400;
   if (error instanceof ZodError) return 400;
   if (error instanceof ConnectorError) {
@@ -42,7 +43,9 @@ export async function companyOf(platform: Platform, request: FastifyRequest): Pr
   const ref = (request.params as { company?: string }).company;
   if (!ref) throw new HttpError(400, "Missing company");
   const company = await platform.company(ref);
-  if (!company) throw new HttpError(404, `Company "${ref}" not found`);
+  // People only see their own company; the API key and open mode see any.
+  const viewerCompany = request.viewer?.companyId;
+  if (!company || (viewerCompany && viewerCompany !== company.id)) throw new HttpError(404, `Company "${ref}" not found`);
   return company;
 }
 

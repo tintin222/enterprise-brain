@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import {
   Bell,
@@ -9,6 +10,7 @@ import {
   Inbox,
   LayoutDashboard,
   LibraryBig,
+  LogOut,
   Menu,
   MessageSquare,
   Moon,
@@ -21,13 +23,16 @@ import {
   Sparkles,
   Sun,
   UserCheck,
+  Users,
   WandSparkles,
   X,
   type LucideIcon,
 } from "lucide-react";
-import { Suspense, useEffect, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router";
+import { signOut, useViewer } from "../lib/auth.tsx";
 import { useCompany } from "../lib/company.tsx";
+import { initials } from "../lib/format.ts";
 import { useApprovals } from "../lib/queries.ts";
 import { useTheme } from "../lib/theme.ts";
 import { Wordmark } from "./Logo.tsx";
@@ -80,6 +85,7 @@ const NAV: { title: string; items: NavItem[] }[] = [
     title: "Admin",
     items: [
       { to: "/departments", label: "Departments", icon: Building },
+      { to: "/people", label: "People", icon: Users },
       { to: "/activity", label: "Activity", icon: ScrollText },
       { to: "/settings", label: "Settings", icon: Settings },
     ],
@@ -182,6 +188,67 @@ function LlmBadge() {
   );
 }
 
+/** The signed-in person: who they are, their departments, and sign out. */
+function PersonMenu() {
+  const viewer = useViewer();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onPointer = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  if (viewer?.kind !== "session") return null;
+  const departments = viewer.departments.map((d) => `${d.name} ${d.role}`).join(" · ");
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex items-center gap-2 rounded-full p-0.5 hover:bg-subtle sm:pr-2.5"
+        title={viewer.name}
+      >
+        <span className="flex size-8 items-center justify-center rounded-full bg-brand-100 text-xs font-semibold text-brand-700 dark:bg-brand-500/20 dark:text-brand-200">
+          {initials(viewer.name)}
+        </span>
+        <span className="hidden max-w-40 truncate text-sm font-medium sm:block">{viewer.name}</span>
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 mt-2 w-72 animate-fade-in rounded-xl border border-line bg-surface p-1.5 shadow-lg">
+          <div className="px-2.5 py-2">
+            <p className="truncate text-sm font-semibold">{viewer.name}</p>
+            <p className="truncate text-xs text-muted">{viewer.email}</p>
+            <p className="mt-2 text-xs text-muted">{[viewer.isAdmin ? "Admin" : "", departments].filter(Boolean).join(" · ") || "No department yet"}</p>
+          </div>
+          <div className="my-1 h-px bg-line" />
+          <button
+            type="button"
+            role="menuitem"
+            onClick={() => void signOut(queryClient)}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-subtle"
+          >
+            <LogOut className="size-4 text-muted" />
+            Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function TopBar({ onMenu }: { onMenu: () => void }) {
   const { companyName } = useCompany();
   const { theme, toggle } = useTheme();
@@ -223,6 +290,7 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
         >
           {theme === "dark" ? <Sun className="size-[18px]" /> : <Moon className="size-[18px]" />}
         </button>
+        <PersonMenu />
       </div>
     </header>
   );

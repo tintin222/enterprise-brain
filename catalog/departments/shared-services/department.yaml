@@ -1,6 +1,8 @@
 id: shared-services
 name: Shared Services
 icon: layers
+# Its AI employees (the company assistant, search, document intake...) serve every employee.
+openToEveryone: true
 summary: >-
   Company-wide AI capabilities every department builds on: the company assistant and knowledge
   base, enterprise search, document and OCR intake, shared-mailbox triage and spreadsheet automation.

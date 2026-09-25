@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Building, KeyRound, Moon, Server, Settings as SettingsIcon, Sun } from "lucide-react";
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router";
 import { api, getApiKey, setApiKey } from "../api.ts";
 import { Badge } from "../components/Badge.tsx";
 import { Button } from "../components/Button.tsx";
@@ -33,6 +34,8 @@ export default function Settings() {
   const toast = useToast();
   const [key, setKey] = useState(getApiKey() ?? "");
   const [form, setForm] = useState({ name: "", slug: "" });
+  // With accounts, the installation holds one company and people sign in to it.
+  const accounts = info.auth?.mode === "accounts";
 
   const create = useMutation({
     mutationFn: () => api.post<Company>("/api/companies", { name: form.name.trim(), slug: form.slug || slugify(form.name) }),
@@ -71,50 +74,60 @@ export default function Settings() {
                 </select>
               )}
             </Field>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (form.name.trim()) create.mutate();
-              }}
-              className="rounded-xl border border-line bg-subtle/40 p-4"
-            >
-              <p className="text-sm font-medium text-fg">Create a company</p>
-              <p className="mb-3 text-xs text-muted">Each company has its own agents, knowledge, connectors and runs.</p>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_12rem_auto] sm:items-end">
-                <Field label="Name">
-                  {(id) => (
-                    <input
-                      id={id}
-                      className="input"
-                      placeholder="Globex Holding"
-                      value={form.name}
-                      onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    />
-                  )}
-                </Field>
-                <Field label="Slug">
-                  {(id) => (
-                    <input
-                      id={id}
-                      className="input font-mono text-xs"
-                      placeholder={slugify(form.name) || "globex"}
-                      value={form.slug}
-                      onChange={(e) => setForm({ ...form, slug: slugify(e.target.value) })}
-                    />
-                  )}
-                </Field>
-                <Button type="submit" variant="primary" loading={create.isPending} disabled={!form.name.trim()}>
-                  Create
-                </Button>
-              </div>
-            </form>
+            {!accounts && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (form.name.trim()) create.mutate();
+                }}
+                className="rounded-xl border border-line bg-subtle/40 p-4"
+              >
+                <p className="text-sm font-medium text-fg">Create a company</p>
+                <p className="mb-3 text-xs text-muted">Each company has its own agents, knowledge, connectors and runs.</p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_12rem_auto] sm:items-end">
+                  <Field label="Name">
+                    {(id) => (
+                      <input
+                        id={id}
+                        className="input"
+                        placeholder="Globex Holding"
+                        value={form.name}
+                        onChange={(e) => setForm({ ...form, name: e.target.value })}
+                      />
+                    )}
+                  </Field>
+                  <Field label="Slug">
+                    {(id) => (
+                      <input
+                        id={id}
+                        className="input font-mono text-xs"
+                        placeholder={slugify(form.name) || "globex"}
+                        value={form.slug}
+                        onChange={(e) => setForm({ ...form, slug: slugify(e.target.value) })}
+                      />
+                    )}
+                  </Field>
+                  <Button type="submit" variant="primary" loading={create.isPending} disabled={!form.name.trim()}>
+                    Create
+                  </Button>
+                </div>
+              </form>
+            )}
           </div>
         </Card>
 
         <Card>
           <CardHeader title="API access" icon={KeyRound} />
           <div className="p-5">
-            {info.authRequired ? (
+            {accounts ? (
+              <Callout tone="info" title="People sign in with their own accounts">
+                Add colleagues and set up Microsoft or Google sign-in on the{" "}
+                <Link to="/people" className="font-medium underline">
+                  People
+                </Link>{" "}
+                page. Machines (the MCP endpoint, scripts) send the server's EB_API_KEY as <code>Authorization: Bearer …</code>.
+              </Callout>
+            ) : info.authRequired ? (
               <form onSubmit={saveKey} className="space-y-3">
                 <Field label="Console API key" hint="Stored only in this browser (localStorage) and sent as Authorization: Bearer … with every request.">
                   {(id) => (
@@ -180,7 +193,7 @@ export default function Settings() {
                 ["Public URL", info.publicUrl],
                 ["Default company", info.defaultCompany],
                 ["Paperclip", info.paperclip.configured ? info.paperclip.url : "Not configured (PAPERCLIP_URL)"],
-                ["Authentication", info.authRequired ? "API key required" : "Local trusted mode"],
+                ["Authentication", accounts ? "People sign in (accounts)" : info.authRequired ? "API key required" : "Local trusted mode"],
               ]}
             />
           </div>

@@ -323,8 +323,74 @@ export interface Info {
   database: string;
   defaultCompany: string;
   publicUrl: string;
+  /** Open mode protected by EB_API_KEY: the console asks for the key. */
   authRequired: boolean;
+  auth?: { mode: "accounts" | "open" };
   paperclip: { configured: boolean; url: string | null };
+}
+
+// ---------------------------------------------------------------------------
+// People and sign-in
+// ---------------------------------------------------------------------------
+
+export type MembershipRole = "manager" | "worker";
+
+export interface Viewer {
+  kind: "session" | "api-key" | "open";
+  id: string | null;
+  name: string;
+  email: string | null;
+  isAdmin: boolean;
+  departments: { id: string; key: string; name: string; role: MembershipRole }[];
+}
+
+export interface DemoPerson {
+  email: string;
+  name: string;
+  title: string | null;
+  isAdmin: boolean;
+  departments: { name: string; role: MembershipRole }[];
+}
+
+export interface AuthState {
+  mode: "accounts" | "open";
+  company: { slug: string; name: string } | null;
+  /** Nobody has an account yet: the first person to arrive becomes the admin. */
+  setupRequired: boolean;
+  viewer: Viewer | null;
+  providers: { id: string; label: string }[];
+  demo: DemoPerson[];
+}
+
+export interface Person {
+  id: string;
+  companyId: string;
+  email: string;
+  name: string;
+  title: string | null;
+  role: "admin" | "member";
+  status: "active" | "disabled";
+  departments: { departmentId: string; key: string; name: string; role: MembershipRole }[];
+  /** Admins only (hidden from other people). */
+  hasPassword?: boolean;
+  authProvider?: string | null;
+  lastSignInAt?: string | null;
+  createdAt: string;
+}
+
+interface ProviderSettings {
+  configured: boolean;
+  /** "environment": set with EB_AUTH_* variables; Settings can override it. */
+  source: "settings" | "environment" | null;
+  clientId: string;
+}
+
+export interface SignInSettings {
+  redirectUris: { microsoft: string; google: string };
+  microsoft: ProviderSettings & { tenant: string };
+  google: ProviderSettings & { hostedDomain: string };
+  autoJoinDomains: string[];
+  demo: boolean;
 }
 
 export interface Company {

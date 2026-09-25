@@ -100,6 +100,9 @@ services:
       EB_PAPERCLIP_PLUGIN_DIR: /opt/enterprise-brain/paperclip-plugin
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      # No sign-in, like Paperclip's local_trusted mode (both apps are reachable from this computer only).
+      # The Paperclip plugin calls Enterprise Brain without a person's session.
+      EB_AUTH: ${EB_AUTH:-open}
       EB_API_KEY: ${EB_API_KEY:-}
       EB_HERMES_API_KEY: ${EB_HERMES_API_KEY:-}
       # Encrypts connector secrets. Unset: a random key is generated once in the data volume (/data).

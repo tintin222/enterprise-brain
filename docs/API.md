@@ -2,7 +2,7 @@
 
 Base URL: `http://localhost:3200` (configurable with `PORT` / `EB_PUBLIC_URL`).
 
-* **Auth.** When `EB_API_KEY` is set, every `/api/...` and `/mcp` request needs `Authorization: Bearer <EB_API_KEY>` (or `x-api-key`). Public exceptions: `/api/health`, `/api/info`, `/api/public/*` (token-protected stakeholder pages) and `/api/hermes/*` (Paperclip gateway: Bearer Hermes key, which is `EB_HERMES_API_KEY`, else `EB_API_KEY`, else the key generated in `<EB_DATA_DIR>/hermes.key`). Without `EB_API_KEY` the server runs in *local trusted* mode, like Paperclip's `local_trusted`.
+* **Auth.** By default (`EB_AUTH=accounts`) people sign in and the browser sends the `eb_session` cookie (httpOnly, SameSite=Lax); see [People and sign-in](#people-and-sign-in). Machines send `Authorization: Bearer <EB_API_KEY>` and act as an admin; `/mcp` accepts only the key. What a person may see and change follows their departments: admins everything; managers run their departments' AI employees; workers see their departments' AI employees and the company-wide ones (departments marked `openToEveryone`, e.g. Shared Services). Public exceptions: `/api/health`, `/api/info`, `/api/auth/*`, `/api/public/*` (token-protected stakeholder pages) and `/api/hermes/*` (Paperclip gateway: Bearer Hermes key, which is `EB_HERMES_API_KEY`, else `EB_API_KEY`, else the key generated in `<EB_DATA_DIR>/hermes.key`). With `EB_AUTH=open` nobody signs in and every request acts as the owner, like Paperclip's `local_trusted`; setting `EB_API_KEY` then requires the key on every request.
 * **Companies.** Every domain route is company-scoped: `/api/companies/:company/...`, where `:company` is the slug or id (default slug `acme`).
 * **Errors.** Non-2xx responses have the body `{ "error": string, "issues"?: [...] }`.
 * **Streaming.** Endpoints marked *SSE* return `text/event-stream`.
@@ -17,6 +17,25 @@ Base URL: `http://localhost:3200` (configurable with `PORT` / `EB_PUBLIC_URL`).
 | POST | `/api/companies` | `{ name, slug, mailDomain? }`: create a company. `mailDomain` (e.g. `acme.com.tr`) replaces the templates' placeholder addresses (`careers@company.com`) when agents are installed or built |
 | GET | `/api/companies/:company/dashboard` | `{ company, counts: {agents, activeAgents, runs24h, succeeded24h, failed24h, pendingApprovals, departments, knowledgeDocuments, openBuilderSessions}, costMonthUsd, recentRuns[], recentActivity[] }` |
 | GET | `/api/companies/:company/activity?limit=` | Audit log entries `{ id, actor, action, entityType, entityId, summary, data, createdAt }` |
+
+## People and sign-in
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/auth/state` | `{ mode, company: {slug, name}, setupRequired, viewer, providers: [{id, label}], demo: [{email, name, title, isAdmin, departments}] }`: what the sign-in page and the app shell need. `viewer` is `{ kind: "session"\|"api-key"\|"open", id, name, email, isAdmin, departments: [{id, key, name, role}] }` or null |
+| POST | `/api/auth/setup` | `{ name, email, password }`: first start only (nobody has an account yet); creates the admin and signs them in. 409 afterwards |
+| POST | `/api/auth/signin` | `{ email, password }` → sets the session cookie. 401 on a wrong email or password; 429 after 8 failures in 15 minutes |
+| POST | `/api/auth/demo` | `{ email }`: one-click sign-in as a demo person (demo installations only) |
+| POST | `/api/auth/signout` | Ends the session |
+| GET | `/api/auth/oidc/:provider/start?returnTo=` | Redirects to Microsoft (`microsoft`) or Google (`google`): OpenID Connect authorization code flow with PKCE |
+| GET | `/api/auth/oidc/:provider/callback` | The redirect URI to register with the provider. Signs in a person added with that email, or (auto-join domains) creates a member; then redirects to `returnTo`. Errors redirect to `/signin?error=` |
+| GET | `/api/me` | The viewer (as in `/api/auth/state`) |
+| GET | `/api/companies/:company/people` | `[{ id, email, name, title, role: "admin"\|"member", status, departments: [{departmentId, key, name, role: "manager"\|"worker"}], hasPassword, authProvider, lastSignInAt }]`. Members see the people of their departments and the admins, without the sign-in fields |
+| POST | `/api/companies/:company/people` | Admin. `{ name, email, title?, role?, password?, departments?: [{departmentId, role}] }` |
+| PUT | `/api/companies/:company/people/:id` | Admin. `{ name?, title?, role?, status?: "active"\|"disabled", password?, departments? }`. Disabling or changing the password ends the person's sessions; the last admin can't be demoted or disabled (409) |
+| DELETE | `/api/companies/:company/people/:id` | Admin |
+| GET | `/api/companies/:company/sign-in` | Admin. `{ redirectUris: {microsoft, google}, microsoft: {configured, source, clientId, tenant}, google: {configured, source, clientId, hostedDomain}, autoJoinDomains, demo }` (never the secrets) |
+| PUT | `/api/companies/:company/sign-in` | Admin. `{ microsoft?: {clientId, secret?, tenant?} \| null, google?: {clientId, secret?, hostedDomain?} \| null, autoJoinDomains?, demo? }`. Secrets are stored encrypted; `null` removes a provider |
 
 ## Catalog (templates)
 

@@ -1,10 +1,49 @@
+import { eq } from "drizzle-orm";
 import { humanizeKey } from "@enterprise-brain/core";
-import type { Platform } from "@enterprise-brain/runtime";
+import { companies } from "@enterprise-brain/db";
+import type { CompanyRow, MembershipRole, Platform } from "@enterprise-brain/runtime";
 import { DEMO_CVS, invoiceTotals, renderCv, renderInvoice, type DemoInvoice } from "./demo/documents.ts";
 import { DEMO_EMAILS } from "./demo/emails.ts";
 import { DEMO_KNOWLEDGE, type DemoDoc } from "./demo/knowledge.ts";
 
 const DEMO_DEPARTMENTS = ["hr", "finance", "customer-service", "it"];
+
+/** The demo company's people: a manager and a worker per department; the IT manager is the admin. */
+const DEMO_PEOPLE: { name: string; local: string; title: string; admin?: boolean; departments: [string, MembershipRole][] }[] = [
+  { name: "Mehmet Öz", local: "mehmet.oz", title: "IT Manager", admin: true, departments: [["it", "manager"], ["shared-services", "manager"]] },
+  { name: "Ayşe Yılmaz", local: "ayse.yilmaz", title: "HR Manager", departments: [["hr", "manager"]] },
+  { name: "Can Demir", local: "can.demir", title: "Recruitment Specialist", departments: [["hr", "worker"]] },
+  { name: "Burak Şahin", local: "burak.sahin", title: "Finance Manager", departments: [["finance", "manager"]] },
+  { name: "Elif Arslan", local: "elif.arslan", title: "Accounts Payable Specialist", departments: [["finance", "worker"]] },
+  { name: "Zeynep Kaya", local: "zeynep.kaya", title: "Customer Service Lead", departments: [["customer-service", "manager"]] },
+  { name: "Deniz Aydın", local: "deniz.aydin", title: "Customer Service Agent", departments: [["customer-service", "worker"]] },
+  { name: "Emre Koç", local: "emre.koc", title: "IT Support Specialist", departments: [["it", "worker"]] },
+];
+
+/**
+ * Demo people with one-click sign-in (Settings → Sign-in → Demo sign-in turns it off). Accounts that
+ * already exist are left alone.
+ */
+export async function seedDemoPeople(platform: Platform, company: CompanyRow): Promise<string[]> {
+  const domain = typeof company.settings.mailDomain === "string" && company.settings.mailDomain ? company.settings.mailDomain : "example.com";
+  const departmentRows = await platform.catalog.departments(company.id);
+  const emails: string[] = [];
+  for (const person of DEMO_PEOPLE) {
+    const email = `${person.local}@${domain}`;
+    emails.push(email);
+    if (await platform.people.findByEmail(company.id, email)) continue;
+    const departments = person.departments
+      .map(([key, role]) => ({ departmentId: departmentRows.find((d) => d.key === key)?.id, role }))
+      .filter((d): d is { departmentId: string; role: MembershipRole } => Boolean(d.departmentId));
+    await platform.people.create(company.id, { email, name: person.name, title: person.title, role: person.admin ? "admin" : "member", departments, authProvider: "demo" });
+  }
+  const [row] = await platform.handle.db.select({ settings: companies.settings }).from(companies).where(eq(companies.id, company.id));
+  const signIn = (row?.settings.signIn ?? {}) as Record<string, unknown>;
+  const settings = { ...(row?.settings ?? {}), demo: true, signIn: { ...signIn, demo: true, demoEmails: emails } };
+  await platform.handle.db.update(companies).set({ settings }).where(eq(companies.id, company.id));
+  log(`people: ${emails.length} demo people, one-click sign-in on the sign-in page`);
+  return emails;
+}
 
 function log(message: string) {
   console.log(`  [seed] ${message}`);

@@ -62,6 +62,8 @@ On first start, Enterprise Brain creates the demo company **Acme Endüstri A.Ş.
 - a knowledge base of company policies in English and Turkish
 - sandbox mailboxes with job applications (PDF/DOCX CVs), supplier invoices generated from the sandbox ERP's purchase orders, customer emails and IT requests
 
+**Sign-in:** people sign in with their own accounts. On the demo company the sign-in page lists eight demo people (an admin, department managers and workers), one click each, so you can see what each role sees. A new installation without demo data asks the first person for the admin account; the admin then adds colleagues on the **People** page, where Microsoft 365 (Entra ID) and Google Workspace sign-in are set up too. `EB_AUTH=open` turns sign-in off for local trials.
+
 **Database:** nothing to install. Enterprise Brain runs PostgreSQL (with pgvector) *inside* the application, using [PGlite](https://pglite.dev), and keeps everything in the `.data/` folder: `db/` for the database, `files/` for uploads and `master.key` for encrypting connector secrets. Back it up by copying the folder while the server is stopped; move it with `EB_DATA_DIR`. For production, or when several servers share one database, use a PostgreSQL server (15 or later) instead:
 
 ```bash

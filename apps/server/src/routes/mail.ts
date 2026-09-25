@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { MailService } from "@enterprise-brain/runtime";
+import { requireAnyManager } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { companyOf, readMultipart } from "../http.ts";
 
@@ -9,6 +10,7 @@ export async function mailRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get("/api/companies/:company/mail/mailboxes", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const boxes = await platform.mail.mailboxes(company.id);
     const agents = await platform.agents.list(company.id);
     return boxes.map((box) => ({
@@ -21,12 +23,14 @@ export async function mailRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.get("/api/companies/:company/mail/messages", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const query = z.object({ mailbox: z.string().optional(), direction: z.string().optional(), status: z.string().optional() }).parse(request.query);
     return platform.mail.list(company.id, query);
   });
 
   app.get("/api/companies/:company/mail/messages/:id", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { id } = request.params as { id: string };
     const message = await platform.mail.get(company.id, id);
     const run = message.runId ? await platform.engine.get(company.id, message.runId).catch(() => undefined) : undefined;
@@ -38,6 +42,7 @@ export async function mailRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Deliver a message into a (sandbox) mailbox; matching agents start automatically. */
   app.post("/api/companies/:company/mail/messages", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     let payload: { mailbox: string; from: string; fromName?: string; subject: string; body: string; route: boolean; attachmentFileIds: string[] };
     if (request.isMultipart()) {
       const { fields, files } = await readMultipart(platform, company.id, request, "mail");
@@ -72,6 +77,7 @@ export async function mailRoutes(app: FastifyInstance, ctx: AppContext) {
   /** Process a message with a specific agent (manual triage). */
   app.post("/api/companies/:company/mail/messages/:id/process", async (request) => {
     const company = await companyOf(platform, request);
+    requireAnyManager(request);
     const { id } = request.params as { id: string };
     const { agent, wait } = z.object({ agent: z.string(), wait: z.boolean().default(true) }).parse(request.body);
     const message = await platform.mail.get(company.id, id);

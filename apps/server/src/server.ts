@@ -3,10 +3,13 @@ import { join } from "node:path";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
-import Fastify, { type FastifyInstance } from "fastify";
+import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import { AuthService, SESSION_COOKIE } from "./auth/service.ts";
+import { API_VIEWER, OPEN_VIEWER, readCookie } from "./auth/viewer.ts";
 import type { AppContext } from "./context.ts";
 import { bearer, errorBody, statusFor } from "./http.ts";
 import { agentRoutes } from "./routes/agents.ts";
+import { authRoutes } from "./routes/auth.ts";
 import { builderRoutes } from "./routes/builder.ts";
 import { catalogRoutes } from "./routes/catalog.ts";
 import { chatRoutes } from "./routes/chat.ts";
@@ -16,9 +19,31 @@ import { knowledgeRoutes } from "./routes/knowledge.ts";
 import { mailRoutes } from "./routes/mail.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
 import { paperclipRoutes } from "./routes/paperclip.ts";
+import { peopleRoutes } from "./routes/people.ts";
 
-/** Routes reachable without the console API key (they carry their own credentials). */
-const PUBLIC_PREFIXES = ["/api/health", "/api/info", "/api/public/", "/api/hermes/"];
+/** Routes reachable without signing in (they carry their own credentials, or are the sign-in itself). */
+const PUBLIC_PREFIXES = ["/api/health", "/api/info", "/api/public/", "/api/hermes/", "/api/auth/"];
+
+const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * Changes made with a person's session must come from this app's own pages. Browsers also send the
+ * cookie with requests from sibling sites (another port or subdomain of the same domain), which must not
+ * act for the person. Browsers say where a request comes from in Sec-Fetch-Site, older ones in Origin.
+ */
+function fromAnotherSite(request: FastifyRequest, publicUrl: string): boolean {
+  if (!UNSAFE_METHODS.has(request.method)) return false;
+  const site = request.headers["sec-fetch-site"];
+  if (typeof site === "string") return site !== "same-origin" && site !== "none";
+  const origin = request.headers.origin;
+  if (!origin) return false;
+  try {
+    const from = new URL(origin);
+    return from.host !== request.headers.host && from.origin !== new URL(publicUrl).origin;
+  } catch {
+    return true;
+  }
+}
 
 export async function buildServer(ctx: AppContext, options: { logger?: boolean } = {}): Promise<FastifyInstance> {
   const app = Fastify({
@@ -28,14 +53,42 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   await app.register(cors, { origin: true });
   await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024, files: 20 } });
 
-  // Local trusted mode (like Paperclip's local_trusted) when EB_API_KEY is unset.
+  const auth = (ctx.auth ??= new AuthService(ctx.platform, ctx.config));
+  app.decorateRequest("viewer", undefined);
+
+  // Who is asking: a signed-in person (session cookie), a machine with EB_API_KEY, or, in open
+  // mode (EB_AUTH=open, no EB_API_KEY), anyone acting as the owner.
   app.addHook("onRequest", async (request, reply) => {
     const url = request.url.split("?")[0]!;
-    if (!ctx.config.apiKey || (!url.startsWith("/api/") && !url.startsWith("/mcp"))) return;
-    if (PUBLIC_PREFIXES.some((p) => url === p || url.startsWith(p))) return;
-    if (bearer(request) !== ctx.config.apiKey) {
-      reply.code(401).send({ error: "Missing or invalid API key" });
+    if (!url.startsWith("/api/") && !url.startsWith("/mcp")) return;
+    const withApiKey = Boolean(ctx.config.apiKey) && bearer(request) === ctx.config.apiKey;
+    if (!withApiKey && (url.startsWith("/api/auth/") || readCookie(request, SESSION_COOKIE)) && fromAnotherSite(request, ctx.config.publicUrl)) {
+      return reply.code(403).send({ error: "This request came from another site" });
     }
+    if (PUBLIC_PREFIXES.some((p) => url === p || url.startsWith(p))) return;
+    if (withApiKey) {
+      request.viewer = API_VIEWER;
+      return;
+    }
+    const open = auth.mode === "open" && !ctx.config.apiKey;
+    if (url.startsWith("/mcp")) {
+      // MCP clients are machines: the API key, or nothing in open mode.
+      if (open) {
+        request.viewer = API_VIEWER;
+        return;
+      }
+      return reply.code(401).send({ error: ctx.config.apiKey ? "Missing or invalid API key" : "Set EB_API_KEY to use the MCP server" });
+    }
+    const viewer = await auth.viewerFromRequest(request);
+    if (viewer) {
+      request.viewer = viewer;
+      return;
+    }
+    if (open) {
+      request.viewer = OPEN_VIEWER;
+      return;
+    }
+    return reply.code(401).send({ error: auth.mode === "open" ? "Missing or invalid API key" : "Sign in to continue" });
   });
 
   app.setErrorHandler((error, request, reply) => {
@@ -44,6 +97,8 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
     reply.code(status).send(errorBody(error));
   });
 
+  await authRoutes(app, ctx);
+  await peopleRoutes(app, ctx);
   await coreRoutes(app, ctx);
   await catalogRoutes(app, ctx);
   await agentRoutes(app, ctx);
