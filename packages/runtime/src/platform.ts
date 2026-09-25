@@ -19,6 +19,7 @@ import { PeopleService } from "./people.ts";
 import { SecretBox } from "./secrets.ts";
 import { TaskService } from "./tasks.ts";
 import { TriggerService } from "./triggers.ts";
+import { WatcherService } from "./watchers.ts";
 import { WorkService } from "./work.ts";
 
 export type CompanyRow = typeof companies.$inferSelect;
@@ -54,6 +55,7 @@ export class Platform {
   readonly employment: EmploymentService;
   readonly tasks: TaskService;
   readonly work: WorkService;
+  readonly watchers: WatcherService;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -84,8 +86,9 @@ export class Platform {
     });
     this.chat = new ChatService(this.handle, this.llm, this.agents, this.knowledge, this.engine.toolDeps);
     this.catalog = new CatalogService(this.handle, options.catalog, this.agents, this.knowledge, this.activity);
-    this.triggers = new TriggerService(this.handle, this.agents, this.engine, this.mail, this.tasks);
+    this.triggers = new TriggerService(this.handle, this.agents, this.engine, this.mail, this.tasks, this.people);
     this.employment = new EmploymentService(this.agents, this.people, this.engine, this.activity);
+    this.watchers = new WatcherService(this.handle, this.connectors, this.mail, this.agents, this.engine, this.triggers);
   }
 
   /** Create a platform from the environment: embedded Postgres under dataDir unless DATABASE_URL is set. */
@@ -136,6 +139,7 @@ export class Platform {
 
   async close(): Promise<void> {
     this.triggers.stop();
+    this.watchers.stop();
     await this.handle.close();
   }
 }

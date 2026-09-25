@@ -282,6 +282,20 @@ export class ConnectorService {
     return resolved.impl.execute(operationId, input, this.context(companyId));
   }
 
+  /** Run an operation on a specific connection. */
+  async executeInstance(companyId: string, instanceId: string, operationId: string, input: Record<string, unknown>): Promise<unknown> {
+    const { impl, ctx } = await this.instanceContext(companyId, instanceId);
+    this.operation(impl, operationId);
+    return impl.execute(operationId, input, ctx);
+  }
+
+  /** Ask a connection what happened since the cursor (new mail, new records); undefined when it can't be watched. */
+  async poll(companyId: string, instanceId: string, eventId: string, cursor?: string) {
+    const { impl, ctx } = await this.instanceContext(companyId, instanceId);
+    if (!impl.poll) return undefined;
+    return impl.poll(eventId, ctx, cursor);
+  }
+
   /** Execute directly against a connector type (sandbox/demo usage from the console). */
   async executeByType(companyId: string, type: string, operationId: string, input: Record<string, unknown>) {
     const impl = this.registry.get(type);

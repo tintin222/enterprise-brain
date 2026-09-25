@@ -22,7 +22,11 @@ async function main() {
   const builder = new BuilderService(platform, { publicBaseUrl: config.publicUrl });
   const app = await buildServer({ platform, builder, config }, { logger: true });
   const resumed = await platform.engine.resumeInterrupted();
-  if (config.schedulerEnabled) platform.triggers.start();
+  if (config.schedulerEnabled) {
+    platform.triggers.start();
+    // Connected mailboxes (Microsoft 365, Gmail, IMAP) and systems AI employees watch for new work.
+    platform.watchers.start((config.watchIntervalSeconds ?? 60) * 1000);
+  }
   await app.listen({ port: config.port, host: config.host });
 
   const signInProviders = (config.auth?.providers ?? []).filter((p) => p.id !== "microsoft" || p.tenant).map((p) => p.id);

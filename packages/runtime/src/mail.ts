@@ -93,6 +93,16 @@ export class MailService {
     return row!;
   }
 
+  /** The message a mail system knows by this id, when it was already brought in. */
+  async findByExternalId(companyId: string, externalId: string): Promise<MailMessage | undefined> {
+    const [row] = await this.handle.db
+      .select()
+      .from(mailMessages)
+      .where(and(eq(mailMessages.companyId, companyId), eq(mailMessages.externalId, externalId)))
+      .limit(1);
+    return row;
+  }
+
   async list(companyId: string, filter: { mailbox?: string; direction?: string; status?: string; limit?: number } = {}) {
     const conditions = [eq(mailMessages.companyId, companyId)];
     if (filter.mailbox) conditions.push(eq(mailMessages.mailbox, filter.mailbox.toLowerCase()));

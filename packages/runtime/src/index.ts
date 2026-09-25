@@ -18,3 +18,4 @@ export * from "./policy.ts";
 export * from "./employment.ts";
 export * from "./tasks.ts";
 export * from "./work.ts";
+export * from "./watchers.ts";

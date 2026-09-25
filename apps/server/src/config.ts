@@ -68,6 +68,8 @@ export interface ServerConfig {
     pluginDir?: string;
   };
   schedulerEnabled: boolean;
+  /** How often connected mailboxes and systems are checked for new work (seconds). */
+  watchIntervalSeconds?: number;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -103,6 +105,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
         }
       : undefined,
     schedulerEnabled: env.EB_SCHEDULER !== "false",
+    watchIntervalSeconds: Math.max(10, Number(env.EB_WATCH_INTERVAL ?? 60) || 60),
     auth: {
       mode: env.EB_AUTH === "open" ? "open" : "accounts",
       sessionHours: Number(env.EB_SESSION_HOURS ?? 12) || 12,

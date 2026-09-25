@@ -60,4 +60,26 @@ export async function connectorRoutes(app: FastifyInstance, ctx: AppContext) {
     }
     return { result };
   });
+
+  /** What each watcher saw last: connected mailboxes and the systems AI employees watch. */
+  app.get("/api/companies/:company/watchers", async (request) => {
+    const company = await companyOf(platform, request);
+    requireAdmin(request);
+    const instances = new Map((await platform.connectors.list(company.id)).map((i) => [i.id, i]));
+    return (await platform.watchers.status(company.id)).map((w) => ({
+      connection: instances.get(w.connectorInstanceId)?.name ?? w.connectorInstanceId,
+      connectionId: w.connectorInstanceId,
+      watching: w.key.split("#")[0],
+      lastPolledAt: w.lastPolledAt,
+      lastCount: w.lastCount,
+      lastError: w.lastError,
+    }));
+  });
+
+  /** Check connected mailboxes and systems now (they are also checked every minute). */
+  app.post("/api/companies/:company/watchers/poll", async (request) => {
+    const company = await companyOf(platform, request);
+    requireAdmin(request);
+    return platform.watchers.pollCompany(company.id);
+  });
 }

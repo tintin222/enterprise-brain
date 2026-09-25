@@ -491,7 +491,30 @@ export const mailMessages = pgTable(
     receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
     createdAt: createdAt(),
   },
-  (t) => [index("mail_messages_company_mailbox").on(t.companyId, t.mailbox, t.receivedAt)],
+  (t) => [index("mail_messages_company_mailbox").on(t.companyId, t.mailbox, t.receivedAt), index("mail_messages_external").on(t.companyId, t.externalId)],
+);
+
+/**
+ * Where a watcher left off in a connected system: the mailbox's last message, the table's last row.
+ * One per connection and watched event (per AI employee for events that start its duties).
+ */
+export const watchCursors = pgTable(
+  "watch_cursors",
+  {
+    id: id(),
+    companyId: companyId(),
+    connectorInstanceId: uuid("connector_instance_id")
+      .notNull()
+      .references(() => connectorInstances.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    cursor: text("cursor"),
+    lastPolledAt: timestamp("last_polled_at", { withTimezone: true }),
+    /** How many new items the last poll brought. */
+    lastCount: integer("last_count").notNull().default(0),
+    lastError: text("last_error"),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("watch_cursors_instance_key").on(t.connectorInstanceId, t.key)],
 );
 
 export const builderSessions = pgTable(

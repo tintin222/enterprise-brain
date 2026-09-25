@@ -1,7 +1,7 @@
 import { and, count, eq, gte, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { agents, approvals, builderSessions, departments, knowledgeDocuments, runs } from "@enterprise-brain/db";
+import { agents, approvals, builderSessions, companies, departments, knowledgeDocuments, runs } from "@enterprise-brain/db";
 import type { AppContext } from "../context.ts";
 import { requireAdmin, viewerOf } from "../auth/viewer.ts";
 import { HttpError, companyOf } from "../http.ts";
@@ -26,6 +26,27 @@ export async function coreRoutes(app: FastifyInstance, ctx: AppContext) {
     auth: { mode: config.auth?.mode ?? "open" },
     paperclip: { configured: Boolean(config.paperclip), url: config.paperclip?.url ?? null },
   }));
+
+  /** Company settings for how people reach AI employees: the AI mailbox they forward work to. */
+  app.get("/api/companies/:company/settings", async (request) => {
+    const company = await companyOf(platform, request);
+    requireAdmin(request);
+    return { aiMailbox: typeof company.settings.aiMailbox === "string" ? company.settings.aiMailbox : null, mailDomain: company.settings.mailDomain ?? null };
+  });
+
+  app.put("/api/companies/:company/settings", async (request) => {
+    const company = await companyOf(platform, request);
+    const viewer = requireAdmin(request);
+    const body = z.object({ aiMailbox: z.string().email().or(z.literal("")).nullable().optional() }).parse(request.body);
+    const settings = { ...company.settings };
+    if (body.aiMailbox !== undefined) {
+      if (body.aiMailbox) settings.aiMailbox = body.aiMailbox.trim().toLowerCase();
+      else delete settings.aiMailbox;
+    }
+    await platform.handle.db.update(companies).set({ settings }).where(eq(companies.id, company.id));
+    await platform.activity.record(company.id, { actor: viewer.name, action: "settings.company", entityType: "company", entityId: company.id, summary: "Changed the AI mailbox" });
+    return { aiMailbox: typeof settings.aiMailbox === "string" ? settings.aiMailbox : null, mailDomain: settings.mailDomain ?? null };
+  });
 
   app.get("/api/companies", async (request) => {
     const viewer = viewerOf(request);

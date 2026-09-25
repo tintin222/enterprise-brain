@@ -147,6 +147,19 @@ Everything that needs a person, in one list: approvals of AI employees' changes,
 | POST | `/api/companies/:company/connectors/:id/test` | `{ ok, message }` |
 | POST | `/api/companies/:company/connectors/types/:type/operations/:operation` | `{ input }` → `{ result }` (e.g. browse the sandbox ERP) |
 
+## Watching mailboxes and systems
+
+AI employees follow connected mailboxes and systems on their own: every minute (`EB_WATCH_INTERVAL` seconds) each connected mail connection (Microsoft 365, Gmail, IMAP) is checked for new mail, and each system an AI employee's `connector-event` duty names for new events (a new record, row or file). The first check only records the starting point, so nothing from before is replayed; each email is brought in once.
+
+A new email goes back to its task when it is a reply (the task's reference, or its thread); otherwise every active AI employee whose mailbox duty matches gets it as new work. An email to the company's AI mailbox gives one AI employee work: `ai+cv-screener@acme.com.tr` (plus-addressing), or `CV Screener: …` in the subject. Only people with an account can give work this way; other senders' emails are marked `ignored`.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/companies/:company/watchers` | Admin. `[{ connection, connectionId, watching (new_message, or the event), lastPolledAt, lastCount, lastError }]` |
+| POST | `/api/companies/:company/watchers/poll` | Admin. Check now: `{ mail, events, errors[] }` |
+| GET | `/api/companies/:company/settings` | Admin. `{ aiMailbox, mailDomain }` |
+| PUT | `/api/companies/:company/settings` | Admin. `{ aiMailbox: "ai@acme.com.tr" \| null }`: the mailbox people forward work to (connect it as a mail connection too) |
+
 ## Mail (inbox)
 
 | Method | Path | Description |

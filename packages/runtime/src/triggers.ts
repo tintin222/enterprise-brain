@@ -4,6 +4,7 @@ import { companies, type DatabaseHandle } from "@enterprise-brain/db";
 import type { AgentService } from "./agents.ts";
 import { RunError, type RunEngine, type RunRow } from "./engine.ts";
 import { MailService, type MailMessage } from "./mail.ts";
+import type { PeopleService } from "./people.ts";
 import type { TaskRow, TaskService } from "./tasks.ts";
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -116,6 +117,7 @@ export class TriggerService {
     private readonly engine: RunEngine,
     private readonly mail: MailService,
     private readonly tasks: TaskService,
+    private readonly people?: PeopleService,
   ) {}
 
   /**
@@ -128,6 +130,8 @@ export class TriggerService {
       await this.replyToTask(companyId, task, message, options);
       return [];
     }
+    const forwarded = await this.forwardedToAiEmployee(companyId, message, options);
+    if (forwarded !== undefined) return forwarded;
     const active = await this.agents.list(companyId, { status: "active" });
     const started: RunRow[] = [];
     for (const agent of active) {
@@ -156,6 +160,51 @@ export class TriggerService {
       started.push(run);
     }
     return started;
+  }
+
+  /**
+   * An email to the company's AI mailbox gives an AI employee work: "ai+cv-screener@acme.com.tr", or
+   * "CV Screener: …" in the subject. Only people with an account can give work this way.
+   */
+  private async forwardedToAiEmployee(companyId: string, message: MailMessage, options: { wait?: boolean }): Promise<RunRow[] | undefined> {
+    const [company] = await this.handle.db.select({ settings: companies.settings }).from(companies).where(eq(companies.id, companyId));
+    const aiMailbox = typeof company?.settings.aiMailbox === "string" ? company.settings.aiMailbox.trim().toLowerCase() : "";
+    if (!aiMailbox.includes("@")) return undefined;
+    const [local, domain] = aiMailbox.split("@") as [string, string];
+    const recipients = [message.mailbox, ...message.toAddresses].map((a) => a.toLowerCase().replace(/^.*</, "").replace(/>.*$/, "").trim());
+    const plus = recipients.map((a) => new RegExp(`^${escapeRegExp(local)}\\+([a-z0-9-]+)@${escapeRegExp(domain)}$`).exec(a)?.[1]).find(Boolean);
+    if (!plus && !recipients.includes(aiMailbox)) return undefined;
+
+    const agents = await this.agents.list(companyId);
+    const agent = plus
+      ? agents.find((a) => a.row.slug === plus)
+      : agents.find((a) => message.subject.toLowerCase().startsWith(`${a.definition.name.toLowerCase()}:`) || message.subject.toLowerCase().startsWith(`${a.row.slug}:`));
+    const sender = this.people ? await this.people.findByEmail(companyId, message.fromAddress) : undefined;
+    if (!agent || !sender || sender.status !== "active") {
+      await this.mail.update(companyId, message.id, { status: "ignored" });
+      return [];
+    }
+    const stripped = plus ? message.subject.trim() : message.subject.slice(message.subject.indexOf(":") + 1).trim();
+    const subject = stripped.charAt(0).toUpperCase() + stripped.slice(1);
+    await this.mail.update(companyId, message.id, { status: "processing" });
+    try {
+      const run = await this.engine.start(companyId, agent.row.id, { email: MailService.toEmailInput(message) }, {
+        trigger: "email",
+        triggerRef: message.id,
+        task: `${sender.name} sent you this email to handle.\n\nSubject: ${subject}\n\n${message.bodyText}`,
+        title: subject || `Email from ${sender.name}`,
+        requestedBy: sender.name,
+        actor: `${sender.name} <${sender.email}>`,
+        wait: options.wait ?? false,
+      });
+      if (run.taskId) await this.tasks.linkMail(companyId, message.id, run.taskId);
+      await this.mail.update(companyId, message.id, { runId: run.id, status: "triaged" });
+      return [run];
+    } catch (error) {
+      if (!(error instanceof RunError)) throw error;
+      await this.mail.update(companyId, message.id, { status: "new" });
+      return [];
+    }
   }
 
   private async replyToTask(companyId: string, task: TaskRow, message: MailMessage, options: { wait?: boolean }) {
@@ -226,4 +275,8 @@ export class TriggerService {
     const [row] = await this.handle.db.select({ id: companies.id }).from(companies).where(eq(companies.id, companyId));
     return Boolean(row);
   }
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
