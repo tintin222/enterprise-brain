@@ -1,4 +1,5 @@
-import type { JsonSchema } from "@enterprise-brain/core";
+import type { JsonSchema, NamedAction } from "@enterprise-brain/core";
+import { fillPath, fillTemplate } from "../named-actions.ts";
 import { defineConnector, defineManifest } from "../define.ts";
 import { basicAuth, httpRequest, type HttpRequestOptions, type HttpResponse, type Query } from "../http.ts";
 import { anyObject, readOp, str, writeOp } from "../schema.ts";
@@ -163,7 +164,7 @@ const manifest = defineManifest({
   ],
 });
 
-export const restApiConnector: ConnectorImplementation = defineConnector({
+const restImplementation: ConnectorImplementation = defineConnector({
   manifest,
 
   async test(ctx) {
@@ -197,3 +198,21 @@ export const restApiConnector: ConnectorImplementation = defineConnector({
     http_delete: (input, ctx) => call(ctx, "DELETE", input),
   },
 });
+
+/**
+ * The generic REST connector. With named actions IT defines on a connection, each action is a method,
+ * a path below the base URL with {params}, and query/body templates.
+ */
+export const restApiConnector: ConnectorImplementation = {
+  ...restImplementation,
+  async runAction(action: NamedAction, values: Rec, ctx: ConnectorContext) {
+    if (!action.method || !action.path) throw new ConnectorError(`${action.name} has no method and path`, "config");
+    const query = action.query ? (fillTemplate(action.query, values) as Rec) : undefined;
+    const body = action.body !== undefined ? fillTemplate(action.body, values) : undefined;
+    return call(ctx, action.method, {
+      path: fillPath(action.path, values),
+      ...(query && Object.values(query).some((v) => v !== undefined && v !== "") ? { query: Object.fromEntries(Object.entries(query).filter(([, v]) => v !== undefined && v !== "")) } : {}),
+      ...(body !== undefined ? { body } : {}),
+    });
+  },
+};

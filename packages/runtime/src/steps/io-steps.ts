@@ -75,7 +75,9 @@ export async function runConnector(step: Step<"connector">, scope: ExecutionScop
   const resolvedInput = resolveTemplate(step.input, scope.context);
   const input = isRecord(resolvedInput) ? stripEmpty(resolvedInput) : {};
   const check =
-    op.kind === "write" ? await approvalCheck(deps, scope, { type: "connector", ref: binding.ref, operation: op.id, input }, step.requiresApproval) : undefined;
+    op.kind === "write" || op.requiresApproval
+      ? await approvalCheck(deps, scope, { type: "connector", ref: binding.ref, operation: op.id, input, alwaysAsk: op.requiresApproval }, step.requiresApproval)
+      : undefined;
   if (check?.needed) {
     return {
       kind: "pause",

@@ -146,6 +146,12 @@ Everything that needs a person, in one list: approvals of AI employees' changes,
 | DELETE | `/api/companies/:company/connectors/:id` | |
 | POST | `/api/companies/:company/connectors/:id/test` | `{ ok, message }` |
 | POST | `/api/companies/:company/connectors/types/:type/operations/:operation` | `{ input }` → `{ result }` (e.g. browse the sandbox ERP) |
+| GET | `/api/companies/:company/connectors/:id/actions` | Admin. `{ supports, actions: NamedAction[] }` |
+| PUT | `/api/companies/:company/connectors/:id/actions` | Admin. `{ actions: NamedAction[] }`: replaces the connection's named actions (400 when one doesn't fit) |
+| POST | `/api/companies/:company/connectors/:id/actions/import` | Admin. Proposes actions (not saved): `{ openapi: object \| "JSON or YAML text" }`, `{ url }` of an OpenAPI/Swagger description, or `{ examples: "GET https://…\nPOST https://… {json}" }` → `{ actions, baseUrl?, warnings[] }` |
+| POST | `/api/companies/:company/connectors/:id/actions/:action/test` | Admin. `{ input, confirm? }` → `{ ok, durationMs, result }`; a write action needs `confirm: true` |
+
+**Named actions.** IT turns a web service (the generic REST connector) or a database (the SQL connector: PostgreSQL, SQL Server, MySQL) into named actions; a connection that has them offers AI employees those actions and nothing else. `NamedAction`: `{ id (get_customer), name, description, kind: read\|write, requiresApproval?, params: [{ key, type: string\|number\|integer\|boolean\|date, description?, required }], method?, path? ("/customers/{customer_id}"), query? ({ include: "{include}" }), body? (JSON template: "{param}" alone keeps the value's type), sql? ("SELECT … WHERE id = :customer_id"), watch? { cursorField, idField?, start? } }`. Values are checked against the parameters before anything is called. Database read actions run in a transaction that is always rolled back; write actions commit. `requiresApproval` means a person approves every use, at every probation level and whatever a workflow says. A watched action (it takes a `since` parameter) reports new rows or items as the event `new:<id>`, which starts `connector-event` duties.
 
 ## Watching mailboxes and systems
 

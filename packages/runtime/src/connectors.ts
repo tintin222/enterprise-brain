@@ -1,8 +1,9 @@
 import { and, asc, eq, sql } from "drizzle-orm";
-import type { ConnectorBinding, ConnectorManifest, OperationManifest } from "@enterprise-brain/core";
+import { NamedAction, type ConnectorBinding, type ConnectorManifest, type OperationManifest } from "@enterprise-brain/core";
 import {
   ConnectorError,
   sandboxConnectorFor,
+  withNamedActions,
   type ConnectorContext,
   type ConnectorImplementation,
   type ConnectorRegistry,
@@ -157,6 +158,41 @@ export class ConnectorService {
       .where(and(eq(connectorInstances.companyId, companyId), eq(connectorInstances.id, id)));
   }
 
+  /** A connection's named actions (IT's own actions on a web service or database). */
+  actionsOf(config: Record<string, unknown>): NamedAction[] {
+    const parsed = NamedAction.array().safeParse(config.actions ?? []);
+    return parsed.success ? parsed.data : [];
+  }
+
+  /** The implementation serving a connection: its named actions (and only those) when it has any. */
+  private implFor(row: typeof connectorInstances.$inferSelect): ConnectorImplementation | undefined {
+    const impl = this.registry.get(row.type);
+    if (!impl) return undefined;
+    const actions = this.actionsOf(row.config);
+    return actions.length && impl.runAction ? withNamedActions(impl, actions) : impl;
+  }
+
+  /** Replace a connection's named actions (IT). Checked against each other and the connector. */
+  async setActions(companyId: string, id: string, actions: unknown[]): Promise<ConnectorInstanceView> {
+    const row = await this.row(companyId, id);
+    const impl = this.registry.get(row.type);
+    if (!impl?.runAction) throw new ConnectorError(`${impl?.manifest.name ?? row.type} connections don't take named actions`, "unsupported");
+    const parsed = NamedAction.array().parse(actions);
+    const ids = new Set<string>();
+    for (const action of parsed) {
+      if (ids.has(action.id)) throw new ConnectorError(`Two actions are called ${action.id}`, "validation");
+      ids.add(action.id);
+      if (impl.manifest.type === "sql-database" && !action.sql) throw new ConnectorError(`${action.name}: a database action needs its SQL`, "validation");
+      if (impl.manifest.type !== "sql-database" && !(action.method && action.path)) throw new ConnectorError(`${action.name}: a web service action needs a method and a path`, "validation");
+    }
+    const [updated] = await this.handle.db
+      .update(connectorInstances)
+      .set({ config: { ...row.config, actions: parsed }, updatedAt: new Date() })
+      .where(and(eq(connectorInstances.companyId, companyId), eq(connectorInstances.id, id)))
+      .returning();
+    return this.view(updated!);
+  }
+
   async list(companyId: string): Promise<ConnectorInstanceView[]> {
     const rows = await this.handle.db
       .select()
@@ -214,7 +250,7 @@ export class ConnectorService {
 
   private async instanceContext(companyId: string, id: string) {
     const row = await this.row(companyId, id);
-    const impl = this.registry.get(row.type);
+    const impl = this.implFor(row);
     if (!impl) throw new ConnectorError(`Unknown connector type "${row.type}"`, "config");
     const secrets = row.secretsCiphertext ? this.secretBox.decrypt<Record<string, string>>(row.secretsCiphertext) : {};
     return { row, impl, ctx: this.context(companyId, row.config, secrets) };
@@ -242,14 +278,14 @@ export class ConnectorService {
   async resolve(companyId: string, binding: Pick<ConnectorBinding, "category" | "instanceId" | "ref">): Promise<ResolvedConnector> {
     if (binding.instanceId) {
       const row = await this.row(companyId, binding.instanceId);
-      const impl = this.registry.get(row.type);
+      const impl = this.implFor(row);
       if (!impl) throw new ConnectorError(`Unknown connector type "${row.type}"`, "config");
       return { impl, instanceId: row.id, sandbox: impl.manifest.maturity === "sandbox", name: row.name };
     }
     const instances = await this.list(companyId);
     const match = instances.find((i) => i.category === binding.category && !i.sandbox);
     if (match) {
-      return { impl: this.registry.get(match.type)!, instanceId: match.id, sandbox: false, name: match.name };
+      return { impl: this.implFor(await this.row(companyId, match.id))!, instanceId: match.id, sandbox: false, name: match.name };
     }
     const sandboxType = sandboxConnectorFor(binding.category);
     const sandboxImpl = sandboxType ? this.registry.get(sandboxType) : undefined;

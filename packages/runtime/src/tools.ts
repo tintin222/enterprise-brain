@@ -340,7 +340,10 @@ export async function buildTools(
               inputSchema: objectSchema(op.input),
             },
             async execute(input) {
-              const check = op.kind === "write" ? await approvalCheck(deps, scope, { type: "connector", ref: binding.ref, operation: op.id, input }) : undefined;
+              const check =
+                op.kind === "write" || op.requiresApproval
+                  ? await approvalCheck(deps, scope, { type: "connector", ref: binding.ref, operation: op.id, input, alwaysAsk: op.requiresApproval })
+                  : undefined;
               if (check?.needed) {
                 return deferred(
                   `${op.name} in ${target.name}`,

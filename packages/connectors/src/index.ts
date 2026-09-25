@@ -46,6 +46,7 @@ export { successFactorsConnector } from "./connectors/sap-successfactors.ts";
 export { workdayConnector } from "./connectors/workday.ts";
 export { resolveRestUrl, restApiConnector } from "./connectors/rest-api.ts";
 export {
+  bindNamedParams,
   createSqlDatabaseConnector,
   DEFAULT_MAX_ROWS,
   guardReadOnlySql,
@@ -54,6 +55,10 @@ export {
   type SqlClient,
   type SqlClientConfig,
   type SqlDatabaseDeps,
+  type SqlDialect,
   type SqlQueryResult,
 } from "./connectors/sql-database.ts";
 export { signWebhookPayload, SUBMISSION_EVENT, verifyWebhookSignature, webhookInboundConnector } from "./connectors/webhook-inbound.ts";
+
+// Named actions: IT's own actions on web services and databases
+export { actionsFromExamples, actionsFromOpenApi, checkParams, compareCursor, fillPath, fillTemplate, pollAction, rowsOf, toOperation, withNamedActions, type ProposedActions } from "./named-actions.ts";

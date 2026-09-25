@@ -9,7 +9,10 @@ export interface Employment {
 export const DEFAULT_EMPLOYMENT: Employment = { probation: "supervised", limits: {} };
 
 /** A change an AI employee wants to make: an email sent, or a write action in a connected system. */
-export type WriteAction = { type: "mail.send"; to: string } | { type: "connector"; ref: string; operation: string; input: Record<string, unknown> };
+export type WriteAction =
+  | { type: "mail.send"; to: string }
+  /** alwaysAsk: IT marked the action "a person approves every use". */
+  | { type: "connector"; ref: string; operation: string; input: Record<string, unknown>; alwaysAsk?: boolean };
 
 export interface ApprovalCheck {
   needed: boolean;
@@ -42,6 +45,8 @@ export function checkApproval(
   action: WriteAction,
   options: { explicit?: boolean; changesToday?: number } = {},
 ): ApprovalCheck {
+  // IT's rule for the action comes first: it holds at every level and in every workflow.
+  if (action.type === "connector" && action.alwaysAsk) return { needed: true, reason: "IT asks a person to approve every use of this action" };
   if (options.explicit === true) return { needed: true, reason: "This step always asks a person" };
   if (options.explicit === false) return { needed: false, reason: "A person approved it earlier in this task" };
   if (employment.probation !== "trusted") {

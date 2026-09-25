@@ -4,15 +4,22 @@
   "private": true,
   "type": "module",
   "description": "Connector SDK and built-in adapters for enterprise systems (ERP, CRM, HRIS, ATS, ITSM, mail, file storage, databases, generic REST) plus sandbox systems with demo data.",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": { "typecheck": "tsc -p tsconfig.json" },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
   "dependencies": {
     "@enterprise-brain/core": "workspace:*",
     "imapflow": "^2.0.6",
+    "mssql": "^12.7.2",
+    "mysql2": "^3.24.4",
     "nodemailer": "^8.0.0",
     "pg": "^8.16.0"
   },
   "devDependencies": {
+    "@types/mssql": "^12.3.0",
     "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.15.0"
   }

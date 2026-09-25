@@ -25,8 +25,64 @@ export const OperationManifest = z.object({
   /** JSON Schema of the operation input (exposed to agents as a tool). */
   input: z.record(z.string(), z.unknown()),
   output: z.record(z.string(), z.unknown()).optional(),
+  /** IT's rule: a person approves every use, whatever the AI employee's level (named actions). */
+  requiresApproval: z.boolean().optional(),
 });
 export type OperationManifest = z.infer<typeof OperationManifest>;
+
+/** A value a named action takes: `{customer_id}` in a path, `:customer_id` in SQL. */
+export const ActionParam = z.object({
+  key: z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/),
+  type: z.enum(["string", "number", "integer", "boolean", "date"]).default("string"),
+  description: z.string().optional(),
+  required: z.boolean().default(false),
+});
+export type ActionParam = z.infer<typeof ActionParam>;
+
+/**
+ * A named action: one thing AI employees may do in a connected system, named and described in plain
+ * words by IT and marked read or write. A web service action is a method, a path and templates
+ * (`/customers/{customer_id}`); a database action is a SQL statement with `:params`. Business users
+ * and AI employees see only these, never raw calls.
+ */
+export const NamedAction = z
+  .object({
+    id: z.string().regex(/^[a-z][a-z0-9_]*$/, "Use lower-case letters, digits and _ (e.g. get_customer)"),
+    name: z.string().min(1),
+    description: z.string().default(""),
+    kind: z.enum(["read", "write"]),
+    /** A person approves every use, at every probation level. */
+    requiresApproval: z.boolean().optional(),
+    params: z.array(ActionParam).default([]),
+    // Web services
+    method: z.enum(["GET", "POST", "PUT", "PATCH", "DELETE"]).optional(),
+    path: z.string().optional(),
+    query: z.record(z.string(), z.string()).optional(),
+    body: z.unknown().optional(),
+    // Databases
+    sql: z.string().optional(),
+    /**
+     * Watch it for new rows or items (by cursorField, e.g. created_at or id): each new one starts the
+     * duties that listen for "new:<id>". The action receives the last value seen as `since`.
+     */
+    watch: z
+      .object({
+        cursorField: z.string().min(1),
+        idField: z.string().optional(),
+        /** Where watching starts: "now" (default, an ISO time) or a value such as 0. */
+        start: z.string().optional(),
+      })
+      .optional(),
+  })
+  .superRefine((action, ctx) => {
+    if (!action.sql && !(action.method && action.path)) {
+      ctx.addIssue({ code: "custom", message: `${action.id}: give a method and a path (web service) or a SQL statement (database)` });
+    }
+    const keys = new Set(action.params.map((p) => p.key));
+    if (keys.size !== action.params.length) ctx.addIssue({ code: "custom", message: `${action.id}: parameter names must be unique` });
+    if (action.watch && !keys.has("since")) ctx.addIssue({ code: "custom", message: `${action.id}: a watched action takes a "since" parameter` });
+  });
+export type NamedAction = z.infer<typeof NamedAction>;
 
 export const ConnectorManifest = z.object({
   type: z.string().regex(/^[a-z][a-z0-9-]*$/),

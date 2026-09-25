@@ -1,4 +1,4 @@
-import type { ConnectorManifest } from "@enterprise-brain/core";
+import type { ConnectorManifest, NamedAction } from "@enterprise-brain/core";
 
 /**
  * Connector SDK contract. A connector is a manifest (what it is, how to
@@ -56,6 +56,8 @@ export interface ConnectorImplementation {
   execute(operationId: string, input: Record<string, unknown>, ctx: ConnectorContext): Promise<unknown>;
   /** Optional polling for manifest.events (e.g. new mail since a cursor). */
   poll?(eventId: string, ctx: ConnectorContext, cursor?: string): Promise<{ events: ConnectorEvent[]; cursor?: string }>;
+  /** Run a named action IT defined on a connection (web services, databases), with checked values. */
+  runAction?(action: NamedAction, values: Record<string, unknown>, ctx: ConnectorContext): Promise<unknown>;
 }
 
 export class ConnectorError extends Error {
