@@ -18,6 +18,7 @@ import {
 import type { CompanyRow } from "@enterprise-brain/runtime";
 import type { AppContext } from "../context.ts";
 import { HttpError, bearer, companyOf, sse } from "../http.ts";
+import { PaperclipBridge } from "../paperclip-bridge.ts";
 
 type Model = { departments: ExportDepartment[]; processes: ExportProcess[]; agents: ExportAgent[] };
 
@@ -88,6 +89,9 @@ function buildPackage(ctx: AppContext, company: CompanyRow, model: Model, includ
 
 export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
   const { platform, config } = ctx;
+  const bridge = new PaperclipBridge(platform, config);
+  const stopBridge = bridge.start();
+  app.addHook("onClose", async () => stopBridge());
   const PackageQuery = z.object({
     scope: z.enum(["installed", "catalog"]).default("installed"),
     departments: z.string().optional(),
@@ -128,7 +132,7 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
       .parse(request.body ?? {});
     const url = body.paperclipUrl ?? config.paperclip?.url;
     if (!url) throw new HttpError(400, "Set PAPERCLIP_URL (or pass paperclipUrl) to push to Paperclip");
-    if (!config.hermesApiKey) throw new HttpError(400, "Set EB_HERMES_API_KEY so Paperclip can authenticate to Enterprise Brain");
+    if (!config.hermesApiKey) throw new HttpError(400, "Enterprise Brain has no Hermes gateway key: set EB_HERMES_API_KEY to a long random secret (Paperclip sends it to Enterprise Brain)");
     if (body.target === "existing_company" && !body.paperclipCompanyId) throw new HttpError(400, "paperclipCompanyId is required for existing_company");
     const model = await packageModel(ctx, company, "installed", body.departments);
     const result = buildPackage(ctx, company, model, body.target === "new_company");
@@ -149,11 +153,31 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
       ]),
     );
     const client = new PaperclipClient(url, body.paperclipApiKey ?? config.paperclip?.apiKey);
-    const response = await client.importCompany({
+    const response = (await client.importCompany({
       files: result.files,
       rootPath: company.slug,
       target: body.target === "new_company" ? { mode: "new_company" } : { mode: "existing_company", companyId: body.paperclipCompanyId! },
       adapterOverrides,
+    })) as { company?: { id?: string }; agents?: { slug?: string; id?: string | null }[] } | null;
+    // Each Enterprise Brain agent gets its own Paperclip API key, so it can close its issues like any employee.
+    const imported = new Map((response?.agents ?? []).filter((a) => a.slug && a.id).map((a) => [a.slug!, a.id!]));
+    const keys: { paperclipAgentId: string; slug: string; token: string }[] = [];
+    const keyWarnings: string[] = [];
+    for (const { paperclipSlug, ebSlug } of result.specialists) {
+      const paperclipAgentId = imported.get(paperclipSlug);
+      if (!paperclipAgentId) continue;
+      try {
+        const { token } = await client.createAgentKey(paperclipAgentId, "enterprise-brain");
+        keys.push({ paperclipAgentId, slug: ebSlug, token });
+      } catch (error) {
+        keyWarnings.push(`No Paperclip key for ${paperclipSlug}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    await bridge.remember(company.id, {
+      url,
+      companyId: response?.company?.id ?? (body.target === "existing_company" ? body.paperclipCompanyId : undefined),
+      boardKey: body.paperclipApiKey,
+      agents: keys,
     });
     await platform.activity.record(company.id, {
       actor: "user",
@@ -162,7 +186,22 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
       entityId: company.id,
       summary: `Pushed ${result.summary.agents} agents to Paperclip (${url})`,
     });
-    return { ok: true, summary: result.summary, warnings: result.warnings, paperclip: response };
+    return { ok: true, summary: result.summary, warnings: [...result.warnings, ...keyWarnings], agentKeys: keys.length, paperclip: response };
+  });
+
+  /** What Paperclip needs to call Enterprise Brain, and what is known about the linked Paperclip company. */
+  app.get("/api/companies/:company/paperclip/connection", async (request) => {
+    const company = await companyOf(platform, request);
+    const link = await bridge.link(company.id);
+    return {
+      hermes: { apiBaseUrl: `${config.publicUrl}/api/hermes`, apiKey: config.hermesApiKey ?? null, keySource: config.hermesApiKeySource ?? null },
+      paperclip: {
+        url: link?.url ?? config.paperclip?.url ?? null,
+        configured: Boolean(config.paperclip?.url),
+        companyId: link?.companyId ?? null,
+        agentsWithKeys: Object.keys(link?.agents ?? {}).length,
+      },
+    };
   });
 
   // -------------------------------------------------------------------------
@@ -183,7 +222,16 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
       .where(and(eq(approvals.runId, runId), eq(approvals.status, "pending")));
     return {
       companyId: run.companyId,
-      snap: { id: run.id, status: run.status, output: run.output ?? null, error: run.error, usage: run.usage, pendingApproval: pending ?? null, model: platform.llm.model },
+      snap: {
+        id: run.id,
+        status: run.status,
+        output: run.output ?? null,
+        error: run.error,
+        usage: run.usage,
+        pendingApproval: pending ?? null,
+        approvalsUrl: `${config.publicUrl}/approvals`,
+        model: platform.llm.model,
+      },
     };
   };
 
@@ -204,11 +252,12 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
         .where(and(eq(runs.companyId, company.id), eq(runs.trigger, "paperclip"), eq(runs.triggerRef, hermes.idempotencyKey)));
       if (existing) return { run_id: existing.id, status: toHermesStatus({ id: existing.id, status: existing.status, output: null, error: null, usage: {} }) };
     }
+    const brief = await bridge.taskBrief(company.id, hermes.paperclip);
     const run = await platform.engine.start(
       company.id,
       hermes.agent,
       { paperclip: hermes.paperclip },
-      { trigger: "paperclip", triggerRef: hermes.idempotencyKey ?? hermes.paperclip.runId ?? null, wait: false, task: hermes.input, actor: "paperclip" },
+      { trigger: "paperclip", triggerRef: hermes.idempotencyKey ?? hermes.paperclip.runId ?? null, wait: false, task: brief ?? hermes.input, actor: "paperclip" },
     );
     return { run_id: run.id, status: "running" };
   });
@@ -216,7 +265,11 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get("/api/hermes/v1/runs/:id", async (request) => {
     authorize(request);
     const { id } = request.params as { id: string };
-    const { snap } = await snapshot(id);
+    let { snap } = await snapshot(id);
+    if (toHermesStatus(snap) !== "running" && toHermesStatus(snap) !== "queued") {
+      await bridge.settleDuringRun(id);
+      ({ snap } = await snapshot(id));
+    }
     return hermesRunBody(snap);
   });
 
@@ -226,6 +279,8 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
     const { snap } = await snapshot(id);
     const stream = sse(reply);
     const finish = async () => {
+      // The issue gets its disposition while the Paperclip run is still open.
+      await bridge.settleDuringRun(id);
       const { snap: final } = await snapshot(id);
       const body = hermesRunBody(final);
       stream.send(`run.${body.status}`, body);
@@ -239,7 +294,9 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
       id,
       (event) => {
         stream.send("run.progress", { type: event.type, message: event.message });
-        if (["run.succeeded", "run.failed", "run.cancelled", "approval.requested"].includes(event.type)) void finish();
+        // A workflow pause ends the Paperclip run; a deferred approval (task mode) doesn't stop the run.
+        const pause = event.type === "approval.requested" && !(event.data as { deferred?: boolean } | undefined)?.deferred;
+        if (pause || ["run.succeeded", "run.failed", "run.cancelled"].includes(event.type)) void finish();
       },
       (delta) => stream.send("message.delta", { delta }),
     );

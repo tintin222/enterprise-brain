@@ -79,6 +79,8 @@ export interface EbRunSnapshot {
   error: string | null;
   usage: Record<string, unknown>;
   pendingApproval?: { id: string; title: string } | null;
+  /** Where people approve (Enterprise Brain's approvals page), linked from the waiting note. */
+  approvalsUrl?: string;
   model?: string;
 }
 
@@ -102,7 +104,7 @@ export function toHermesStatus(run: EbRunSnapshot): HermesStatus {
 export function hermesOutput(run: EbRunSnapshot): string {
   if (run.status === "failed") return run.error ?? "The Enterprise Brain run failed.";
   if (run.status === "waiting_approval") {
-    return `Waiting for human approval in Enterprise Brain${run.pendingApproval ? `: "${run.pendingApproval.title}" (approval ${run.pendingApproval.id})` : ""}. The work continues automatically once it is approved.`;
+    return `Waiting for human approval in Enterprise Brain${run.pendingApproval ? `: "${run.pendingApproval.title}"` : ""}. ${run.approvalsUrl ? `Approve or reject it at ${run.approvalsUrl}; ` : ""}the work continues automatically once it is approved.`;
   }
   const output = run.output ?? {};
   const text = [output.text, output.result, output.summary, output.answer].find((v) => typeof v === "string" && v.trim());

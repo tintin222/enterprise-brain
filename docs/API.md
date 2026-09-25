@@ -2,7 +2,7 @@
 
 Base URL: `http://localhost:3200` (configurable with `PORT` / `EB_PUBLIC_URL`).
 
-* **Auth.** When `EB_API_KEY` is set, every `/api/...` and `/mcp` request needs `Authorization: Bearer <EB_API_KEY>` (or `x-api-key`). Public exceptions: `/api/health`, `/api/info`, `/api/public/*` (token-protected stakeholder pages) and `/api/hermes/*` (Paperclip gateway, `EB_HERMES_API_KEY`). Without `EB_API_KEY` the server runs in *local trusted* mode, like Paperclip's `local_trusted`.
+* **Auth.** When `EB_API_KEY` is set, every `/api/...` and `/mcp` request needs `Authorization: Bearer <EB_API_KEY>` (or `x-api-key`). Public exceptions: `/api/health`, `/api/info`, `/api/public/*` (token-protected stakeholder pages) and `/api/hermes/*` (Paperclip gateway: Bearer Hermes key, which is `EB_HERMES_API_KEY`, else `EB_API_KEY`, else the key generated in `<EB_DATA_DIR>/hermes.key`). Without `EB_API_KEY` the server runs in *local trusted* mode, like Paperclip's `local_trusted`.
 * **Companies.** Every domain route is company-scoped: `/api/companies/:company/...`, where `:company` is the slug or id (default slug `acme`).
 * **Errors.** Non-2xx responses have the body `{ "error": string, "issues"?: [...] }`.
 * **Streaming.** Endpoints marked *SSE* return `text/event-stream`.
@@ -141,8 +141,9 @@ A run row: `{ id, agentId, agentVersion, trigger, triggerRef, status (running/wa
 |---|---|---|
 | GET | `/api/companies/:company/paperclip/package?scope=installed\|catalog&departments=hr,finance&ceo=true` | `{ files: {path: content}, warnings[], agentSlugs[], specialists[], summary }` |
 | GET | `/api/companies/:company/paperclip/package.zip?…` | Same as a zip |
-| POST | `/api/companies/:company/paperclip/push` | `{ paperclipUrl?, paperclipApiKey?, target: new_company\|existing_company, paperclipCompanyId?, departments? }` — imports via Paperclip's API and sets each agent's `hermes_gateway` key |
-| GET | `/api/hermes/health` | Hermes gateway health (Bearer `EB_HERMES_API_KEY`) |
+| POST | `/api/companies/:company/paperclip/push` | `{ paperclipUrl?, paperclipApiKey?, target: new_company\|existing_company, paperclipCompanyId?, departments? }` → `{ ok, summary, warnings[], agentKeys, paperclip }`. Imports via Paperclip's API, sets each agent's `hermes_gateway` key, and creates a Paperclip API key per agent (`agentKeys` = how many) |
+| GET | `/api/companies/:company/paperclip/connection` | `{ hermes: {apiBaseUrl, apiKey, keySource: env\|api-key\|generated}, paperclip: {url, configured, companyId, agentsWithKeys} }` |
+| GET | `/api/hermes/health` | Hermes gateway health (Bearer Hermes key) |
 | POST | `/api/hermes/v1/runs` | Hermes contract: `{ agent, company?, input, instructions?, session_id? }` → `{ run_id, status }` |
 | GET | `/api/hermes/v1/runs/:id` | `{ run_id, status, output, usage {input_tokens, output_tokens, cached_input_tokens}, cost_usd, model, session_id }` |
 | GET | `/api/hermes/v1/runs/:id/events` | *SSE*: `message.delta`, `run.progress`, terminal `run.completed` / `run.failed` / `run.cancelled` |

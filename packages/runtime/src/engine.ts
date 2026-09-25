@@ -78,6 +78,7 @@ export function defaultAgentStep(definition: AgentDefinition): WorkflowStep {
 export class RunEngine {
   readonly toolDeps: ToolDeps;
   private readonly listeners = new Map<string, Set<(event: RunEventRecord) => void>>();
+  private readonly anyListeners = new Set<(event: RunEventRecord) => void>();
   private readonly textListeners = new Map<string, Set<(delta: string) => void>>();
   private readonly executing = new Map<string, Promise<void>>();
   private readonly seqs = new Map<string, number>();
@@ -484,7 +485,8 @@ export class RunEngine {
     }
 
     // Deferred actions requested by autonomous steps/chat run when approved.
-    if (decision.approved && action.type !== "decision") {
+    const executes = decision.approved && action.type !== "decision";
+    if (executes) {
       try {
         const result = await executeAction(this.deps, companyId, action);
         await this.deps.handle.db
@@ -499,7 +501,17 @@ export class RunEngine {
           .update(approvals)
           .set({ action: { ...(action as unknown as Record<string, unknown>), error: errorMessage(error) } as Record<string, unknown> })
           .where(eq(approvals.id, approvalId));
+        if (approval.runId) {
+          await this.emit(approval.runId, { type: "approval.failed", message: `Failed: ${approval.title}: ${errorMessage(error)}`, data: { approvalId } });
+        }
       }
+    }
+    if (!executes && approval.runId) {
+      await this.emit(approval.runId, {
+        type: "approval.decided",
+        message: `${decision.approved ? "Approved" : "Rejected"} by ${decidedBy}${decision.note ? `: ${decision.note}` : ""}`,
+        data: { approvalId, approved: decision.approved, deferred: true },
+      });
     }
     return this.approvalRow(approvalId);
   }
@@ -512,6 +524,12 @@ export class RunEngine {
   // -------------------------------------------------------------------------
   // Events
   // -------------------------------------------------------------------------
+
+  /** Events of every run, for integrations that follow runs they didn't start (e.g. after an approval). */
+  onAnyEvent(listener: (event: RunEventRecord) => void): () => void {
+    this.anyListeners.add(listener);
+    return () => this.anyListeners.delete(listener);
+  }
 
   subscribe(runId: string, onEvent: (event: RunEventRecord) => void, onText?: (delta: string) => void): () => void {
     const set = this.listeners.get(runId) ?? new Set();
@@ -558,6 +576,7 @@ export class RunEngine {
     });
     const record: RunEventRecord = { ...event, runId, seq, createdAt: createdAt.toISOString() };
     this.listeners.get(runId)?.forEach((fn) => fn(record));
+    this.anyListeners.forEach((fn) => fn(record));
     if (["run.succeeded", "run.failed", "run.cancelled"].includes(event.type)) this.seqs.delete(runId);
   }
 

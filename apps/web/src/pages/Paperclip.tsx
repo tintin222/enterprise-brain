@@ -28,7 +28,7 @@ import { Segmented } from "../components/Tabs.tsx";
 import { useCompany } from "../lib/company.tsx";
 import { useCatalog, useDepartments } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
-import type { PaperclipPackage, PaperclipPushResult } from "../types.ts";
+import type { PaperclipConnection, PaperclipPackage, PaperclipPushResult } from "../types.ts";
 
 interface TreeNode {
   name: string;
@@ -109,6 +109,11 @@ export default function Paperclip() {
       : (catalog.data?.departments ?? []).map((d) => ({ id: d.id, name: d.name }));
 
   const params = qs({ scope, departments: selectedDepts.join(",") || undefined, ceo: ceo ? "true" : "false" });
+  const connection = useQuery({
+    queryKey: [company, "paperclip", "connection"],
+    queryFn: () => api.get<PaperclipConnection>(path("/paperclip/connection")),
+  });
+  const [showKey, setShowKey] = useState(false);
   const pkg = useQuery({
     queryKey: [company, "paperclip", built],
     queryFn: () => api.get<PaperclipPackage>(path(`/paperclip/package${built ?? ""}`)),
@@ -133,10 +138,12 @@ export default function Paperclip() {
         paperclipCompanyId: push.target === "existing_company" ? push.paperclipCompanyId : undefined,
         departments: selectedDepts.length ? selectedDepts : undefined,
       }),
-    onSuccess: (res) =>
+    onSuccess: (res) => {
+      void connection.refetch();
       toast.success("Pushed to Paperclip", {
         description: `${res.summary.agents} agents, ${res.summary.departments} departments, ${res.summary.routines} routines.`,
-      }),
+      });
+    },
     onError: (e) => toast.error(e),
   });
 
@@ -147,7 +154,12 @@ export default function Paperclip() {
     downloadWithAuth(zipHref, `${company}-paperclip.zip`).catch((err) => toast.error(err));
   };
 
-  const hermes = JSON.stringify({ apiBaseUrl: `${origin}/api/hermes`, apiKey: "<EB_HERMES_API_KEY>", payloadTemplate: { agent: "<slug>" } }, null, 2);
+  const hermesKey = connection.data?.hermes.apiKey ?? "<EB_HERMES_API_KEY>";
+  const hermesConfig = (key: string) =>
+    JSON.stringify({ apiBaseUrl: connection.data?.hermes.apiBaseUrl ?? `${origin}/api/hermes`, apiKey: key, payloadTemplate: { agent: "<slug>" } }, null, 2);
+  const hermes = hermesConfig(hermesKey);
+  const hermesShown = hermesConfig(showKey ? hermesKey : `${hermesKey.slice(0, 6)}…`);
+  const keySource = connection.data?.hermes.keySource;
   const mcpUrl = `${origin}/mcp`;
 
   const submitPush = (e: FormEvent) => {
@@ -354,7 +366,10 @@ export default function Paperclip() {
               </Button>
               {pushMutation.data && (
                 <div className="space-y-2">
-                  <Callout tone="success">Imported {pushMutation.data.summary.agents} agents into Paperclip.</Callout>
+                  <Callout tone="success">
+                    Imported {pushMutation.data.summary.agents} agents into Paperclip.
+                    {pushMutation.data.agentKeys ? ` ${pushMutation.data.agentKeys} Enterprise Brain agents got their own Paperclip key, so they close their tasks themselves.` : ""}
+                  </Callout>
                   <JsonDetails data={pushMutation.data.paperclip} label="Paperclip response" />
                 </div>
               )}
@@ -365,12 +380,31 @@ export default function Paperclip() {
             <CardHeader title="Configuration snippets" icon={Server} />
             <div className="space-y-5 p-5">
               <div>
-                <div className="mb-1.5 flex items-center justify-between">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
                   <p className="text-sm font-medium text-fg">hermes_gateway adapter</p>
-                  <CopyButton text={hermes} label="Copy" size="xs" />
+                  <div className="flex items-center gap-1">
+                    <Button size="xs" variant="ghost" onClick={() => setShowKey(!showKey)}>
+                      {showKey ? "Hide key" : "Show key"}
+                    </Button>
+                    <CopyButton text={hermes} label="Copy" size="xs" />
+                  </div>
                 </div>
-                <pre className="overflow-x-auto rounded-lg border border-line bg-subtle/60 p-3 font-mono text-xs text-fg">{hermes}</pre>
-                <p className="hint">Use in a Paperclip agent's adapter config; replace &lt;slug&gt; with the agent's slug.</p>
+                <pre className="overflow-x-auto rounded-lg border border-line bg-subtle/60 p-3 font-mono text-xs text-fg">{hermesShown}</pre>
+                <p className="hint">
+                  Push sets this on every Enterprise Brain agent for you. For a manual import, paste it into each agent's adapter config and replace &lt;slug&gt;.{" "}
+                  {keySource === "generated"
+                    ? "The key was generated for this installation (hermes.key in the data folder); set EB_HERMES_API_KEY to use your own."
+                    : keySource === "api-key"
+                      ? "The key is EB_API_KEY; set EB_HERMES_API_KEY to give Paperclip its own."
+                      : keySource === "env"
+                        ? "The key comes from EB_HERMES_API_KEY."
+                        : ""}
+                </p>
+                {connection.data?.paperclip.companyId && (
+                  <p className="hint mt-1">
+                    Linked Paperclip company {connection.data.paperclip.companyId}: {connection.data.paperclip.agentsWithKeys} agents close their tasks in Paperclip (done, or blocked while an approval is pending).
+                  </p>
+                )}
               </div>
               <div>
                 <div className="mb-1.5 flex items-center justify-between">

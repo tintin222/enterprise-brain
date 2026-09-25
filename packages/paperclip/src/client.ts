@@ -10,6 +10,23 @@ export interface PaperclipImportOptions {
   pauseAutomations?: boolean;
 }
 
+export interface PaperclipIssue {
+  id: string;
+  identifier?: string;
+  title?: string;
+  description?: string | null;
+  status: string;
+  assigneeAgentId?: string | null;
+}
+
+export interface PaperclipComment {
+  id: string;
+  body?: string | null;
+  authorAgentId?: string | null;
+  authorUserId?: string | null;
+  createdAt?: string;
+}
+
 export class PaperclipApiError extends Error {
   constructor(message: string, readonly status: number, readonly body?: unknown) {
     super(message);
@@ -24,13 +41,16 @@ export class PaperclipClient {
     private readonly fetchImpl: typeof fetch = globalThis.fetch.bind(globalThis),
   ) {}
 
-  private async request(path: string, init: RequestInit = {}): Promise<unknown> {
+  private async request(path: string, init: RequestInit = {}, as?: { token: string; runId?: string }): Promise<unknown> {
+    const token = as?.token ?? this.token;
     const response = await this.fetchImpl(`${this.baseUrl.replace(/\/$/, "")}${path}`, {
       ...init,
       headers: {
         accept: "application/json",
         ...(init.body ? { "content-type": "application/json" } : {}),
-        ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        // Paperclip attributes agent writes to the heartbeat run they happen in.
+        ...(as?.runId ? { "x-paperclip-run-id": as.runId } : {}),
         ...(init.headers as Record<string, string> | undefined),
       },
     });
@@ -70,6 +90,30 @@ export class PaperclipClient {
         ...(options.pauseAutomations !== undefined ? { pauseAutomations: options.pauseAutomations } : {}),
       }),
     });
+  }
+
+  /** Board: create an API key an agent uses to act in Paperclip (returned once, as `token`). */
+  async createAgentKey(agentId: string, name: string): Promise<{ id: string; token: string }> {
+    const body = (await this.request(`/api/agents/${encodeURIComponent(agentId)}/keys`, { method: "POST", body: JSON.stringify({ name }) })) as { id?: string; token?: string };
+    if (!body?.token) throw new PaperclipApiError("Paperclip did not return an agent key", 500, body);
+    return { id: String(body.id ?? ""), token: body.token };
+  }
+
+  getIssue(issueId: string, as?: { token: string }): Promise<PaperclipIssue> {
+    return this.request(`/api/issues/${encodeURIComponent(issueId)}`, {}, as) as Promise<PaperclipIssue>;
+  }
+
+  async issueComments(issueId: string, as?: { token: string }): Promise<PaperclipComment[]> {
+    const body = (await this.request(`/api/issues/${encodeURIComponent(issueId)}/comments`, {}, as)) as PaperclipComment[] | { comments?: PaperclipComment[] };
+    return Array.isArray(body) ? body : (body?.comments ?? []);
+  }
+
+  /**
+   * Update an issue (status and/or comment). With `as`, the update is made by an agent
+   * (its API key and current heartbeat run); without it, with the board credentials.
+   */
+  updateIssue(issueId: string, patch: { status?: string; comment?: string }, as?: { token: string; runId?: string }) {
+    return this.request(`/api/issues/${encodeURIComponent(issueId)}`, { method: "PATCH", body: JSON.stringify(patch) }, as);
   }
 
   previewImport(options: Omit<PaperclipImportOptions, "adapterOverrides" | "pauseAutomations">) {

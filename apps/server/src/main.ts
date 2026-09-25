@@ -29,6 +29,7 @@ async function main() {
       `  API:            ${config.publicUrl}/api/info`,
       `  MCP endpoint:   ${config.publicUrl}/mcp`,
       `  Paperclip:      hermes_gateway apiBaseUrl = ${config.publicUrl}/api/hermes`,
+      `                  key: ${config.hermesApiKeySource === "generated" ? `generated, in ${config.dataDir}/hermes.key (also on the console's Paperclip page)` : config.hermesApiKeySource === "api-key" ? "EB_API_KEY" : "EB_HERMES_API_KEY"}`,
       `  LLM:            ${llm}`,
       `  Embeddings:     ${platform.embedder.model}`,
       `  Database:       ${platform.handle.kind}${config.databaseUrl ? "" : ` (${config.dataDir}/db)`}`,

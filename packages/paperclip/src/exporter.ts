@@ -295,7 +295,7 @@ export function exportCompanyPackage(
     "",
     "## Connect the Enterprise Brain agents",
     "",
-    `Each specialist agent uses the \`hermes_gateway\` adapter pointing at \`${hermesBase}\`. Set its **API key** to your Enterprise Brain Hermes key (\`EB_HERMES_API_KEY\`) after import — or push the package from Enterprise Brain, which sets it automatically through Paperclip's import API.`,
+    `Each specialist agent uses the \`hermes_gateway\` adapter pointing at \`${hermesBase}\`. Set its **API key** to your Enterprise Brain Hermes key after import: it's shown on the Paperclip page of the Enterprise Brain console (\`EB_HERMES_API_KEY\`, or the key generated in \`hermes.key\` in the data folder). Or push the package from Enterprise Brain, which sets it automatically through Paperclip's import API and also lets each agent update its own tasks.`,
     "",
     options.enterpriseBrain.url.startsWith("http://") && !/localhost|127\.0\.0\.1/.test(options.enterpriseBrain.url)
       ? "> Paperclip requires HTTPS for remote Hermes gateways. Serve Enterprise Brain over HTTPS or enable the adapter's dev-only remote HTTP escape hatch."

@@ -934,5 +934,12 @@ export interface PaperclipPushResult {
   ok: boolean;
   summary: { departments: number; agents: number; routines: number };
   warnings: string[];
+  /** Enterprise Brain agents that got their own Paperclip API key (to close their tasks). */
+  agentKeys?: number;
   paperclip: unknown;
+}
+
+export interface PaperclipConnection {
+  hermes: { apiBaseUrl: string; apiKey: string | null; keySource: "env" | "api-key" | "generated" | null };
+  paperclip: { url: string | null; configured: boolean; companyId: string | null; agentsWithKeys: number };
 }

@@ -1,6 +1,16 @@
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+/** A key kept in the data folder: read it, or create it on first use. */
+function keyFile(path: string): string {
+  if (existsSync(path)) return readFileSync(path, "utf8").trim();
+  mkdirSync(resolve(path, ".."), { recursive: true });
+  const key = randomBytes(32).toString("hex");
+  writeFileSync(path, `${key}\n`, { mode: 0o600 });
+  return key;
+}
 
 export interface ServerConfig {
   port: number;
@@ -11,8 +21,12 @@ export interface ServerConfig {
   publicUrl: string;
   /** When set, the console API and MCP endpoint require `Authorization: Bearer <key>`. */
   apiKey?: string;
-  /** Key Paperclip's hermes_gateway adapter must send. Defaults to apiKey. */
+  /**
+   * Shared secret Paperclip's hermes_gateway adapter sends: EB_HERMES_API_KEY, else EB_API_KEY, else a key
+   * generated once in the data folder (hermes.key). Unset only in tests, where the gateway is open.
+   */
   hermesApiKey?: string;
+  hermesApiKeySource?: "env" | "api-key" | "generated";
   defaultCompany: { slug: string; name: string; mailDomain?: string };
   seedDemo: boolean;
   webDist?: string;
@@ -25,15 +39,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const host = env.HOST ?? env.EB_HOST ?? "127.0.0.1";
   const repoRoot = fileURLToPath(new URL("../../../", import.meta.url));
   const webDist = env.EB_WEB_DIST ?? resolve(repoRoot, "apps/web/dist");
+  // Relative paths are taken from the repository root (the server itself runs in apps/server).
+  const dataDir = resolve(repoRoot, env.EB_DATA_DIR ?? ".data");
   return {
     port,
     host,
-    // Relative paths are taken from the repository root (the server itself runs in apps/server).
-    dataDir: resolve(repoRoot, env.EB_DATA_DIR ?? ".data"),
+    dataDir,
     databaseUrl: env.DATABASE_URL || undefined,
     publicUrl: (env.EB_PUBLIC_URL ?? `http://${host === "0.0.0.0" ? "localhost" : host}:${port}`).replace(/\/$/, ""),
     apiKey: env.EB_API_KEY || undefined,
-    hermesApiKey: env.EB_HERMES_API_KEY || env.EB_API_KEY || undefined,
+    hermesApiKey: env.EB_HERMES_API_KEY || env.EB_API_KEY || keyFile(join(dataDir, "hermes.key")),
+    hermesApiKeySource: env.EB_HERMES_API_KEY ? "env" : env.EB_API_KEY ? "api-key" : "generated",
     defaultCompany: {
       slug: env.EB_COMPANY_SLUG ?? "acme",
       name: env.EB_COMPANY_NAME ?? "Acme Endüstri A.Ş.",

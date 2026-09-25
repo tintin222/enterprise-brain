@@ -164,7 +164,7 @@ See [AGENT-BUILDER.md](AGENT-BUILDER.md). In short, it implements the *grilling*
 
 ## 9. Security & governance
 
-- Local trusted mode is the default. Setting `EB_API_KEY` requires a bearer key on the console API and on MCP. Paperclip authenticates to the Hermes gateway with `EB_HERMES_API_KEY`. Stakeholder answer links are unguessable tokens scoped to a single request.
+- Local trusted mode is the default. Setting `EB_API_KEY` requires a bearer key on the console API and on MCP. Paperclip authenticates to the Hermes gateway with a shared key: `EB_HERMES_API_KEY`, else `EB_API_KEY`, else a key generated once in the data folder (`hermes.key`), so the gateway is never open. Agents pushed to Paperclip get their own Paperclip API keys (stored encrypted), used to update their tasks. Stakeholder answer links are unguessable tokens scoped to a single request.
 - Secrets are AES-256-GCM encrypted with a master key taken from `EB_MASTER_KEY` or a generated key file. They are never returned by the API or logged.
 - Humans stay in control: approval gates on external actions, test runs without side effects, versioned agents with rollback, and an audit log of every mutation.
 - Personal data (KVKK/GDPR): the builder asks about personal data, retention and legal basis, and routes open questions to the DPO. Agents carry these as guardrails. The CV templates exclude protected characteristics from evaluation.
