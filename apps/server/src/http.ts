@@ -6,6 +6,7 @@ import { RecordValueError } from "@enterprise-brain/core";
 import {
   AgentNotFoundError,
   AppError,
+  CalculationError,
   CoachingError,
   PeopleError,
   RunError,
@@ -38,7 +39,8 @@ export function statusFor(error: unknown): number {
     error instanceof WorkError ||
     error instanceof CoachingError ||
     error instanceof TableError ||
-    error instanceof AppError
+    error instanceof AppError ||
+    error instanceof CalculationError
   )
     return error.status;
   if (error instanceof RecordValueError) return 400;

@@ -110,6 +110,8 @@ export function mailboxTriggerMatches(trigger: MailboxTrigger, message: MailMess
 export class TriggerService {
   private timer: NodeJS.Timeout | undefined;
   private lastTick = "";
+  /** Other work the scheduler does each minute (calculations that run by themselves). */
+  private readonly everyMinute: ((now: Date) => Promise<unknown>)[] = [];
 
   constructor(
     private readonly handle: DatabaseHandle,
@@ -232,6 +234,7 @@ export class TriggerService {
     this.lastTick = minuteKey;
     // Tasks whose follow-up time came, or whose reply didn't come in time.
     await this.engine.wakeDueTasks(now).catch((error) => console.error("[tasks]", error));
+    for (const job of this.everyMinute) await job(now).catch((error) => console.error("[scheduler]", error));
     const started: RunRow[] = [];
     const companyRows = await this.handle.db.select({ id: companies.id }).from(companies);
     for (const company of companyRows) {
@@ -256,6 +259,11 @@ export class TriggerService {
       }
     }
     return started;
+  }
+
+  /** Do something each minute, alongside the schedules. */
+  onTick(job: (now: Date) => Promise<unknown>): void {
+    this.everyMinute.push(job);
   }
 
   start(intervalMs = 20_000): void {

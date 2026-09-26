@@ -222,6 +222,22 @@ Screens people describe in plain words, drawn by the platform from its own block
 | POST | `/api/companies/:company/apps/:app/archive` · `/restore` | Its managers |
 | GET | `/api/companies/:company/tables/:table/summary?groupBy&of=count\|sum\|average&field&limit&filter.<field>=` | For charts and numbers: `{ groups: [{ key, label, value }], total }`, a choice in the order of its list, dates by month (`2026-09`), the rest largest first; with `limit`, the others together as `Other` |
 
+## Calculations
+
+Rules people say in plain words ("rank suppliers by complaints per 100 deliveries last month"). The Studio writes the code, tries it on the tables' real rows and shows the result; the code runs in a sandbox (QuickJS compiled to WebAssembly, `packages/sandbox`) with only the rows of the tables it names: no network, files, timers or modules, at most 5 seconds and 64 MB, a fresh engine each run. A calculation belongs to a department: its people see it and run it; its managers keep and change it; admins also get its code. It gives rows (`output.columns: [{ key, label, type: text|number|money|percent|date|rank, currency? }]`), one number (`unit`) or a text. With `schedule` it also runs by itself at 07:00 in the company's time zone: `daily`, `weekly` (Mondays) or `monthly` (the 1st). The code gets `tables` (each table's rows: fields by key, a person by name, a linked record by its name, plus `number` and `created_at`) and `params` (`today`, and `thisMonth`, `lastMonth`, `thisWeek`, `thisYear` as `{ from, to, label }`).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/companies/:company/calculations?archived=true` | `{ id, key, name, rule, explanation, departmentId, tables[], output, schedule, version, lastRunAt, last: CalculationRun \| null, can: { run, design } }[]` |
+| POST | `/api/companies/:company/calculations/write` | `{ rule, tables? }` → the Studio's work, nothing kept: `{ draft: { name, explanation, tables, code, output }, trial: { ok, result, error, logs, durationMs, rows }, attempts, drafted: model\|words, notes[] }`. With Claude, code that fails on the real rows is written again with the error (three tries); without it, rules of the usual shapes (how many, the total or average of a field, by a field, per N of another table, in a period) are read from the words; others answer 400 |
+| POST | `/api/companies/:company/calculations` | A manager: `{ name, rule, explanation?, tables, code, output, schedule?, departmentId }`; it runs once → the calculation |
+| GET | `/api/companies/:company/calculations/:calculation` | `{ calculation, runs: [{ id, version, status: succeeded\|failed, result, error, durationMs, rows, trigger: manual\|schedule, by, createdAt }], code? (admins) }` |
+| PATCH | `/api/companies/:company/calculations/:calculation` | Its managers: `{ name?, schedule?, departmentId?, rule?, explanation?, tables?, code?, output? }` (a new rule or code is a new version) |
+| POST | `/api/companies/:company/calculations/:calculation/run` | Its department's people: run now → the run |
+| POST | `/api/companies/:company/calculations/:calculation/archive` · `/restore` | Its managers |
+
+An app shows a calculation's latest result with the block `{ type: "result", calculation, title? }`.
+
 ## Knowledge base & search
 
 | Method | Path | Description |

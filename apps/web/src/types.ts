@@ -1545,6 +1545,7 @@ export type AppBlock =
   | { type: "chart"; title?: string; table: string; groupBy: string; measure: Measure; kind: "bar" | "pie"; filter?: BlockFilter; limit?: number }
   | { type: "number"; title: string; table: string; measure: Measure; filter?: BlockFilter }
   | { type: "button"; title: string; description?: string; agent: string; ask: string }
+  | { type: "result"; title?: string; calculation: string }
   | { type: "text"; title?: string; text: string };
 
 export interface AppPageSpec {
@@ -1565,6 +1566,7 @@ export interface AppView {
   version: number;
   tables: string[];
   agents: string[];
+  calculations: string[];
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -1585,6 +1587,8 @@ export interface AppDetail {
   tables: TableView[];
   /** The AI employees its buttons give work to. */
   agents: { slug: string; name: string; status: string }[];
+  /** The calculations whose results it shows. */
+  calculations: Omit<CalculationView, "can">[];
   outline: AppOutlinePage[];
 }
 
@@ -1608,4 +1612,79 @@ export interface AppProposal {
 export interface TableSummary {
   groups: { key: string | null; label: string; value: number }[];
   total: number;
+}
+
+// ---------------------------------------------------------------------------
+// Calculations: rules in plain words, run in a sandbox on the tables' rows
+// ---------------------------------------------------------------------------
+
+export type CalculationSchedule = "daily" | "weekly" | "monthly";
+
+export interface ResultColumn {
+  key: string;
+  label: string;
+  type: "text" | "number" | "money" | "percent" | "date" | "rank";
+  currency?: string;
+}
+
+export interface CalculationOutput {
+  kind: "rows" | "number" | "text";
+  columns: ResultColumn[];
+  unit?: string;
+}
+
+export interface CalculationRun {
+  id: string;
+  version: number;
+  status: "succeeded" | "failed";
+  result: unknown;
+  error: string | null;
+  durationMs: number;
+  rows: number;
+  trigger: string;
+  by: string;
+  createdAt: string;
+}
+
+export interface CalculationView {
+  id: string;
+  key: string;
+  name: string;
+  rule: string;
+  explanation: string;
+  departmentId: string | null;
+  tables: string[];
+  output: CalculationOutput;
+  schedule: CalculationSchedule | null;
+  version: number;
+  lastRunAt: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+  last: CalculationRun | null;
+  can: { run: boolean; design: boolean };
+}
+
+export interface CalculationDetail {
+  calculation: CalculationView;
+  runs: CalculationRun[];
+  /** For IT only. */
+  code?: string;
+}
+
+export interface CalculationDraft {
+  name: string;
+  explanation: string;
+  tables: string[];
+  code: string;
+  output: CalculationOutput;
+}
+
+export interface CalculationProposal {
+  draft: CalculationDraft;
+  trial: { ok: boolean; result: unknown; error: string | null };
+  attempts: number;
+  drafted: "model" | "words";
+  notes: string[];
 }

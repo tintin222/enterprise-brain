@@ -18,6 +18,7 @@
     "@enterprise-brain/documents": "workspace:*",
     "@enterprise-brain/knowledge": "workspace:*",
     "@enterprise-brain/llm": "workspace:*",
+    "@enterprise-brain/sandbox": "workspace:*",
     "@enterprise-brain/screens": "workspace:*",
     "drizzle-orm": "^0.45.2"
   }

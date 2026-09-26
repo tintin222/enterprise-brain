@@ -28,6 +28,7 @@ import { PeopleService } from "./people.ts";
 import { QueueService } from "./queue.ts";
 import { SecretBox } from "./secrets.ts";
 import { AppService } from "./apps.ts";
+import { CalculationService } from "./calculations.ts";
 import { TableService } from "./tables.ts";
 import { TeamsTransport } from "./teams.ts";
 import { TaskService } from "./tasks.ts";
@@ -93,6 +94,8 @@ export class Platform {
   readonly tables: TableService;
   /** Apps people describe: pages of lists, forms, boards and charts on the tables, drawn by the platform. */
   readonly apps: AppService;
+  /** Rules people say in plain words, run in a sandbox on the tables' rows. */
+  readonly calculations: CalculationService;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -111,7 +114,8 @@ export class Platform {
     this.knowledge = new KnowledgeService(this.handle, this.embedder);
     this.mail = new MailService(this.handle, this.files, this.connectors);
     this.agents = new AgentService(this.handle);
-    this.apps = new AppService(this.handle, this.tables, this.agents);
+    this.calculations = new CalculationService(this.handle, this.tables);
+    this.apps = new AppService(this.handle, this.tables, this.agents, this.calculations);
     this.tasks = new TaskService(this.handle, this.events);
     this.work = new WorkService(this.handle, this.events);
     this.coachingNotes = new CoachingNotes(this.handle, this.activity);
@@ -133,6 +137,7 @@ export class Platform {
     this.chat = new ChatService(this.handle, this.llm, this.agents, this.knowledge, this.engine.toolDeps);
     this.catalog = new CatalogService(this.handle, options.catalog, this.agents, this.knowledge, this.activity);
     this.triggers = new TriggerService(this.handle, this.agents, this.engine, this.mail, this.tasks, this.people);
+    this.triggers.onTick((now) => this.calculations.runDue(now));
     this.employment = new EmploymentService(this.agents, this.people, this.engine, this.activity, this.connectors);
     this.watchers = new WatcherService(this.handle, this.connectors, this.mail, this.agents, this.engine, this.triggers);
     this.queue = new QueueService(this.handle, this.agents, this.work);

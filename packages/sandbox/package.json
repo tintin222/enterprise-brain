@@ -1,0 +1,17 @@
+{
+  "name": "@enterprise-brain/sandbox",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Calculations in a sandbox: JavaScript runs in QuickJS compiled to WebAssembly, with only the rows it is given, no network, disk or server, and limits on time, memory and output.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@jitl/quickjs-wasmfile-release-sync": "0.32.0",
+    "quickjs-emscripten": "0.32.0"
+  }
+}

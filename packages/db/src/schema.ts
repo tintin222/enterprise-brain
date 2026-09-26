@@ -876,3 +876,60 @@ export const dataApps = pgTable(
   },
   (t) => [uniqueIndex("data_apps_company_key").on(t.companyId, t.key)],
 );
+
+/**
+ * Calculations people describe as a rule ("rank suppliers by complaints per 100 deliveries"): the code
+ * the Studio wrote for it runs in a sandbox on the rows of its tables. People see the rule, never the code.
+ */
+export const dataCalculations = pgTable(
+  "data_calculations",
+  {
+    id: id(),
+    companyId: companyId(),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    rule: text("rule").notNull(),
+    explanation: text("explanation").notNull().default(""),
+    departmentId: uuid("department_id").references(() => departments.id, { onDelete: "set null" }),
+    /** The keys of the tables it reads. */
+    tables: jsonb("tables").$type<string[]>().notNull().default([]),
+    code: text("code").notNull(),
+    /** CalculationOutput: rows (with columns), a number or a text. */
+    output: jsonb("output").$type<Record<string, unknown>>().notNull(),
+    /** daily | weekly | monthly; null: when people run it. */
+    schedule: text("schedule"),
+    version: integer("version").notNull().default(1),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    createdBy: text("created_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("data_calculations_company_key").on(t.companyId, t.key)],
+);
+
+/** Each run of a calculation: its result (or what went wrong), how long it took and on how many rows. */
+export const dataCalculationRuns = pgTable(
+  "data_calculation_runs",
+  {
+    id: id(),
+    companyId: companyId(),
+    calculationId: uuid("calculation_id")
+      .notNull()
+      .references(() => dataCalculations.id, { onDelete: "cascade" }),
+    /** The calculation's version it ran. */
+    version: integer("version").notNull(),
+    /** succeeded | failed */
+    status: text("status").notNull(),
+    result: jsonb("result").$type<unknown>(),
+    error: text("error"),
+    durationMs: integer("duration_ms").notNull().default(0),
+    /** Rows it was given, all tables together. */
+    rows: integer("rows").notNull().default(0),
+    /** manual | schedule */
+    trigger: text("trigger").notNull().default("manual"),
+    by: text("by").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("data_calculation_runs_calculation").on(t.calculationId, t.createdAt)],
+);

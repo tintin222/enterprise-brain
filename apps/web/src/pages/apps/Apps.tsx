@@ -1,7 +1,8 @@
-import { Archive, Globe, LayoutGrid, Plus, Table2 } from "lucide-react";
+import { Archive, Calculator, Globe, LayoutGrid, Plus, Table2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { NewAppDialog } from "../../components/apps/NewAppDialog.tsx";
+import { NewCalculationDialog } from "../../components/calculations/NewCalculationDialog.tsx";
 import { Badge } from "../../components/Badge.tsx";
 import { Button } from "../../components/Button.tsx";
 import { Card, PageHeader, SectionTitle } from "../../components/Card.tsx";
@@ -11,8 +12,8 @@ import { ErrorState, Skeleton } from "../../components/Spinner.tsx";
 import { NewTableDialog, useTableDepartments } from "../../components/tables/NewTableDialog.tsx";
 import { plural, timeAgo } from "../../lib/format.ts";
 import { namedIcon } from "../../lib/icons.tsx";
-import { useApps, useDepartments, useTables } from "../../lib/queries.ts";
-import type { AppView, TableView } from "../../types.ts";
+import { useApps, useCalculations, useDepartments, useTables } from "../../lib/queries.ts";
+import type { AppView, CalculationView, TableView } from "../../types.ts";
 
 function Tile({
   to,
@@ -25,7 +26,7 @@ function Tile({
 }: {
   to: string;
   icon: ReactNode;
-  tone: "app" | "table";
+  tone: "app" | "table" | "calculation";
   title: string;
   shared?: boolean;
   description?: string;
@@ -39,7 +40,9 @@ function Tile({
             className={
               tone === "app"
                 ? "flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-400/15 dark:text-brand-300"
-                : "flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-300"
+                : tone === "table"
+                  ? "flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-300"
+                  : "flex size-9 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-400/15 dark:text-amber-300"
             }
           >
             {icon}
@@ -91,6 +94,25 @@ function TableTile({ table }: { table: TableView }) {
   );
 }
 
+const RUNS: Record<string, string> = { daily: "every day", weekly: "every Monday", monthly: "every month" };
+
+function CalculationTile({ calculation }: { calculation: CalculationView }) {
+  const last = calculation.last;
+  return (
+    <Tile
+      to={`/calculations/${calculation.key}`}
+      tone="calculation"
+      icon={<Calculator className="size-[18px]" />}
+      title={calculation.name}
+      description={calculation.rule}
+      meta={[
+        calculation.schedule ? `Runs ${RUNS[calculation.schedule]}` : "Runs when asked",
+        last ? `${last.status === "failed" ? "last run failed" : "worked out"} ${timeAgo(last.createdAt)}` : "not worked out yet",
+      ].join(" · ")}
+    />
+  );
+}
+
 /** By department (or the whole company), in the order people meet them. */
 function byDepartment<T extends { departmentId: string | null }>(items: T[], name: Map<string, string>): [string, T[]][] {
   const groups = new Map<string, T[]>();
@@ -106,13 +128,14 @@ export default function Apps() {
   const [archived, setArchived] = useState(false);
   const apps = useApps(archived);
   const tables = useTables(archived);
+  const calculations = useCalculations(archived);
   const departments = useDepartments();
   const { departments: mine, companyWide } = useTableDepartments();
   const canMake = companyWide || mine.length > 0;
-  const [making, setMaking] = useState<"app" | "table" | null>(null);
+  const [making, setMaking] = useState<"app" | "table" | "calculation" | null>(null);
   const name = new Map((departments.data ?? []).map((d) => [d.id, d.name]));
   const loading = apps.isLoading || tables.isLoading;
-  const empty = apps.data?.length === 0 && tables.data?.length === 0;
+  const empty = apps.data?.length === 0 && tables.data?.length === 0 && calculations.data?.length === 0;
 
   return (
     <Page>
@@ -126,6 +149,11 @@ export default function Apps() {
               <Button icon={Table2} onClick={() => setMaking("table")}>
                 New table
               </Button>
+              {(tables.data?.length ?? 0) > 0 && (
+                <Button icon={Calculator} onClick={() => setMaking("calculation")}>
+                  New calculation
+                </Button>
+              )}
               <Button variant="primary" icon={Plus} onClick={() => setMaking("app")}>
                 New app
               </Button>
@@ -173,6 +201,20 @@ export default function Apps() {
             ))}
           </section>
         )}
+        {(calculations.data?.length ?? 0) > 0 && (
+          <section className="space-y-5">
+            {byDepartment(calculations.data ?? [], name).map(([group, list]) => (
+              <div key={group}>
+                <SectionTitle>{`Calculations · ${group}`}</SectionTitle>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {list.map((calculation) => (
+                    <CalculationTile key={calculation.id} calculation={calculation} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
         {(tables.data?.length ?? 0) > 0 && (
           <section className="space-y-5">
             {byDepartment(tables.data ?? [], name).map(([group, list]) => (
@@ -195,6 +237,7 @@ export default function Apps() {
       </div>
       <NewAppDialog open={making === "app"} onClose={() => setMaking(null)} />
       <NewTableDialog open={making === "table"} onClose={() => setMaking(null)} />
+      <NewCalculationDialog open={making === "calculation"} onClose={() => setMaking(null)} />
     </Page>
   );
 }

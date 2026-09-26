@@ -18,6 +18,8 @@ import type {
   Person,
   AppDetail,
   AppView,
+  CalculationDetail,
+  CalculationView,
   RecordPage,
   TableSummary,
   TableView,
@@ -56,6 +58,7 @@ export const keys = {
   home: (company: string) => [company, "home"] as const,
   tables: (company: string) => [company, "tables"] as const,
   apps: (company: string) => [company, "apps"] as const,
+  calculations: (company: string) => [company, "calculations"] as const,
   table: (company: string, key: string) => [company, "tables", key] as const,
 };
 
@@ -323,6 +326,25 @@ export function useSummary(
   return useQuery({
     queryKey: [...keys.table(company, key ?? ""), "summary", params],
     queryFn: () => api.get<TableSummary>(path(`/tables/${encodeURIComponent(key ?? "")}/summary${qs(params)}`)),
+    enabled: Boolean(key),
+  });
+}
+
+/** The calculations the viewer sees (or the archived ones), each with its latest run. */
+export function useCalculations(archived = false) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.calculations(company), { archived }],
+    queryFn: () => api.get<CalculationView[]>(path(`/calculations${qs({ archived: archived || undefined })}`)),
+  });
+}
+
+/** A calculation with its recent runs. */
+export function useCalculation(key: string | undefined) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.calculations(company), key ?? ""],
+    queryFn: () => api.get<CalculationDetail>(path(`/calculations/${encodeURIComponent(key ?? "")}`)),
     enabled: Boolean(key),
   });
 }

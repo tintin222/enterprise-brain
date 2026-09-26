@@ -114,13 +114,21 @@ export const ButtonBlock = z.object({
   ask: z.string().min(1).max(2000),
 });
 
+/** The latest result of a calculation (a ranking, a figure), with when it ran. */
+export const ResultBlock = z.object({
+  type: z.literal("result"),
+  ...Common,
+  /** The calculation's key. */
+  calculation: Key,
+});
+
 export const TextBlock = z.object({
   type: z.literal("text"),
   ...Common,
   text: z.string().min(1).max(4000),
 });
 
-export const AppBlock = z.discriminatedUnion("type", [ListBlock, FormBlock, BoardBlock, ChartBlock, NumberBlock, ButtonBlock, TextBlock]);
+export const AppBlock = z.discriminatedUnion("type", [ListBlock, FormBlock, BoardBlock, ChartBlock, NumberBlock, ButtonBlock, ResultBlock, TextBlock]);
 export type AppBlock = z.infer<typeof AppBlock>;
 export type AppBlockType = AppBlock["type"];
 
@@ -162,6 +170,11 @@ export function tablesOfApp(design: Pick<AppDesign, "pages">): string[] {
   return [...new Set(design.pages.flatMap((p) => p.blocks.flatMap((b) => ("table" in b ? [b.table] : []))))];
 }
 
+/** The calculations an app shows the results of (their keys). */
+export function calculationsOfApp(design: Pick<AppDesign, "pages">): string[] {
+  return [...new Set(design.pages.flatMap((p) => p.blocks.flatMap((b) => (b.type === "result" ? [b.calculation] : []))))];
+}
+
 /** The AI employees an app's buttons and actions give work to (their slugs). */
 export function agentsOfApp(design: Pick<AppDesign, "pages">): string[] {
   const slugs = design.pages.flatMap((p) =>
@@ -185,7 +198,7 @@ function filterWords(filter: BlockFilter | undefined, label: (table: string, key
  */
 export function describeBlock(
   block: AppBlock,
-  names: { table(key: string): string; field(table: string, key: string): string; agent(slug: string): string },
+  names: { table(key: string): string; field(table: string, key: string): string; agent(slug: string): string; calculation?(key: string): string },
 ): string {
   const fields = (table: string, keys: string[] | undefined) => (keys?.length ? keys.map((k) => names.field(table, k)).join(", ") : "");
   const measure = (table: string, m: Measure) =>
@@ -213,6 +226,8 @@ export function describeBlock(
       return `${block.title}: ${measure(block.table, block.measure)} ${names.table(block.table)}${filterWords(block.filter, names.field, block.table)}`;
     case "button":
       return `A button, "${block.title}", that asks ${names.agent(block.agent)}: ${block.ask}`;
+    case "result":
+      return `The latest result of ${names.calculation?.(block.calculation) ?? block.calculation}`;
     case "text":
       return "Text";
   }

@@ -1,16 +1,18 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Bot, Check, Plus, Search, Send } from "lucide-react";
+import { Bot, Calculator, Check, Play, Plus, Search, Send } from "lucide-react";
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api } from "../../api.ts";
 import { useCompany } from "../../lib/company.tsx";
+import { timeAgo } from "../../lib/format.ts";
 import { keys, useRecords, useSummary } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
-import type { AppBlock, BlockFilter, Measure, RecordAction, RecordView, TableField, TableView, TaskRow } from "../../types.ts";
+import type { AppBlock, BlockFilter, CalculationRun, CalculationView, Measure, RecordAction, RecordView, TableField, TableView, TaskRow } from "../../types.ts";
 import { Badge } from "../Badge.tsx";
 import { Button } from "../Button.tsx";
 import { Card, CardHeader } from "../Card.tsx";
+import { ResultView } from "../calculations/ResultView.tsx";
 import { Markdown } from "../Markdown.tsx";
 import { ErrorState, Skeleton } from "../Spinner.tsx";
 import { formatValue } from "../tables/fields.ts";
@@ -21,6 +23,7 @@ import { newDraft, RecordForm, valuesOf, type RecordDraft } from "../tables/Reco
 export interface BlockContext {
   tables: Map<string, TableView>;
   agents: Map<string, string>;
+  calculations: Map<string, Omit<CalculationView, "can">>;
 }
 
 /** Filter values as the records query takes them. */
@@ -40,6 +43,7 @@ function fillAsk(ask: string, table: TableView, record: RecordView): string {
 export function BlockView({ block, context }: { block: AppBlock; context: BlockContext }) {
   if (block.type === "text") return <TextBlock title={block.title} text={block.text} />;
   if (block.type === "button") return <ButtonBlock block={block} agentName={context.agents.get(block.agent)} />;
+  if (block.type === "result") return <ResultBlock title={block.title} calculation={context.calculations.get(block.calculation)} />;
   const table = context.tables.get(block.table);
   if (!table) {
     return (
@@ -550,6 +554,48 @@ function ButtonBlock({ block, agentName }: { block: Extract<AppBlock, { type: "b
   );
 }
 
+/** A calculation's latest result, with when it was worked out; its people work it out again here. */
+function ResultBlock({ title, calculation }: { title?: string; calculation?: Omit<CalculationView, "can"> }) {
+  const { company, path } = useCompany();
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const run = useMutation({
+    mutationFn: () => api.post<CalculationRun>(path(`/calculations/${encodeURIComponent(calculation!.key)}/run`)),
+    onSuccess: async (done) => {
+      if (done.status === "failed") toast.error(done.error ?? "It didn't work");
+      await queryClient.invalidateQueries({ queryKey: keys.apps(company) });
+      await queryClient.invalidateQueries({ queryKey: keys.calculations(company) });
+    },
+    onError: (e) => toast.error(e),
+  });
+  if (!calculation) return <Card className="p-4 text-sm text-muted">This part shows a calculation you can't see.</Card>;
+  const last = calculation.last;
+  return (
+    <Card>
+      <CardHeader
+        icon={Calculator}
+        title={title ?? calculation.name}
+        subtitle={last ? `Worked out ${timeAgo(last.createdAt)}` : "Not worked out yet"}
+        actions={
+          <>
+            <Link to={`/calculations/${calculation.key}`} className="text-xs text-muted hover:text-fg">
+              How it works
+            </Link>
+            <Button size="xs" icon={Play} loading={run.isPending} onClick={() => run.mutate()}>
+              Again
+            </Button>
+          </>
+        }
+      />
+      <div className="p-4">
+        {!last && <p className="text-sm text-muted">Work it out to see the result.</p>}
+        {last?.status === "failed" && <p className="text-sm text-red-700 dark:text-red-300">{last.error}</p>}
+        {last?.status === "succeeded" && <ResultView output={calculation.output} result={last.result} compact />}
+      </div>
+    </Card>
+  );
+}
+
 function TextBlock({ title, text }: { title?: string; text: string }) {
   return (
     <Card className="p-5">
@@ -566,6 +612,7 @@ export function blockSpan(block: AppBlock): string {
       return "sm:col-span-6 lg:col-span-3";
     case "chart":
     case "button":
+    case "result":
       return "lg:col-span-6";
     default:
       return "lg:col-span-12";

@@ -23,6 +23,7 @@ import { knowledgeRoutes } from "./routes/knowledge.ts";
 import { mailRoutes } from "./routes/mail.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
 import { appRoutes } from "./routes/apps.ts";
+import { calculationRoutes } from "./routes/calculations.ts";
 import { tableRoutes } from "./routes/tables.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { paperclipRoutes } from "./routes/paperclip.ts";
@@ -129,6 +130,7 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   await mcpRoutes(app, ctx);
   await tableRoutes(app, ctx);
   await appRoutes(app, ctx);
+  await calculationRoutes(app, ctx);
 
   const webDist = ctx.config.webDist;
   if (webDist && existsSync(join(webDist, "index.html"))) {

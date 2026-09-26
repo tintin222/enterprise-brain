@@ -55,12 +55,18 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
     return { tables, agents };
   };
   /** Each block in plain words, for people to check what they'll get. */
-  const outline = (design: Pick<AppDesign, "pages">, tables: Pick<AppTable, "key" | "name" | "fields">[], agents: { slug: string; name: string }[]) => {
+  const outline = (
+    design: Pick<AppDesign, "pages">,
+    tables: Pick<AppTable, "key" | "name" | "fields">[],
+    agents: { slug: string; name: string }[],
+    calculations: { key: string; name: string }[] = [],
+  ) => {
     const byKey = new Map(tables.map((t) => [t.key, t]));
     const names = {
       table: (key: string) => byKey.get(key)?.name ?? key,
       field: (table: string, key: string) => byKey.get(table)?.fields.find((f) => f.key === key)?.label ?? key,
       agent: (slug: string) => agents.find((a) => a.slug === slug)?.name ?? slug,
+      calculation: (key: string) => calculations.find((c) => c.key === key)?.name ?? key,
     };
     return design.pages.map((page) => ({ key: page.key, title: page.title, blocks: page.blocks.map((block) => describeBlock(block, names)) }));
   };
@@ -152,11 +158,17 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
       if (agent && canSeeDepartment(viewer, agent.row.departmentId))
         agents.push({ slug: agent.row.slug, name: agent.definition.name, status: agent.row.status });
     }
+    const calculations = [];
+    for (const key of found.calculations) {
+      const calculation = await platform.calculations.get(company.id, key).catch(() => undefined);
+      if (calculation && canSeeDepartment(viewer, calculation.departmentId)) calculations.push(calculation);
+    }
     return {
       app: { ...found, can: { design: canManageDepartment(viewer, found.departmentId) } },
       tables,
       agents,
-      outline: outline(found, tables, agents),
+      calculations,
+      outline: outline(found, tables, agents, calculations),
     };
   });
 

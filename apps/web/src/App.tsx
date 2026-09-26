@@ -41,6 +41,7 @@ const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 const Apps = lazy(() => import("./pages/apps/Apps.tsx"));
 const TablePage = lazy(() => import("./pages/apps/TablePage.tsx"));
 const AppPage = lazy(() => import("./pages/apps/AppPage.tsx"));
+const CalculationPage = lazy(() => import("./pages/apps/CalculationPage.tsx"));
 const SignIn = lazy(() => import("./pages/SignIn.tsx"));
 
 const queryClient = new QueryClient({
@@ -153,6 +154,7 @@ const router = createBrowserRouter([
           { path: "work/:ref", element: <TaskPage /> },
           { path: "apps", element: <Apps /> },
           { path: "tables/:key", element: <TablePage /> },
+          { path: "calculations/:key", element: <CalculationPage /> },
           {
             path: "settings",
             element: <SettingsLayout />,

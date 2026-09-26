@@ -899,6 +899,38 @@ export class TableService {
     return { groups, total };
   }
 
+  /**
+   * A table's records as plain rows, for calculations: each field by key (a person by name, a linked
+   * record by its name), with "number" and "created_at". At most `limit` rows, oldest first.
+   */
+  async rowsFor(companyId: string, ref: string, limit = 20_000): Promise<Record<string, unknown>[]> {
+    const row = await this.row(companyId, ref);
+    const design = designOf(row);
+    const rows: Record<string, unknown>[] = [];
+    for (let offset = 0; rows.length < limit; offset += 500) {
+      const page = await this.handle.db
+        .select()
+        .from(dataRecords)
+        .where(and(eq(dataRecords.tableId, row.id), isNull(dataRecords.archivedAt)))
+        .orderBy(asc(dataRecords.number))
+        .limit(Math.min(500, limit - rows.length))
+        .offset(offset);
+      for (const view of await this.views(companyId, row, page)) {
+        const out: Record<string, unknown> = { number: view.number, created_at: view.createdAt.toISOString() };
+        for (const field of design.fields) {
+          const value = view.values[field.key];
+          if (value === undefined) out[field.key] = null;
+          else if (field.type === "person") out[field.key] = view.display[field.key] ?? value;
+          else if (field.type === "link") out[field.key] = (view.display[field.key] ?? String(value)).replace(/^#\d+\s*/, "");
+          else out[field.key] = value;
+        }
+        rows.push(out);
+      }
+      if (page.length < 500) break;
+    }
+    return rows;
+  }
+
   /** Problems with values for a table's fields (a filter, an action's values), without saving anything. */
   async checkValues(companyId: string, ref: string, values: Record<string, unknown>): Promise<string[]> {
     const row = await this.row(companyId, ref);

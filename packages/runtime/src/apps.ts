@@ -2,6 +2,7 @@ import { and, asc, eq, isNotNull, isNull } from "drizzle-orm";
 import {
   agentsOfApp,
   AppDesign,
+  calculationsOfApp,
   AppSettings,
   sameData,
   tableKeyOf,
@@ -15,6 +16,7 @@ import {
 } from "@enterprise-brain/core";
 import { dataApps, type DatabaseHandle } from "@enterprise-brain/db";
 import type { AgentService } from "./agents.ts";
+import type { CalculationService } from "./calculations.ts";
 import type { TableService, TableView } from "./tables.ts";
 
 /**
@@ -50,6 +52,8 @@ export interface AppView {
   tables: string[];
   /** The AI employees its buttons give work to (slugs). */
   agents: string[];
+  /** The calculations whose results it shows (keys). */
+  calculations: string[];
   createdBy: string;
   createdAt: Date;
   updatedAt: Date;
@@ -70,6 +74,7 @@ export class AppService {
     private readonly handle: DatabaseHandle,
     private readonly tables: TableService,
     private readonly agents: AgentService,
+    private readonly calculations?: CalculationService,
   ) {}
 
   async list(companyId: string, options: { archived?: boolean } = {}): Promise<AppView[]> {
@@ -156,6 +161,10 @@ export class AppService {
     const problems: string[] = [];
     const tables = new Map<string, TableView | undefined>();
     for (const key of tablesOfApp(design)) tables.set(key, await this.tables.get(companyId, key).catch(() => undefined));
+    for (const key of calculationsOfApp(design)) {
+      const calculation = await this.calculations?.get(companyId, key).catch(() => undefined);
+      if (!calculation) problems.push(`There is no calculation "${key}" to show`);
+    }
     for (const slug of agentsOfApp(design)) {
       const agent = await this.agents.find(companyId, slug);
       if (!agent || agent.row.status === "archived") problems.push(`There is no AI employee "${slug}" to give work to`);
@@ -274,6 +283,7 @@ export class AppService {
       version: row.version,
       tables: tablesOfApp({ pages }),
       agents: agentsOfApp({ pages }),
+      calculations: calculationsOfApp({ pages }),
       createdBy: row.createdBy.replace(/\s*<.*>$/, ""),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,

@@ -28,7 +28,11 @@ export default function AppPage() {
   // Addresses from before apps: /apps/<slug> was an AI employee's own form.
   const agent = useAgent(isApiError(detail.error, 404) ? key : undefined);
   const context = useMemo<BlockContext>(
-    () => ({ tables: new Map((detail.data?.tables ?? []).map((t) => [t.key, t])), agents: new Map((detail.data?.agents ?? []).map((a) => [a.slug, a.name])) }),
+    () => ({
+      tables: new Map((detail.data?.tables ?? []).map((t) => [t.key, t])),
+      agents: new Map((detail.data?.agents ?? []).map((a) => [a.slug, a.name])),
+      calculations: new Map((detail.data?.calculations ?? []).map((c) => [c.key, c])),
+    }),
     [detail.data],
   );
 
