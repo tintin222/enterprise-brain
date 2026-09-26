@@ -24,7 +24,18 @@ export const SCHEDULES: { value: CalculationSchedule | ""; label: string }[] = [
 ];
 
 /** Say the rule; the Studio writes it, tries it on the real rows and shows the result; keep it. */
-export function NewCalculationDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function NewCalculationDialog({
+  open,
+  onClose,
+  initial,
+  initialSchedule,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** A rule said in the one box: written and tried at once. */
+  initial?: string;
+  initialSchedule?: CalculationSchedule;
+}) {
   const { company, path } = useCompany();
   const toast = useToast();
   const navigate = useNavigate();
@@ -39,20 +50,24 @@ export function NewCalculationDialog({ open, onClose }: { open: boolean; onClose
   const [departmentId, setDepartmentId] = useState("");
   useEffect(() => {
     if (!open) return;
-    setRule("");
+    setRule(initial ?? "");
     setChosen([]);
     setProposal(null);
+    if (initial && initial.trim().length >= 3) write.mutate(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   useEffect(() => {
     if (!departmentId && departments[0]) setDepartmentId(departments[0].id);
   }, [departmentId, departments]);
 
   const write = useMutation({
-    mutationFn: () => api.post<CalculationProposal>(path("/calculations/write"), { rule, ...(chosen.length ? { tables: chosen } : {}) }),
-    onSuccess: (result) => {
+    mutationFn: (said?: string) =>
+      api.post<CalculationProposal>(path("/calculations/write"), { rule: said ?? rule, ...(chosen.length ? { tables: chosen } : {}) }),
+    onSuccess: (result, said) => {
       setProposal(result);
       setName(result.draft.name);
-      if (/month/i.test(rule)) setSchedule("monthly");
+      if (initialSchedule) setSchedule(initialSchedule);
+      else if (/month/i.test(said ?? rule)) setSchedule("monthly");
     },
   });
   const keep = useMutation({

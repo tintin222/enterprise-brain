@@ -1,18 +1,22 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { ArrowRight, Bot, CircleCheck, Inbox, Send, UserPlus } from "lucide-react";
+import { ArrowRight, Bot, CalendarClock, CircleCheck, Inbox, UserPlus } from "lucide-react";
 import { Link } from "react-router";
+import { api } from "../api.ts";
 import { StatusPill } from "../components/Badge.tsx";
 import { ButtonLink } from "../components/Button.tsx";
 import { Card, CardHeader } from "../components/Card.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
-import { GiveWorkForm } from "../components/GiveWork.tsx";
 import { Page } from "../components/Layout.tsx";
+import { NeedBox } from "../components/NeedBox.tsx";
 import { ErrorState, Skeleton } from "../components/Spinner.tsx";
 import { WorkItemCard } from "../components/WorkItemCard.tsx";
-import { plural } from "../lib/format.ts";
-import { useHome, useWork } from "../lib/queries.ts";
+import { useCompany } from "../lib/company.tsx";
+import { plural, timeAgo } from "../lib/format.ts";
+import { keys, useHome, useRecurring, useWork } from "../lib/queries.ts";
 import { useDocumentTitle } from "../lib/title.ts";
-import type { HomeData } from "../types.ts";
+import { useToast } from "../lib/toast.tsx";
+import type { HomeData, RecurringWork } from "../types.ts";
 
 const SHOWN = 6;
 
@@ -123,6 +127,56 @@ function AiEmployeesToday({ home }: { home: HomeData }) {
   );
 }
 
+/** What the person asked AI employees to do regularly; each can be stopped. */
+function Regularly() {
+  const { company, path } = useCompany();
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const recurring = useRecurring();
+  const stop = useMutation({
+    mutationFn: (id: string) => api.post<RecurringWork>(path(`/recurring/${id}/stop`)),
+    onSuccess: async (stopped) => {
+      toast.success("Stopped", { description: stopped.text });
+      await queryClient.invalidateQueries({ queryKey: keys.recurring(company) });
+    },
+    onError: (error) => toast.error(error),
+  });
+  if (!recurring.data?.length) return null;
+  return (
+    <Card>
+      <CardHeader title="Done for you regularly" icon={CalendarClock} />
+      <ul className="divide-y divide-line">
+        {recurring.data.map((r) => (
+          <li key={r.id} className="flex items-start gap-3 px-5 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm text-fg">{r.text}</p>
+              <p className="text-xs text-muted">
+                {r.agent ? (
+                  <Link to={`/ai/${r.agent.slug}`} className="hover:underline">
+                    {r.agent.name}
+                  </Link>
+                ) : (
+                  "An AI employee"
+                )}{" "}
+                · {r.when}
+                {r.lastRunAt && ` · last ${timeAgo(r.lastRunAt)}`}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="shrink-0 text-xs font-medium text-muted hover:text-red-600 disabled:opacity-50"
+              disabled={stop.isPending}
+              onClick={() => stop.mutate(r.id)}
+            >
+              Stop
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 export default function Home() {
   useDocumentTitle("Home");
   const home = useHome();
@@ -141,16 +195,12 @@ export default function Home() {
         </p>
       </div>
       {home.error && <ErrorState error={home.error} onRetry={() => void home.refetch()} />}
+      <NeedBox className="mb-6" />
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_26rem]">
         <NeedsYou />
         <div className="space-y-6">
           {data ? <AiEmployeesToday home={data} /> : home.isLoading && <Skeleton className="h-56" />}
-          <Card>
-            <CardHeader title="Give work to an AI employee" icon={Send} subtitle="Say what you need, as you would to a colleague." />
-            <div className="px-5 py-4">
-              <GiveWorkForm compact />
-            </div>
-          </Card>
+          <Regularly />
           {data?.aiMailbox && data.aiEmployees.length > 0 && (
             <p className="flex items-start gap-2 px-1 text-xs text-muted">
               <Inbox className="mt-px size-3.5 shrink-0" />

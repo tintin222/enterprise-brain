@@ -166,6 +166,7 @@ export const RUN_TRIGGER_LABELS: Record<string, string> = {
   form: "Form",
   mailbox: "Email",
   schedule: "Schedule",
+  recurring: "Recurring request",
   webhook: "Webhook",
   paperclip: "Paperclip",
   test: "Test",

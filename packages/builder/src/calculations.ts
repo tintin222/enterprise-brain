@@ -215,11 +215,53 @@ function fieldNamed(word: string, table: CalculationTable): CalculationTable["fi
 
 const js = (value: string) => JSON.stringify(value);
 
+/** Questions as people ask them: "how many complaints came in", "did we get", "were there", and a state ("are open"). */
+function tidyQuestion(text: string): { plain: string; state?: string } {
+  let plain = text
+    .replace(/\s+(?:did|do|does|have|has|had)\s+(?:we|you|they|i)\s+(?:get|got|have|had|receive|received|see|seen|log|logged)\b/i, "")
+    .replace(/\s+(?:we|you|they)\s+(?:got|get|received|had|have|logged)\b/i, "")
+    .replace(/\s+(?:(?:have|has)\s+)?(?:came|come|arrived)(?:\s+in)?\b/i, "")
+    .replace(/\s+(?:were|was)\s+(?:there|received|made|added|logged|filed|reported|raised)\b/i, "")
+    .replace(/\s+(?:are|is)\s+there\b/i, "")
+    .replace(/\s+in total\b/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  const state = /\s+(?:are|is|were|was)\s+(?:still\s+)?(\S+(?:\s\S+)?)$/i.exec(plain);
+  if (!state) return { plain };
+  plain = plain.slice(0, state.index).trim();
+  return { plain, state: state[1]! };
+}
+
+/** A state said of the records ("open", "paid"): a value of one of the table's choice fields, or a yes/no field. */
+function stateFilter(word: string, table: CalculationTable): { field: string; value: string | boolean; label: string } | undefined {
+  const said = word.trim().toLowerCase();
+  for (const field of table.fields) {
+    const choice = field.type === "choice" ? field.choices?.find((c) => c.toLowerCase() === said) : undefined;
+    if (choice) return { field: field.key, value: choice, label: field.label };
+  }
+  const flag = table.fields.find((f) => f.type === "yes_no" && singular(f.label) === singular(said));
+  return flag ? { field: flag.key, value: true, label: flag.label } : undefined;
+}
+
 function wordsCalculation(rule: string, tables: CalculationTable[]): { draft: CalculationDraft; notes: string[] } | undefined {
-  const text = rule.replace(/\s+/g, " ").trim();
+  const text = rule
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[?.!]+$/, "");
   const notes: string[] = [];
   const period = PERIODS.find(([pattern]) => pattern.test(text));
-  const plain = period ? text.replace(period[0], "").replace(/\s+/g, " ").trim() : text;
+  const tidy = tidyQuestion(period ? text.replace(period[0], "").replace(/\s+/g, " ").trim() : text);
+  const plain = tidy.plain;
+  let state = tidy.state;
+  // "open complaints": the table, and the state of its records.
+  const tableAndState = (phrase: string): CalculationTable | undefined => {
+    const table = tableNamed(phrase, tables);
+    if (table) return table;
+    const words = phrase.split(/\s+/);
+    const last = words.length === 2 ? tableNamed(words[1]!, tables) : undefined;
+    if (last && !state) state = words[0];
+    return last;
+  };
   // "rank suppliers by complaints per 100 deliveries", "count complaints by status", "total refund by customer"
   const rank =
     /^(?:rank|order|sort|list)\s+(?:the\s+)?(\S+(?:\s\S+)?)\s+by\s+(?:(?:the\s+)?(?:number|count) of\s+)?(\S+(?:\s\S+)?)(?:\s+per\s+(\d+)\s+(\S+))?$/i.exec(
@@ -234,7 +276,7 @@ function wordsCalculation(rule: string, tables: CalculationTable[]): { draft: Ca
   let per: { n: number; table: CalculationTable } | undefined;
   if (rank) {
     group = rank[1]!;
-    measureTable = tableNamed(rank[2]!, tables);
+    measureTable = tableAndState(rank[2]!);
     if (!measureTable) {
       // "rank suppliers by cost": a number field of the table that has the group.
       const withGroup = tables.find((t) => fieldNamed(group!, t));
@@ -252,7 +294,7 @@ function wordsCalculation(rule: string, tables: CalculationTable[]): { draft: Ca
     const verb = aggregate[1]!.toLowerCase();
     of = /total|sum/.test(verb) ? "sum" : /average|mean/.test(verb) ? "average" : "count";
     group = aggregate[3];
-    if (of === "count") measureTable = tableNamed(aggregate[2]!, tables);
+    if (of === "count") measureTable = tableAndState(aggregate[2]!);
     else {
       measureTable = tables.find((t) => fieldNamed(aggregate[2]!, t) && (!group || fieldNamed(group, t)));
       measureField = measureTable ? fieldNamed(aggregate[2]!, measureTable) : undefined;
@@ -260,6 +302,8 @@ function wordsCalculation(rule: string, tables: CalculationTable[]): { draft: Ca
     }
   }
   if (!measureTable || (of !== "count" && !measureField)) return undefined;
+  const filter = state ? stateFilter(state, measureTable) : undefined;
+  if (state && !filter) return undefined;
   const groupField = group ? fieldNamed(group, measureTable) : undefined;
   if (group && !groupField) return undefined;
   const baseGroup = per && groupField ? fieldNamed(groupField.label, per.table) : undefined;
@@ -277,7 +321,9 @@ function wordsCalculation(rule: string, tables: CalculationTable[]): { draft: Ca
       `const inPeriod = (row, field) => { const day = String(row[field] ?? "").slice(0, 10); return day >= period.from && day <= period.to; };`,
     );
   }
-  const keep = (table: CalculationTable) => (period ? `if (!inPeriod(row, ${js(dateOf(table))})) continue; ` : "");
+  const keep = (table: CalculationTable) =>
+    (period ? `if (!inPeriod(row, ${js(dateOf(table))})) continue; ` : "") +
+    (filter && table.key === measureTable.key ? `if (row[${js(filter.field)}] !== ${JSON.stringify(filter.value)}) continue; ` : "");
   const valueKey = of === "count" ? singularKey(measureTable.name, "count") : measureField!.key;
   const measureLabel = of === "count" ? capitalized(measureTable.name) : `${of === "sum" ? "Total" : "Average"} ${measureField!.label.toLowerCase()}`;
   const round = (expr: string) => `Math.round((${expr}) * 100) / 100`;
@@ -326,10 +372,11 @@ function wordsCalculation(rule: string, tables: CalculationTable[]): { draft: Ca
       ],
     });
   }
+  const whose = filter ? ` whose ${filter.label.toLowerCase()} is ${filter.value === true ? "yes" : filter.value}` : "";
   const what =
     of === "count"
-      ? `how many ${measureTable.name.toLowerCase()}`
-      : `the ${of === "sum" ? "total" : "average"} ${measureField!.label.toLowerCase()} of ${measureTable.name.toLowerCase()}`;
+      ? `how many ${measureTable.name.toLowerCase()}${whose}`
+      : `the ${of === "sum" ? "total" : "average"} ${measureField!.label.toLowerCase()} of ${measureTable.name.toLowerCase()}${whose}`;
   const explanation = [
     groupField ? `For each ${groupField.label.toLowerCase()}: ${what}` : `${capitalized(what)}`,
     per ? `, for every ${per.n} ${per.table.name.toLowerCase()}` : "",

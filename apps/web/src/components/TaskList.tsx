@@ -34,6 +34,7 @@ const SOURCE: Record<string, string> = {
   request: "Given by a person",
   mailbox: "Email",
   schedule: "Schedule",
+  recurring: "Recurring request",
   form: "Web form",
   webhook: "Another system",
   paperclip: "Paperclip",

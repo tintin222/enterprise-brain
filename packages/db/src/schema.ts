@@ -933,3 +933,31 @@ export const dataCalculationRuns = pgTable(
   },
   (t) => [index("data_calculation_runs_calculation").on(t.calculationId, t.createdAt)],
 );
+
+/**
+ * Recurring work a person asked for in plain words ("every Monday, send me the open complaints"):
+ * on its schedule, in the company's time zone, the AI employee gets it as a task, asked by that person.
+ */
+export const recurringWork = pgTable(
+  "recurring_work",
+  {
+    id: id(),
+    companyId: companyId(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    /** The work, in the person's words (without when). */
+    text: text("text").notNull(),
+    /** RepeatSchedule: { every: day | weekday | week | month, weekday?, day?, time }. */
+    schedule: jsonb("schedule").$type<Record<string, unknown>>().notNull(),
+    /** Who asked for it: they are who the tasks are for. */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    by: text("by").notNull(),
+    lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    lastTaskId: uuid("last_task_id"),
+    createdAt: createdAt(),
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    stoppedBy: text("stopped_by"),
+  },
+  (t) => [index("recurring_work_company").on(t.companyId, t.agentId)],
+);

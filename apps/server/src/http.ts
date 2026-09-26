@@ -9,6 +9,7 @@ import {
   CalculationError,
   CoachingError,
   PeopleError,
+  RecurringWorkError,
   RunError,
   TableError,
   TaskError,
@@ -40,7 +41,8 @@ export function statusFor(error: unknown): number {
     error instanceof CoachingError ||
     error instanceof TableError ||
     error instanceof AppError ||
-    error instanceof CalculationError
+    error instanceof CalculationError ||
+    error instanceof RecurringWorkError
   )
     return error.status;
   if (error instanceof RecordValueError) return 400;

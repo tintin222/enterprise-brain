@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import { Archive, ArchiveRestore, Calculator, CircleAlert, CircleCheck, Play, Table2 } from "lucide-react";
 import { useState } from "react";
-import { useParams } from "react-router";
+import { useParams, useSearchParams } from "react-router";
 import { api } from "../../api.ts";
 import { Badge } from "../../components/Badge.tsx";
 import { Button, ButtonLink } from "../../components/Button.tsx";
@@ -28,6 +28,9 @@ export default function CalculationPage() {
   const departments = useDepartments();
   const tables = useTables();
   const [shown, setShown] = useState<string | null>(null);
+  // A change said in the one box: worked out at once below.
+  const [params] = useSearchParams();
+  const asked = params.get("change") ?? undefined;
   const refresh = () => queryClient.invalidateQueries({ queryKey: keys.calculations(company) });
   const run = useMutation({
     mutationFn: () => api.post<CalculationRun>(path(`/calculations/${encodeURIComponent(key)}/run`)),
@@ -107,6 +110,7 @@ export default function CalculationPage() {
           </Card>
           {calculation.can.design && (
             <ChangeBox<CalculationChangeProposal>
+              initial={asked}
               title="Change the rule in plain words"
               placeholder="This year instead of last month; per 1000 deliveries; or say the whole rule"
               propose={(request) => api.post<CalculationChangeProposal>(path(`/calculations/${encodeURIComponent(key)}/changes`), { request })}

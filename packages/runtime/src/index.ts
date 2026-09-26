@@ -35,3 +35,4 @@ export * from "./google-chat.ts";
 export * from "./tables.ts";
 export * from "./apps.ts";
 export * from "./calculations.ts";
+export * from "./recurring.ts";

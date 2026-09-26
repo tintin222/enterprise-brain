@@ -220,6 +220,8 @@ export interface AgentDetail {
   managerCandidates?: { id: string; name: string; title: string | null }[];
   /** Changes to it and coaching notes from people, newest first. */
   activity?: { id: string; actor: string; action: string; summary: string; createdAt: string }[];
+  /** Work people asked it to do regularly. */
+  recurring?: RecurringWork[];
 }
 
 /** How much an AI employee may do alone. */
@@ -1714,4 +1716,58 @@ export interface AppChangeProposal {
 export interface CalculationChangeProposal extends CalculationProposal {
   rule: string;
   before: CalculationRun | null;
+}
+
+// ---------------------------------------------------------------------------
+// The one box, and recurring work
+// ---------------------------------------------------------------------------
+
+export type NeedKind = "task" | "recurring" | "answer" | "calculation" | "table" | "app" | "ai-employee" | "change" | "unclear";
+
+/** When recurring work repeats, in the company's time zone. */
+export interface RepeatSchedule {
+  every: "day" | "weekday" | "week" | "month";
+  /** 0 = Sunday … 6 = Saturday. */
+  weekday?: number;
+  /** 1-28. */
+  day?: number;
+  /** HH:MM */
+  time: string;
+}
+
+/** What the one box understood, and what it would do. */
+export interface NeedReading {
+  kind: NeedKind;
+  agent?: string;
+  work?: string;
+  schedule?: RepeatSchedule;
+  description?: string;
+  target?: { type: "table" | "app" | "calculation" | "agent"; key: string; name: string };
+  change?: string;
+  question?: string;
+  alternatives: NeedKind[];
+  notes: string[];
+  drafted: "model" | "words";
+  summary: string;
+  when: string | null;
+  agentName: string | null;
+  workers: { slug: string; name: string; status: AgentStatus }[];
+  can: { build: boolean; change: boolean };
+}
+
+export interface RecurringWork {
+  id: string;
+  agentId: string;
+  text: string;
+  schedule: RepeatSchedule;
+  /** "every Monday at 08:00" */
+  when: string;
+  userId: string | null;
+  by: string;
+  lastRunAt: string | null;
+  lastTaskId: string | null;
+  createdAt: string;
+  stoppedAt: string | null;
+  stoppedBy: string | null;
+  agent?: { slug: string; name: string; status: AgentStatus } | null;
 }

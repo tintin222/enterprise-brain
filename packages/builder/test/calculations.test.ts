@@ -94,6 +94,22 @@ describe("writing a calculation", () => {
     );
   });
 
+  it("reads questions as people ask them, and the state of the records", async () => {
+    const asked = await writeCalculation(new UnavailableLlm(), { rule: "How many complaints did we get last month?", tables, trial });
+    expect(asked.trial.result).toBe(4);
+    const cameIn = await writeCalculation(new UnavailableLlm(), { rule: "How many complaints came in this month", tables, trial });
+    expect(cameIn.trial.result).toBe(1);
+    const open = await writeCalculation(new UnavailableLlm(), { rule: "How many complaints are open", tables, trial });
+    expect(open).toMatchObject({ draft: { explanation: "How many supplier complaints whose status is Open." }, trial: { result: 4 } });
+    const bySupplier = await writeCalculation(new UnavailableLlm(), { rule: "Rank suppliers by open complaints", tables, trial });
+    expect(bySupplier.trial.result).toEqual([
+      { rank: 1, supplier: "Akın Metal", complaints: 3 },
+      { rank: 2, supplier: "Demir Döküm", complaints: 1 },
+    ]);
+    // A state no field has isn't guessed.
+    await expect(writeCalculation(new UnavailableLlm(), { rule: "How many complaints are urgent", tables, trial })).rejects.toThrow(/needs the model/);
+  });
+
   it("with the model, writes the code again when it fails on the real rows", async () => {
     let calls = 0;
     const llm = new ScriptedLlm({

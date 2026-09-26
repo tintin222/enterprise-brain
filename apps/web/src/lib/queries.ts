@@ -21,6 +21,7 @@ import type {
   CalculationDetail,
   CalculationView,
   RecordPage,
+  RecurringWork,
   TableSummary,
   TableView,
   ReportPeriodKey,
@@ -60,6 +61,7 @@ export const keys = {
   apps: (company: string) => [company, "apps"] as const,
   calculations: (company: string) => [company, "calculations"] as const,
   table: (company: string, key: string) => [company, "tables", key] as const,
+  recurring: (company: string) => [company, "recurring"] as const,
 };
 
 export function useCatalog() {
@@ -347,4 +349,10 @@ export function useCalculation(key: string | undefined) {
     queryFn: () => api.get<CalculationDetail>(path(`/calculations/${encodeURIComponent(key ?? "")}`)),
     enabled: Boolean(key),
   });
+}
+
+/** The viewer's own recurring work (what they asked AI employees to do regularly). */
+export function useRecurring() {
+  const { company, path } = useCompany();
+  return useQuery({ queryKey: keys.recurring(company), queryFn: () => api.get<RecurringWork[]>(path("/recurring")) });
 }

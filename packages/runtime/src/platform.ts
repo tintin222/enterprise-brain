@@ -29,6 +29,7 @@ import { QueueService } from "./queue.ts";
 import { SecretBox } from "./secrets.ts";
 import { AppService } from "./apps.ts";
 import { CalculationService } from "./calculations.ts";
+import { RecurringWorkService } from "./recurring.ts";
 import { TableService } from "./tables.ts";
 import { TeamsTransport } from "./teams.ts";
 import { TaskService } from "./tasks.ts";
@@ -96,6 +97,8 @@ export class Platform {
   readonly apps: AppService;
   /** Rules people say in plain words, run in a sandbox on the tables' rows. */
   readonly calculations: CalculationService;
+  /** Work people ask AI employees to do regularly ("every Monday: send me the open complaints"). */
+  readonly recurring: RecurringWorkService;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -138,6 +141,8 @@ export class Platform {
     this.catalog = new CatalogService(this.handle, options.catalog, this.agents, this.knowledge, this.activity);
     this.triggers = new TriggerService(this.handle, this.agents, this.engine, this.mail, this.tasks, this.people);
     this.triggers.onTick((now) => this.calculations.runDue(now));
+    this.recurring = new RecurringWorkService(this.handle, this.agents, this.engine);
+    this.triggers.onTick((now) => this.recurring.runDue(now));
     this.employment = new EmploymentService(this.agents, this.people, this.engine, this.activity, this.connectors);
     this.watchers = new WatcherService(this.handle, this.connectors, this.mail, this.agents, this.engine, this.triggers);
     this.queue = new QueueService(this.handle, this.agents, this.work);

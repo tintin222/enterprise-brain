@@ -33,7 +33,7 @@ export function useTableDepartments() {
 }
 
 /** Say what to keep track of; the Studio proposes the table; shape it; make it. */
-export function NewTableDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function NewTableDialog({ open, onClose, initial }: { open: boolean; onClose: () => void; initial?: string }) {
   const { company, path } = useCompany();
   const toast = useToast();
   const navigate = useNavigate();
@@ -45,16 +45,19 @@ export function NewTableDialog({ open, onClose }: { open: boolean; onClose: () =
   const [draft, setDraft] = useState<DesignDraft | null>(null);
   useEffect(() => {
     if (!open) return;
-    setDescription("");
+    setDescription(initial ?? "");
     setProposal(null);
     setDraft(null);
+    // Said in the one box: proposed at once.
+    if (initial && initial.trim().length >= 3) propose.mutate(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   useEffect(() => {
     if (!departmentId && departments[0]) setDepartmentId(departments[0].id);
   }, [departmentId, departments]);
 
   const propose = useMutation({
-    mutationFn: () => api.post<TableProposal>(path("/tables/propose"), { description }),
+    mutationFn: (said?: string) => api.post<TableProposal>(path("/tables/propose"), { description: said ?? description }),
     onSuccess: (result) => {
       setProposal(result);
       setDraft(draftOfDesign(result.design, true));

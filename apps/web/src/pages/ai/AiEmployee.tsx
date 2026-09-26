@@ -380,6 +380,21 @@ function DutiesTab({ detail }: { detail: AgentDetail }) {
           </Callout>
         )}
       </Section>
+      {detail.recurring && detail.recurring.length > 0 && (
+        <Section title="Asked for regularly" icon={CalendarClock} className="lg:col-span-2">
+          <ul className="space-y-2.5">
+            {detail.recurring.map((r) => (
+              <li key={r.id} className="flex items-start gap-2.5 text-sm">
+                <CalendarClock className="mt-0.5 size-4 shrink-0 text-muted" />
+                <span className="text-fg">
+                  {r.when[0]!.toUpperCase() + r.when.slice(1)}: {r.text} <span className="text-muted">· for {r.by}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="hint mt-3">People ask for these in “What do you need?” on Home; each time it is a task for them.</p>
+        </Section>
+      )}
       <Section title="Other ways work reaches it" icon={CirclePlay} className="lg:col-span-2">
         <ul className="space-y-2 text-sm text-fg">
           <li className="flex items-center gap-2.5">

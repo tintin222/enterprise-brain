@@ -21,7 +21,7 @@ const EXAMPLES = [
 ];
 
 /** Say what the screens are for; the Studio proposes the app (and its table); make both. */
-export function NewAppDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function NewAppDialog({ open, onClose, initial }: { open: boolean; onClose: () => void; initial?: string }) {
   const { company, path } = useCompany();
   const toast = useToast();
   const navigate = useNavigate();
@@ -34,15 +34,18 @@ export function NewAppDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [name, setName] = useState("");
   useEffect(() => {
     if (!open) return;
-    setDescription("");
+    setDescription(initial ?? "");
     setProposal(null);
+    // Said in the one box: proposed at once.
+    if (initial && initial.trim().length >= 3) propose.mutate(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
   useEffect(() => {
     if (!departmentId && departments[0]) setDepartmentId(departments[0].id);
   }, [departmentId, departments]);
 
   const propose = useMutation({
-    mutationFn: () => api.post<AppProposal>(path("/apps/propose"), { description }),
+    mutationFn: (said?: string) => api.post<AppProposal>(path("/apps/propose"), { description: said ?? description }),
     onSuccess: (result) => {
       setProposal(result);
       setName(result.design.name);

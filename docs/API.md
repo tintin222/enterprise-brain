@@ -57,7 +57,7 @@ Template shapes are defined in `packages/core/src/catalog.ts` (`DepartmentTempla
 |---|---|---|
 | GET | `/api/companies/:company/agents?status=` | Agent rows `{ id, slug, name, summary, archetype, status (draft/testing/active/paused/archived), source (template/builder/manual), templateId, version, departmentId, processId, managerUserId, probation (shadow/supervised/trusted), limits, monthlyBudgetUsd, title, department, triggers, ui, steps, createdAt, updatedAt }`: the AI employees the viewer may see |
 | POST | `/api/companies/:company/agents` | `{ definition: AgentDefinition, status? }` |
-| GET | `/api/companies/:company/agents/:agent` | `{ agent, definition: AgentDefinition, versions[] {version, note, createdBy, createdAt}, recentRuns[], employment, canManage, managerCandidates[] {id, name, title}, activity[] {id, actor, action, summary, createdAt} }` (`:agent` = slug or id). `employment`: `{ manager {id, name, email, title} \| null, probation, limits, monthlyBudgetUsd, costThisMonthUsd, stoppedByBudget, changesToday, duties[] {kind, text} }`. `activity`: changes to it and coaching notes (`agent.coaching_note`: a correction before approving, a rejection with a reason, or a check marked wrong), newest first |
+| GET | `/api/companies/:company/agents/:agent` | `{ agent, definition: AgentDefinition, versions[] {version, note, createdBy, createdAt}, recentRuns[], employment, canManage, managerCandidates[] {id, name, title}, activity[] {id, actor, action, summary, createdAt}, recurring[] (work people asked it to do regularly) }` (`:agent` = slug or id). `employment`: `{ manager {id, name, email, title} \| null, probation, limits, monthlyBudgetUsd, costThisMonthUsd, stoppedByBudget, changesToday, duties[] {kind, text} }`. `activity`: changes to it and coaching notes (`agent.coaching_note`: a correction before approving, a rejection with a reason, or a check marked wrong), newest first |
 | PUT | `/api/companies/:company/agents/:agent/employment` | A manager of its department (or an admin): `{ managerUserId?: uuid \| null, probation?: "shadow"\|"supervised"\|"trusted", limits?: { maxAmount?, currency?, maxActionsPerDay?, mailDomains?[] }, monthlyBudgetUsd?: number \| null }` → `{ agent, employment }`. The manager must manage its department or be an admin (400 otherwise) |
 | PUT | `/api/companies/:company/agents/:agent` | `{ definition, note? }` → new version |
 | POST | `/api/companies/:company/agents/:agent/status` | `{ status }` |
@@ -241,6 +241,19 @@ Rules people say in plain words ("rank suppliers by complaints per 100 deliverie
 | POST | `/api/companies/:company/calculations/:calculation/archive` · `/restore` | Its managers |
 
 An app shows a calculation's latest result with the block `{ type: "result", calculation, title? }`.
+
+## The one box ("What do you need?")
+
+A request in plain words is read as one of: `task` (an AI employee does it now), `recurring` (an AI employee does it regularly), `answer` (the company's knowledge answers it), `calculation` (worked out on the tables, and kept if wanted), `table`, `app`, `ai-employee` (made as usual: the Studio proposes, the Studio interviews for an AI employee), `change` (to a table, an app, a calculation or an AI employee) or `unclear` (one question back). With Claude the model reads it; offline, the usual sentences are read from the words (English and Turkish). Reading does nothing: the person says go, and the endpoints above do it with their own checks.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/companies/:company/needs` | `{ text, as? }` (`as`: the reading the person chose instead) → `{ kind, agent? (slug), work?, schedule?: RepeatSchedule, description? (what to make, the rule, the question), target? { type: table\|app\|calculation\|agent, key, name }, change?, question?, alternatives[], notes[], drafted: model\|words, summary (what would happen, in a sentence), when ("every Monday at 09:00"), agentName, workers[] { slug, name, status } (who the viewer can give work to), can: { build, change } }` |
+| GET | `/api/companies/:company/recurring?agent&stopped=true` | The viewer's recurring work; with `agent`, what that AI employee does regularly for people (its department's people): `{ id, agentId, agent { slug, name, status }, text, schedule, when, by, lastRunAt, lastTaskId, createdAt, stoppedAt, stoppedBy }[]` |
+| POST | `/api/companies/:company/recurring` | `{ agent, text, schedule: RepeatSchedule }`: an AI employee of the viewer's departments does it regularly |
+| POST | `/api/companies/:company/recurring/:id/stop` | Whoever asked for it, the AI employee's managers, admins |
+
+`RepeatSchedule`: `{ every: day | weekday | week | month, weekday? (week: 0 = Sunday … 6), day? (month: 1-28), time: "HH:MM" }`, in the company's time zone. At its time the AI employee gets the work as a task asked by the person (`source: recurring`); a time missed while the server was down is made up within six hours, and a paused AI employee (or one over its budget) skips it.
 
 ## Knowledge base & search
 

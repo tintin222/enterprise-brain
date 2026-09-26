@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { Check, Sparkles, Wand2 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useToast } from "../lib/toast.tsx";
 import { Button } from "./Button.tsx";
 import { Callout, ErrorState } from "./Spinner.tsx";
@@ -25,6 +25,7 @@ export function ChangeBox<T>({
   apply,
   applyLabel = "Make the change",
   onApplied,
+  initial,
 }: {
   title?: string;
   placeholder: string;
@@ -34,11 +35,18 @@ export function ChangeBox<T>({
   apply: (proposal: T) => Promise<unknown>;
   applyLabel?: string;
   onApplied?: () => void;
+  /** A change already said (from the one box): shown and worked out at once. */
+  initial?: string;
 }) {
   const toast = useToast();
-  const [request, setRequest] = useState("");
+  const [request, setRequest] = useState(initial ?? "");
   const [proposal, setProposal] = useState<T | null>(null);
-  const ask = useMutation({ mutationFn: () => propose(request.trim()), onSuccess: setProposal });
+  const ask = useMutation({ mutationFn: (said?: string) => propose((said ?? request).trim()), onSuccess: setProposal });
+  useEffect(() => {
+    if (initial && initial.trim().length >= 3) ask.mutate(initial);
+    // Once, for the change it was opened with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initial]);
   const make = useMutation({
     mutationFn: () => apply(proposal!),
     onSuccess: () => {

@@ -81,7 +81,7 @@ export interface Decision {
 /** Where people act outside the app, as the audit log says it. */
 const VIA_LABELS: Record<string, string> = { email: "an email", teams: "Microsoft Teams", "google-chat": "Google Chat" };
 
-const AUTOMATED_TRIGGERS = new Set(["mailbox", "schedule", "webhook", "paperclip", "connector-event"]);
+const AUTOMATED_TRIGGERS = new Set(["mailbox", "schedule", "recurring", "webhook", "paperclip", "connector-event"]);
 
 export class RunError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -1374,6 +1374,7 @@ const SOURCE_TEXT: Record<string, string> = {
   request: "New request",
   mailbox: "New email",
   schedule: "Scheduled work",
+  recurring: "Recurring request",
   form: "Form submitted",
   webhook: "Called by another system",
   paperclip: "Assigned in Paperclip",

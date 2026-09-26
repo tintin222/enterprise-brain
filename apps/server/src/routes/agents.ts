@@ -97,12 +97,13 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     const { agent: ref } = request.params as { agent: string };
     const agent = await agentFor(request, company.id, ref);
     const canManage = canManageDepartment(viewerOf(request), agent.row.departmentId);
-    const [versions, recentRuns, employment, managers, activity] = await Promise.all([
+    const [versions, recentRuns, employment, managers, activity, recurring] = await Promise.all([
       platform.agents.versions(company.id, ref),
       platform.engine.list(company.id, { agentId: agent.row.id, limit: 20 }),
       platform.employment.view(company.id, agent),
       canManage ? platform.employment.candidates(company.id, agent) : Promise.resolve([]),
       platform.activity.forEntity(company.id, "agent", agent.row.id, 50),
+      platform.recurring.list(company.id, { agentId: agent.row.id }),
     ]);
     return {
       agent: agent.row,
@@ -115,6 +116,8 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
       managerCandidates: managers.map((p) => ({ id: p.id, name: p.name, title: p.title })),
       /** Changes to it and coaching notes from people, newest first. */
       activity: activity.map((a) => ({ id: a.id, actor: a.actor, action: a.action, summary: a.summary, createdAt: a.createdAt })),
+      /** Work people asked it to do regularly. */
+      recurring,
     };
   });
 

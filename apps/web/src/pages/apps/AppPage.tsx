@@ -26,6 +26,19 @@ export default function AppPage() {
   const detail = useAppDetail(key);
   const departments = useDepartments();
   const [designing, setDesigning] = useState(false);
+  // A change said in the one box: the app's design opens with it worked out.
+  const asked = params.get("change");
+  useEffect(() => {
+    if (asked && detail.data?.app.can.design) setDesigning(true);
+  }, [asked, detail.data?.app.can.design]);
+  const stopDesigning = () => {
+    setDesigning(false);
+    if (asked) {
+      const next = new URLSearchParams(params);
+      next.delete("change");
+      setParams(next, { replace: true });
+    }
+  };
   // Addresses from before apps: /apps/<slug> was an AI employee's own form.
   const agent = useAgent(isApiError(detail.error, 404) ? key : undefined);
   const context = useMemo<BlockContext>(
@@ -96,13 +109,13 @@ export default function AppPage() {
           </div>
         ))}
       </div>
-      {app.can.design && <AppDesignDrawer detail={detail.data} open={designing} onClose={() => setDesigning(false)} />}
+      {app.can.design && <AppDesignDrawer detail={detail.data} open={designing} onClose={stopDesigning} initialChange={asked ?? undefined} />}
     </Page>
   );
 }
 
 /** Change an app: its name, who uses it, its pages and their order, what's on them; or archive it. */
-function AppDesignDrawer({ detail, open, onClose }: { detail: AppDetail; open: boolean; onClose: () => void }) {
+function AppDesignDrawer({ detail, open, onClose, initialChange }: { detail: AppDetail; open: boolean; onClose: () => void; initialChange?: string }) {
   const { company, path } = useCompany();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -166,6 +179,7 @@ function AppDesignDrawer({ detail, open, onClose }: { detail: AppDetail; open: b
     >
       <div className="space-y-5">
         <ChangeBox<AppChangeProposal>
+          initial={initialChange}
           placeholder="Add a chart of complaints by month, take away the board, rename Add to Log a complaint"
           propose={(request) => api.post<AppChangeProposal>(path(`/apps/${encodeURIComponent(app.key)}/changes`), { request })}
           said={(change) => change}

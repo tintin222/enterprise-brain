@@ -47,6 +47,19 @@ export default function TablePage() {
   const [importing, setImporting] = useState(false);
   const [designing, setDesigning] = useState(false);
   const open = params.get("record");
+  // A change said in the one box: the table's design opens with it worked out.
+  const asked = params.get("change");
+  useEffect(() => {
+    if (asked && table.data?.can.design) setDesigning(true);
+  }, [asked, table.data?.can.design]);
+  const stopDesigning = () => {
+    setDesigning(false);
+    if (asked) {
+      const next = new URLSearchParams(params);
+      next.delete("change");
+      setParams(next, { replace: true });
+    }
+  };
   useEffect(() => {
     const timer = window.setTimeout(() => setSearch(typed.trim()), 250);
     return () => window.clearTimeout(timer);
@@ -278,7 +291,7 @@ export default function TablePage() {
       <RecordDrawer table={view} recordNumber={open ? Number(open) : null} onClose={() => openRecord(null)} />
       {view.can.edit && <NewRecordDialog table={view} open={adding} onClose={() => setAdding(false)} />}
       {view.can.edit && <ImportDialog table={view} open={importing} onClose={() => setImporting(false)} />}
-      {view.can.design && <DesignDrawer table={view} open={designing} onClose={() => setDesigning(false)} company={company} />}
+      {view.can.design && <DesignDrawer table={view} open={designing} onClose={stopDesigning} company={company} initialChange={asked ?? undefined} />}
     </Page>
   );
 }
@@ -320,7 +333,19 @@ function Cell({ field, value, display }: { field: TableField; value: unknown; di
 }
 
 /** Change the table: its fields (tested against its records first), who sees it and who changes it, archive. */
-function DesignDrawer({ table, open, onClose, company }: { table: TableView; open: boolean; onClose: () => void; company: string }) {
+function DesignDrawer({
+  table,
+  open,
+  onClose,
+  company,
+  initialChange,
+}: {
+  table: TableView;
+  open: boolean;
+  onClose: () => void;
+  company: string;
+  initialChange?: string;
+}) {
   const { path } = useCompany();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -373,6 +398,7 @@ function DesignDrawer({ table, open, onClose, company }: { table: TableView; ope
     >
       <div className="space-y-6">
         <ChangeBox<TableChangeProposal>
+          initial={initialChange}
           placeholder="Add a field for the root cause, make Owner needed, rename Done to Closed"
           propose={(request) => api.post<TableChangeProposal>(path(`/tables/${encodeURIComponent(table.key)}/changes`), { request })}
           said={(change) => change}
