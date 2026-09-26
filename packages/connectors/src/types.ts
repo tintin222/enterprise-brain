@@ -33,6 +33,11 @@ export interface ConnectorContext {
   logger: ConnectorLogger;
   /** Persistent store backing the built-in sandbox systems. */
   sandbox: SandboxStore;
+  /**
+   * Store new secret values on the connection (e.g. a refresh token the provider replaced). Only
+   * connections stored by the platform have it.
+   */
+  saveSecrets?: (patch: Record<string, string>) => Promise<void>;
 }
 
 export interface ConnectorTestResult {

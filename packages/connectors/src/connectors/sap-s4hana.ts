@@ -15,6 +15,7 @@ import {
   type Query,
 } from "../http.ts";
 import { arr, bool, date, int, num, obj, oneOf, readOp, str, writeOp } from "../schema.ts";
+import { TLS_CONFIG } from "../tls.ts";
 import { ConnectorError, type ConnectorContext } from "../types.ts";
 import {
   configString,
@@ -46,7 +47,8 @@ const PO_SELECT =
   "PurchaseOrder,CompanyCode,PurchaseOrderType,Supplier,PurchasingOrganization,PurchasingGroup,PurchaseOrderDate,DocumentCurrency,PaymentTerms,PurchasingProcessingStatus,CreationDate";
 
 interface Auth {
-  header: string;
+  /** Undefined when the client certificate alone signs the caller in. */
+  header: string | undefined;
   /** A cached OAuth token that may be refreshed after a 401. */
   refreshable: boolean;
 }
@@ -78,6 +80,10 @@ async function authenticate(ctx: ConnectorContext, forceRefresh: boolean): Promi
       forceRefresh,
     );
     return { header: `Bearer ${token.accessToken}`, refreshable: token.fromCache };
+  }
+  if (configString(ctx, "auth_type") === "certificate") {
+    if (!ctx.config.client_certificate) throw new ConnectorError("Give the client certificate and its private key for certificate sign-in", "config");
+    return { header: undefined, refreshable: false };
   }
   return {
     header: basicAuth(requireConfig(ctx, "username", "Username"), requireSecret(ctx, "password", "Password")),
@@ -194,16 +200,25 @@ const manifest = defineManifest({
       options: [
         { value: "basic", label: "Basic authentication (communication / technical user)" },
         { value: "oauth2", label: "OAuth 2.0 client credentials" },
+        { value: "certificate", label: "Client certificate only (X.509, on-premise)" },
       ],
+      help: "Gateways that sign callers in with an X.509 certificate: give the certificate and its key below.",
     },
-    { key: "username", label: "Username", type: "string", help: "Communication user (Cloud) or technical user (on-premise)." },
-    { key: "password", label: "Password", type: "password", secret: true },
-    { key: "token_url", label: "OAuth token URL", type: "url", placeholder: "https://<subdomain>.authentication.eu10.hana.ondemand.com/oauth/token" },
-    { key: "client_id", label: "OAuth client ID", type: "string" },
-    { key: "client_secret", label: "OAuth client secret", type: "password", secret: true },
-    { key: "oauth_scope", label: "OAuth scope", type: "string", help: "Optional scope requested with the token." },
+    { key: "username", label: "Username", type: "string", help: "Communication user (Cloud) or technical user (on-premise).", showWhen: { key: "auth_type", values: ["basic"] } },
+    { key: "password", label: "Password", type: "password", secret: true, showWhen: { key: "auth_type", values: ["basic"] } },
+    {
+      key: "token_url",
+      label: "OAuth token URL",
+      type: "url",
+      placeholder: "https://<subdomain>.authentication.eu10.hana.ondemand.com/oauth/token",
+      showWhen: { key: "auth_type", values: ["oauth2"] },
+    },
+    { key: "client_id", label: "OAuth client ID", type: "string", showWhen: { key: "auth_type", values: ["oauth2"] } },
+    { key: "client_secret", label: "OAuth client secret", type: "password", secret: true, showWhen: { key: "auth_type", values: ["oauth2"] } },
+    { key: "oauth_scope", label: "OAuth scope", type: "string", help: "Optional scope requested with the token.", showWhen: { key: "auth_type", values: ["oauth2"] } },
     { key: "company_code", label: "Default company code", type: "string", placeholder: "1010" },
     { key: "odata_path", label: "OData path prefix", type: "string", default: "/sap/opu/odata/sap", help: "Change only when APIs are exposed through an API gateway." },
+    ...TLS_CONFIG,
   ],
   operations: [
     readOp("search_business_partners", "Search business partners", "Find business partners (suppliers, customers) by name, search term or number.", {

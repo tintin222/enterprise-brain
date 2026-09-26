@@ -1,14 +1,26 @@
 import type { JsonSchema, NamedAction } from "@enterprise-brain/core";
 import { fillPath, fillTemplate } from "../named-actions.ts";
 import { defineConnector, defineManifest } from "../define.ts";
-import { basicAuth, httpRequest, type HttpRequestOptions, type HttpResponse, type Query } from "../http.ts";
+import {
+  basicAuth,
+  getClientCredentialsToken,
+  getRefreshTokenAccessToken,
+  httpRequest,
+  withTokenRetry,
+  type HttpRequestOptions,
+  type HttpResponse,
+  type OAuthToken,
+  type Query,
+} from "../http.ts";
 import { anyObject, readOp, str, writeOp } from "../schema.ts";
+import { TLS_CONFIG } from "../tls.ts";
 import { ConnectorError, type ConnectorContext, type ConnectorImplementation } from "../types.ts";
 import {
   configNumber,
   configString,
   isRecord,
   normalizeBaseUrl,
+  optionalSecret,
   optRecord,
   reqString,
   requireConfig,
@@ -19,6 +31,8 @@ import {
 } from "../util.ts";
 
 const SERVICE = "REST API";
+const OAUTH = { key: "auth_type", values: ["oauth2_client_credentials", "oauth2_authorization_code"] };
+const CODE = { key: "auth_type", values: ["oauth2_authorization_code"] };
 const MAX_TEXT = 200_000;
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -50,6 +64,62 @@ function defaultHeaders(ctx: ConnectorContext): Record<string, string> {
   }
   if (!isRecord(parsed)) throw new ConnectorError("Default headers must be a JSON object", "config");
   return Object.fromEntries(Object.entries(parsed).map(([key, value]) => [key.toLowerCase(), String(value)]));
+}
+
+const OAUTH_TYPES = new Set(["oauth2_client_credentials", "oauth2_authorization_code"]);
+
+/** A sign-in address: https (plain http only on this machine, for trials). */
+export function secureUrl(value: string, label: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ConnectorError(`${label} is not a URL`, "config");
+  }
+  const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && local)) throw new ConnectorError(`${label} must use https`, "config");
+  return url.toString();
+}
+
+/** What the OAuth 2.0 settings of a connection say (for the token requests and the sign-in). */
+export function oauthSettings(ctx: ConnectorContext) {
+  const audience = configString(ctx, "audience");
+  return {
+    tokenUrl: secureUrl(requireConfig(ctx, "token_url", "Token URL"), "Token URL"),
+    clientId: requireConfig(ctx, "client_id", "Client ID"),
+    clientSecret: optionalSecret(ctx, "client_secret"),
+    scope: configString(ctx, "scope"),
+    clientAuth: configString(ctx, "token_client_auth") === "basic" ? ("basic" as const) : ("body" as const),
+    extraParams: audience ? { audience } : undefined,
+  };
+}
+
+/**
+ * An access token for the connection: its own (client credentials), or the one its sign-in allows
+ * (authorization code: the refresh token is kept, and replaced when the provider issues a new one).
+ */
+async function oauthToken(ctx: ConnectorContext, force: boolean): Promise<OAuthToken> {
+  const settings = oauthSettings(ctx);
+  const service = `${configString(ctx, "system_name", SERVICE) ?? SERVICE} sign-in`;
+  if (configString(ctx, "auth_type") === "oauth2_client_credentials") {
+    return getClientCredentialsToken(ctx.fetch, { ...settings, clientSecret: requireSecret(ctx, "client_secret", "Client secret"), service }, force);
+  }
+  const refreshToken = optionalSecret(ctx, "refresh_token");
+  if (!refreshToken) throw new ConnectorError("Nobody signed in to this connection yet: use Sign in on the connection", "auth");
+  const token = await getRefreshTokenAccessToken(ctx.fetch, { ...settings, refreshToken, service }, force);
+  if (token.refreshToken && token.refreshToken !== refreshToken) await ctx.saveSecrets?.({ refresh_token: token.refreshToken });
+  return token;
+}
+
+/** Sends a request with the connection's authentication (a fresh token once when an OAuth token was refused). */
+function send<T>(ctx: ConnectorContext, url: string, options: HttpRequestOptions): Promise<HttpResponse<T>> {
+  if (OAUTH_TYPES.has(configString(ctx, "auth_type") ?? "")) {
+    return withTokenRetry(
+      (force) => oauthToken(ctx, force),
+      (token) => httpRequest<T>(ctx.fetch, url, { ...options, headers: { ...options.headers, authorization: `Bearer ${token.accessToken}` } }),
+    );
+  }
+  return httpRequest<T>(ctx.fetch, url, { ...options, headers: { ...options.headers, ...authHeaders(ctx) } });
 }
 
 function authHeaders(ctx: ConnectorContext): Record<string, string> {
@@ -91,7 +161,7 @@ function describe(response: HttpResponse): Rec {
 async function call(ctx: ConnectorContext, method: Method, input: Input): Promise<Rec> {
   const base = normalizeBaseUrl(requireConfig(ctx, "base_url", "Base URL"), "Base URL");
   const url = resolveRestUrl(base, reqString(input, "path"));
-  const headers: Record<string, string> = { ...defaultHeaders(ctx), ...authHeaders(ctx) };
+  const headers: Record<string, string> = { ...defaultHeaders(ctx) };
   const options: HttpRequestOptions = {
     method,
     service: configString(ctx, "system_name", SERVICE) ?? SERVICE,
@@ -108,7 +178,7 @@ async function call(ctx: ConnectorContext, method: Method, input: Input): Promis
       options.json = body;
     }
   }
-  return { ok: true, ...describe(await httpRequest(ctx.fetch, url, options)) };
+  return { ok: true, ...describe(await send(ctx, url, options)) };
 }
 
 const pathSchema = str("Path relative to the base URL, e.g. /orders/4711 or customers?active=true");
@@ -120,7 +190,7 @@ const manifest = defineManifest({
   vendor: "Enterprise Brain",
   category: "other",
   description:
-    "Calls any HTTP/JSON API of an in-house or third-party system below a configured base URL, with API key, bearer token or basic authentication. Use it for systems without a dedicated connector (MES, WMS, e-invoicing portals, internal services).",
+    "Calls any HTTP/JSON API of an in-house or third-party system below a configured base URL, with an API key, a bearer token, basic authentication, OAuth 2.0 (client credentials, or a sign-in once) and client certificates. Use it for systems without a dedicated connector (MES, WMS, e-invoicing portals, internal services).",
   auth: "custom",
   maturity: "preview",
   config: [
@@ -136,13 +206,42 @@ const manifest = defineManifest({
         { value: "api_key", label: "API key header" },
         { value: "bearer", label: "Bearer token" },
         { value: "basic", label: "Basic authentication" },
+        { value: "oauth2_client_credentials", label: "OAuth 2.0: the connection's own credentials (client credentials)" },
+        { value: "oauth2_authorization_code", label: "OAuth 2.0: someone signs in once (authorization code)" },
+      ],
+      help: "With a client certificate, choose the sign-in the system asks for besides it (often None).",
+    },
+    { key: "api_key_header", label: "API key header name", type: "string", default: "X-API-Key", showWhen: { key: "auth_type", values: ["api_key"] } },
+    { key: "api_key", label: "API key", type: "password", secret: true, showWhen: { key: "auth_type", values: ["api_key"] } },
+    { key: "bearer_token", label: "Bearer token", type: "password", secret: true, showWhen: { key: "auth_type", values: ["bearer"] } },
+    { key: "username", label: "Username", type: "string", showWhen: { key: "auth_type", values: ["basic"] } },
+    { key: "password", label: "Password", type: "password", secret: true, showWhen: { key: "auth_type", values: ["basic"] } },
+    { key: "token_url", label: "OAuth token URL", type: "url", placeholder: "https://login.example.com/oauth2/token", showWhen: OAUTH },
+    { key: "authorize_url", label: "OAuth sign-in URL", type: "url", placeholder: "https://login.example.com/oauth2/authorize", help: "Where people sign in.", showWhen: CODE },
+    { key: "client_id", label: "OAuth client ID", type: "string", showWhen: OAUTH },
+    { key: "client_secret", label: "OAuth client secret", type: "password", secret: true, showWhen: OAUTH },
+    { key: "scope", label: "OAuth scopes", type: "string", placeholder: "orders.read orders.write", help: "Separated by spaces.", showWhen: OAUTH },
+    { key: "audience", label: "OAuth audience", type: "string", help: "Only when the provider asks for one (e.g. Auth0).", showWhen: OAUTH },
+    {
+      showWhen: OAUTH,
+      key: "token_client_auth",
+      label: "How the client identifies itself",
+      type: "select",
+      default: "body",
+      options: [
+        { value: "body", label: "In the request (client_secret_post)" },
+        { value: "basic", label: "Basic authentication (client_secret_basic)" },
       ],
     },
-    { key: "api_key_header", label: "API key header name", type: "string", default: "X-API-Key" },
-    { key: "api_key", label: "API key", type: "password", secret: true },
-    { key: "bearer_token", label: "Bearer token", type: "password", secret: true },
-    { key: "username", label: "Username", type: "string" },
-    { key: "password", label: "Password", type: "password", secret: true },
+    {
+      key: "refresh_token",
+      label: "Refresh token",
+      type: "password",
+      secret: true,
+      help: "Filled in when someone signs in (Sign in, on the connection); replaced when the provider issues a new one.",
+      showWhen: CODE,
+    },
+    ...TLS_CONFIG,
     { key: "default_headers", label: "Default headers (JSON)", type: "textarea", placeholder: "{\"X-Tenant\": \"acme\"}" },
     { key: "health_path", label: "Health check path", type: "string", placeholder: "/health", help: "Called by 'Test connection' (default: the base URL)." },
     { key: "timeout_ms", label: "Timeout (ms)", type: "number", default: 30_000 },
@@ -159,7 +258,9 @@ const manifest = defineManifest({
   ],
   itRequirements: [
     "Base URL of the API and its documentation (OpenAPI/Swagger if available)",
-    "A technical account or API key with the minimal permissions the agent needs (read-only unless write operations are required)",
+    "A technical account, API key or OAuth 2.0 client with the minimal permissions the agent needs (read-only unless write operations are required)",
+    "For OAuth 2.0 sign-in: register the redirect URL the connection shows with the provider",
+    "For client certificates: the certificate and its private key (PEM), and your authority's certificate when the system's certificate comes from it",
     "Network access from Enterprise Brain to the API host (firewall rule, VPN or reverse proxy for internal systems)",
   ],
 });
@@ -174,9 +275,9 @@ const restImplementation: ConnectorImplementation = defineConnector({
     // Shown to the user: without query string (it may carry credentials).
     const shown = `${new URL(url).origin}${new URL(url).pathname}`;
     try {
-      const response = await httpRequest(ctx.fetch, url, {
+      const response = await send(ctx, url, {
         service: configString(ctx, "system_name", SERVICE) ?? SERVICE,
-        headers: { ...defaultHeaders(ctx), ...authHeaders(ctx) },
+        headers: defaultHeaders(ctx),
         responseType: "text",
         timeoutMs: configNumber(ctx, "timeout_ms", 30_000),
       });

@@ -16,6 +16,7 @@ export { operationToolName, validateOperationInput } from "./tools.ts";
 
 // HTTP, OAuth 2.0 and OData helpers for connector authors
 export * from "./http.ts";
+export { TLS_CONFIG, tlsFetch, tlsOptionsFrom, type TlsOptions } from "./tls.ts";
 
 // Sandbox systems
 export { InMemorySandboxStore } from "./sandbox/store.ts";
@@ -81,7 +82,7 @@ export {
 export { sharepointConnector } from "./connectors/sharepoint.ts";
 export { successFactorsConnector } from "./connectors/sap-successfactors.ts";
 export { workdayConnector } from "./connectors/workday.ts";
-export { resolveRestUrl, restApiConnector } from "./connectors/rest-api.ts";
+export { oauthSettings, resolveRestUrl, restApiConnector, secureUrl } from "./connectors/rest-api.ts";
 export {
   bindNamedParams,
   createSqlDatabaseConnector,

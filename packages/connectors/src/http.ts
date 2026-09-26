@@ -222,6 +222,8 @@ export interface OAuthToken {
   extra: Rec;
   /** True when served from the in-memory cache (a 401 may then warrant one refresh). */
   fromCache: boolean;
+  /** A new refresh token the provider issued with this token (rotation): store it in place of the old one. */
+  refreshToken?: string;
 }
 
 interface CacheEntry {
@@ -310,7 +312,7 @@ export async function requestToken(fetchImpl: typeof fetch, options: TokenReques
   if (!isRecord(data) || typeof data.access_token !== "string") {
     throw new ConnectorError(`${service} did not return an access token`, "auth");
   }
-  const { access_token, refresh_token: _refresh, id_token: _id, ...extra } = data;
+  const { access_token, refresh_token, id_token: _id, ...extra } = data;
   const expiresIn = Number(data.expires_in);
   const ttlMs = (Number.isFinite(expiresIn) && expiresIn > 0 ? expiresIn : DEFAULT_TOKEN_TTL_S) * 1000;
   return {
@@ -318,6 +320,7 @@ export async function requestToken(fetchImpl: typeof fetch, options: TokenReques
     tokenType: typeof data.token_type === "string" ? data.token_type : "Bearer",
     expiresAt: Date.now() + Math.max(ttlMs - EXPIRY_SKEW_MS, ttlMs / 2),
     extra,
+    ...(typeof refresh_token === "string" && refresh_token ? { refreshToken: refresh_token } : {}),
   };
 }
 

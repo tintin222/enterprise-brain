@@ -358,6 +358,8 @@ export interface Info {
   database: string;
   defaultCompany: string;
   publicUrl: string;
+  /** Where OAuth 2.0 providers send people back after signing a connection in. */
+  oauthRedirectUrl?: string;
   /** Open mode protected by EB_API_KEY: the console asks for the key. */
   authRequired: boolean;
   auth?: { mode: "accounts" | "open" };
@@ -559,6 +561,8 @@ export interface ConfigField {
   help?: string;
   options?: { value: string; label: string }[];
   default?: string | number | boolean;
+  /** Shown only when another field has one of these values. */
+  showWhen?: { key: string; values: string[] };
 }
 
 export interface JsonSchema {

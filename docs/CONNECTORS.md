@@ -37,7 +37,7 @@ operation  erp.post_supplier_invoice (write)   waits for human approval (guardra
 | `sharepoint` | SharePoint / OneDrive document libraries (Graph) | dms | list, download, search, upload files | preview |
 | `sap-successfactors` | SAP SuccessFactors Employee Central (OData v2) | hris | search/get users, employment | preview |
 | `workday` | Workday HCM (REST) | hris | search/get workers, direct reports | preview |
-| `rest-api` | Any REST API (API key, bearer, basic) | other | GET, POST, PUT, PATCH, DELETE | preview |
+| `rest-api` | Any REST API (API key, bearer, basic, OAuth 2.0, client certificates) | other | GET, POST, PUT, PATCH, DELETE | preview |
 | `sql-database` | PostgreSQL, read-only | database | run query (guarded), list tables, describe table | preview |
 | `webhook-inbound` | Web forms and system webhooks (HMAC-signed) | web | `submission` event | stable |
 
@@ -77,6 +77,10 @@ Each operation has an id, a **kind** (`read` or `write`) and a JSON Schema for i
 **Write operations wait for a human** when the agent's guardrails list `connector:write`, which is the default. The run pauses, or a chat creates a deferred action, and the approval appears in *Approvals* with the exact input. It executes only after someone approves. Test runs never execute writes; they record what *would* have been done.
 
 ## Credentials
+
+**OAuth 2.0** (web services): with *client credentials* the connection gets its own tokens from the token URL (client ID and secret, scopes, an audience when the provider asks, the secret in the request or by basic authentication). With *someone signs in once* (authorization code with PKCE), an admin presses *Sign in* on the connection, allows access at the provider, and comes back; the refresh token is kept, encrypted, and replaced whenever the provider issues a new one. Register the redirect URL the form shows (`<EB_PUBLIC_URL>/api/connectors/oauth/callback`) with the provider. Tokens are only ever sent to https addresses, and a refused token is replaced once.
+
+**Client certificates** (mutual TLS): web services and SAP S/4HANA on-premise take a client certificate and its private key (PEM), and the certificate of the company's own authority when the system's certificate comes from it. Requests then go over https only; redirects are followed within the same site, never to another one with the certificate. SAP gateways that sign callers in with the certificate alone use *Client certificate only*.
 
 Connector configuration is entered in *Connectors* (or `POST /api/companies/:company/connectors`).
 

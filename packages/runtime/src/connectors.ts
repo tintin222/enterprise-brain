@@ -3,6 +3,8 @@ import { NamedAction, type ConnectorBinding, type ConnectorManifest, type Operat
 import {
   ConnectorError,
   sandboxConnectorFor,
+  tlsFetch,
+  tlsOptionsFrom,
   withNamedActions,
   type ConnectorContext,
   type ConnectorImplementation,
@@ -234,12 +236,20 @@ export class ConnectorService {
     };
   }
 
-  context(companyId: string, config: Record<string, unknown> = {}, secrets: Record<string, string> = {}): ConnectorContext {
+  context(
+    companyId: string,
+    config: Record<string, unknown> = {},
+    secrets: Record<string, string> = {},
+    saveSecrets?: (patch: Record<string, string>) => Promise<void>,
+  ): ConnectorContext {
+    // A client certificate or a company's own authority: requests go through a fetch that uses them.
+    const tls = tlsOptionsFrom(config, secrets);
     return {
       companyId,
       config,
       secrets,
-      fetch: globalThis.fetch.bind(globalThis),
+      fetch: tls ? tlsFetch(tls) : globalThis.fetch.bind(globalThis),
+      ...(saveSecrets ? { saveSecrets } : {}),
       logger: {
         info: () => {},
         warn: (message, data) => console.warn(`[connector] ${message}`, data ?? ""),
@@ -253,7 +263,17 @@ export class ConnectorService {
     const impl = this.implFor(row);
     if (!impl) throw new ConnectorError(`Unknown connector type "${row.type}"`, "config");
     const secrets = row.secretsCiphertext ? this.secretBox.decrypt<Record<string, string>>(row.secretsCiphertext) : {};
-    return { row, impl, ctx: this.context(companyId, row.config, secrets) };
+    return { row, impl, ctx: this.context(companyId, row.config, secrets, (patch) => this.saveSecrets(companyId, id, patch)) };
+  }
+
+  /** Store secret values on a connection (a sign-in's refresh token, a rotated one), keeping the others. */
+  async saveSecrets(companyId: string, id: string, patch: Record<string, string>): Promise<void> {
+    const row = await this.row(companyId, id);
+    const current = row.secretsCiphertext ? this.secretBox.decrypt<Record<string, string>>(row.secretsCiphertext) : {};
+    await this.handle.db
+      .update(connectorInstances)
+      .set({ secretsCiphertext: this.secretBox.encrypt({ ...current, ...patch }), updatedAt: new Date() })
+      .where(and(eq(connectorInstances.companyId, companyId), eq(connectorInstances.id, id)));
   }
 
   /** A connection's context with its credentials, for platform services that talk to it directly (Teams). */

@@ -13,6 +13,8 @@ export const ConfigField = z.object({
   help: z.string().optional(),
   options: z.array(z.object({ value: z.string(), label: z.string() })).optional(),
   default: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  /** Shown only when another field has one of these values (e.g. the fields of the chosen sign-in). */
+  showWhen: z.object({ key: z.string(), values: z.array(z.string()) }).optional(),
 });
 export type ConfigField = z.infer<typeof ConfigField>;
 

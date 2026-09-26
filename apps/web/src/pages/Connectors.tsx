@@ -1,5 +1,19 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleCheck, ClipboardList, Database, ExternalLink, FlaskConical, ListTree, Play, Plug, PlugZap, RefreshCw, Trash } from "lucide-react";
+import {
+  CircleCheck,
+  ClipboardList,
+  Database,
+  ExternalLink,
+  FlaskConical,
+  KeyRound,
+  ListTree,
+  LogIn,
+  Play,
+  Plug,
+  PlugZap,
+  RefreshCw,
+  Trash,
+} from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router";
 import { api } from "../api.ts";
@@ -65,8 +79,13 @@ function ConfigInput({ field, value, onChange, id }: { field: ConfigField; value
   );
 }
 
+/** A field is shown when it has no condition, or the field it depends on has one of its values. */
+function visible(field: ConfigField, values: Record<string, string | boolean>): boolean {
+  return !field.showWhen || field.showWhen.values.includes(String(values[field.showWhen.key] ?? ""));
+}
+
 function ConnectDrawer({ manifest, onClose }: { manifest: ConnectorManifest | null; onClose: () => void }) {
-  const { company, path } = useCompany();
+  const { company, path, info } = useCompany();
   const queryClient = useQueryClient();
   const toast = useToast();
   const [name, setName] = useState("");
@@ -80,7 +99,8 @@ function ConnectDrawer({ manifest, onClose }: { manifest: ConnectorManifest | nu
   const connect = useMutation({
     mutationFn: async () => {
       if (!manifest) throw new Error("No connector selected");
-      const clean = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== "" && v !== undefined));
+      const shown = new Set(manifest.config.filter((f) => visible(f, values)).map((f) => f.key));
+      const clean = Object.fromEntries(Object.entries(values).filter(([key, v]) => v !== "" && v !== undefined && shown.has(key)));
       const instance = await api.post<ConnectorInstance>(path("/connectors"), { type: manifest.type, name: name || undefined, values: clean });
       const test = await api
         .post<{ ok: boolean; message: string }>(path(`/connectors/${encodeURIComponent(instance.id)}/test`))
@@ -96,7 +116,8 @@ function ConnectDrawer({ manifest, onClose }: { manifest: ConnectorManifest | nu
     onError: (e) => toast.error(e),
   });
 
-  const missing = manifest?.config.filter((f) => f.required && (values[f.key] === "" || values[f.key] === undefined)).map((f) => f.label) ?? [];
+  const missing =
+    manifest?.config.filter((f) => f.required && visible(f, values) && (values[f.key] === "" || values[f.key] === undefined)).map((f) => f.label) ?? [];
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!missing.length) connect.mutate();
@@ -131,11 +152,19 @@ function ConnectDrawer({ manifest, onClose }: { manifest: ConnectorManifest | nu
             </Callout>
           )}
           <Field label="Connection name">{(id) => <input id={id} className="input" value={name} onChange={(e) => setName(e.target.value)} />}</Field>
-          {manifest.config.map((f) => (
-            <Field key={f.key} label={f.label} required={f.required} hint={f.help ?? (f.secret ? "Stored encrypted; never shown again." : undefined)}>
-              {(id) => <ConfigInput id={id} field={f} value={values[f.key] ?? ""} onChange={(v) => setValues((prev) => ({ ...prev, [f.key]: v }))} />}
-            </Field>
-          ))}
+          {manifest.config
+            .filter((f) => visible(f, values))
+            .map((f) => (
+              <Field key={f.key} label={f.label} required={f.required} hint={f.help ?? (f.secret ? "Stored encrypted; never shown again." : undefined)}>
+                {(id) => <ConfigInput id={id} field={f} value={values[f.key] ?? ""} onChange={(v) => setValues((prev) => ({ ...prev, [f.key]: v }))} />}
+              </Field>
+            ))}
+          {values.auth_type === "oauth2_authorization_code" && info.oauthRedirectUrl && (
+            <Callout tone="brand" icon={KeyRound} title="Register this redirect URL with the provider">
+              <code className="font-mono text-xs break-all">{info.oauthRedirectUrl}</code>
+              <p className="mt-1">Then connect, and press Sign in on the connection: the provider asks you to allow access once.</p>
+            </Callout>
+          )}
           {manifest.config.length === 0 && <p className="text-sm text-muted">No configuration needed.</p>}
           {manifest.docsUrl && (
             <ButtonAnchor href={manifest.docsUrl} target="_blank" rel="noopener noreferrer" size="sm" variant="ghost" icon={ExternalLink}>
@@ -370,6 +399,18 @@ export default function Connectors() {
   const [explore, setExplore] = useState<string | undefined>(undefined);
   const [naming, setNaming] = useState<ConnectorInstance | null>(null);
   const [search, setSearch] = useSearchParams();
+  // Back from signing a connection in with OAuth 2.0: say how it went.
+  useEffect(() => {
+    const signin = search.get("signin");
+    if (!signin) return;
+    if (signin === "ok") toast.success("Signed in: the connection can call the system now");
+    else if (signin === "expired") toast.error("The sign-in took too long: try again");
+    else toast.error("The sign-in didn't work", { description: search.get("reason") ?? undefined });
+    void queryClient.invalidateQueries({ queryKey: keys.connectors(company) });
+    const next = new URLSearchParams(search);
+    for (const key of ["signin", "connection", "reason"]) next.delete(key);
+    setSearch(next, { replace: true });
+  }, [search, setSearch, toast, queryClient, company]);
   // Other pages open the form for a system with ?connect=<type> (e.g. Settings → Teams and Chat for Teams).
   useEffect(() => {
     const type = search.get("connect");
@@ -459,6 +500,17 @@ export default function Connectors() {
                     </div>
                   </div>
                   <div className="flex shrink-0 gap-2">
+                    {i.config.auth_type === "oauth2_authorization_code" && (
+                      <ButtonAnchor
+                        size="sm"
+                        variant={i.secretFields.includes("refresh_token") ? "ghost" : "primary"}
+                        icon={LogIn}
+                        href={path(`/connectors/${encodeURIComponent(i.id)}/oauth/start`)}
+                        title={i.secretFields.includes("refresh_token") ? "Signed in: sign in again to renew" : "Sign in once so it may call the system"}
+                      >
+                        {i.secretFields.includes("refresh_token") ? "Sign in again" : "Sign in"}
+                      </ButtonAnchor>
+                    )}
                     {(i.type === "rest-api" || i.type === "sql-database") && (
                       <Button size="sm" variant="soft" icon={ListTree} onClick={() => setNaming(i)}>
                         Actions

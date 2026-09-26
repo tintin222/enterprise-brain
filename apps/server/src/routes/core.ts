@@ -4,6 +4,7 @@ import { z } from "zod";
 import { TimeZone } from "@enterprise-brain/core";
 import { agents, approvals, builderSessions, companies, departments, knowledgeDocuments, runs } from "@enterprise-brain/db";
 import type { AppContext } from "../context.ts";
+import { oauthRedirectUrl } from "./connection-signin.ts";
 import { requireAdmin, viewerOf } from "../auth/viewer.ts";
 import { HttpError, companyOf } from "../http.ts";
 
@@ -22,6 +23,8 @@ export async function coreRoutes(app: FastifyInstance, ctx: AppContext) {
     database: platform.handle.kind,
     defaultCompany: config.defaultCompany.slug,
     publicUrl: config.publicUrl,
+    /** Where OAuth 2.0 providers send people back after signing a connection in. */
+    oauthRedirectUrl: oauthRedirectUrl(config.publicUrl),
     /** Legacy: open mode protected by EB_API_KEY (the console asks for the key). */
     authRequired: Boolean(config.apiKey) && (config.auth?.mode ?? "open") === "open",
     auth: { mode: config.auth?.mode ?? "open" },

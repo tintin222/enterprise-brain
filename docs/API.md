@@ -184,6 +184,8 @@ Google Chat works the same way through the company's Chat app (a `google-chat` c
 | PUT | `/api/companies/:company/connectors/:id` | `{ name?, values? }` |
 | DELETE | `/api/companies/:company/connectors/:id` | |
 | POST | `/api/companies/:company/connectors/:id/test` | `{ ok, message }` |
+| GET | `/api/companies/:company/connectors/:id/oauth/start` | Admin, in the browser: sends them to the provider to sign the connection in (OAuth 2.0 authorization code with PKCE; the state is single-use, for ten minutes, and theirs) |
+| GET | `/api/connectors/oauth/callback?state&code` | Where the provider sends them back (`/api/info` gives it as `oauthRedirectUrl`): keeps the refresh token on the connection, tests it, and returns to `/settings/connections?signin=ok\|failed\|expired` |
 | POST | `/api/companies/:company/connectors/types/:type/operations/:operation` | `{ input }` → `{ result }` (e.g. browse the sandbox ERP) |
 | GET | `/api/companies/:company/connectors/:id/actions` | Admin. `{ supports, actions: NamedAction[] }` |
 | PUT | `/api/companies/:company/connectors/:id/actions` | Admin. `{ actions: NamedAction[] }`: replaces the connection's named actions (400 when one doesn't fit) |
