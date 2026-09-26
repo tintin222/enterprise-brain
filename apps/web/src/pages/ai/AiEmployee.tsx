@@ -10,6 +10,7 @@ import {
   Code,
   ExternalLink,
   FlaskConical,
+  Gauge,
   GitCommitVertical as HistoryIcon,
   GraduationCap,
   Inbox,
@@ -47,14 +48,15 @@ import { Markdown } from "../../components/Markdown.tsx";
 import { LiveRunResult, RunForm } from "../../components/RunViews.tsx";
 import { Callout, ErrorState, LoadingBlock } from "../../components/Spinner.tsx";
 import { Tabs } from "../../components/Tabs.tsx";
+import { StackedBars } from "../../components/Charts.tsx";
 import { TaskTable } from "../../components/TaskList.tsx";
 import { WorkflowView } from "../../components/WorkflowView.tsx";
 import { WorkItemCard } from "../../components/WorkItemCard.tsx";
 import { useCompany } from "../../lib/company.tsx";
-import { formatDateTime, formatMoney, plural, timeAgo } from "../../lib/format.ts";
+import { formatDateTime, formatMoney, percent, plural, timeAgo, workingHoursText } from "../../lib/format.ts";
 import { archetypeIcon, categoryIcon } from "../../lib/icons.tsx";
 import { approvalRuleLabel, categoryLabel, describeTrigger, PERSONAL_DATA_LABELS } from "../../lib/labels.ts";
-import { keys, useAgent, useCollections, useConnectors, useDepartments, useTasks, useWork } from "../../lib/queries.ts";
+import { keys, useAgent, useAgentPerformance, useCollections, useConnectors, useDepartments, useTasks, useWork } from "../../lib/queries.ts";
 import { useDocumentTitle } from "../../lib/title.ts";
 import type { AgentDefinition, AgentDetail, Conversation, RunRow, TaskRow } from "../../types.ts";
 import { useAgentMutations } from "./actions.ts";
@@ -127,6 +129,70 @@ function Line({ label, children }: { label: string; children: ReactNode }) {
       <dt className="text-sm text-muted">{label}</dt>
       <dd className="min-w-0 text-sm text-fg">{children}</dd>
     </div>
+  );
+}
+
+/** The last four weeks against the targets, and tasks finished each week. */
+function PerformanceCard({ detail }: { detail: AgentDetail }) {
+  const { data } = useAgentPerformance(detail.agent.slug);
+  if (!data) return null;
+  const m = data.measures;
+  const rows: [string, string, boolean | null][] = [
+    ["Finished", `${m.finished}${m.failed ? ` · ${m.failed} stopped with a problem` : ""}`, null],
+    [
+      "Alone",
+      m.finished ? `${percent(m.aloneShare)} of them` : "—",
+      data.probation === "trusted" && m.aloneShare !== null ? m.aloneShare >= data.targets.aloneShare : null,
+    ],
+    [
+      "People took",
+      m.handled ? `${workingHoursText(m.medianHandlingHours)} (median of ${m.handled})` : "—",
+      m.medianHandlingHours === null ? null : m.medianHandlingHours <= data.targets.medianHandlingHours,
+    ],
+    [
+      "Corrected",
+      m.finished ? `${m.corrected} (${percent(m.correctedShare)})` : "—",
+      m.correctedShare === null ? null : m.correctedShare < data.targets.correctedShare,
+    ],
+    ["Per task", m.costPerTaskUsd === null ? "—" : formatMoney(m.costPerTaskUsd, 3), null],
+  ];
+  return (
+    <Card className="overflow-hidden">
+      <CardHeader
+        title="Last 4 weeks"
+        icon={Gauge}
+        subtitle={data.probation === "trusted" ? "Against the targets." : "Finishing alone counts once it is Trusted."}
+      />
+      <dl className="space-y-1.5 px-5 pt-3 text-sm">
+        {rows.map(([label, value, met]) => (
+          <div key={label} className="flex items-baseline justify-between gap-3">
+            <dt className="text-muted">{label}</dt>
+            <dd
+              className={clsx(
+                "text-right tabular-nums",
+                met === true && "text-emerald-700 dark:text-emerald-300",
+                met === false && "text-amber-700 dark:text-amber-300",
+              )}
+            >
+              {value}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <div className="px-5 pt-4 pb-4">
+        <StackedBars
+          height={64}
+          labels="ends"
+          bars={data.weeks.map((w) => ({
+            label: new Date(`${w.start}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
+            parts: [
+              { value: w.measures.finishedAlone, tone: "green" as const, label: "alone" },
+              { value: w.measures.finished - w.measures.finishedAlone, tone: "brand" as const, label: "with a person" },
+            ],
+          }))}
+        />
+      </div>
+    </Card>
   );
 }
 
@@ -207,6 +273,7 @@ function Overview({ detail, tasks, onTab }: { detail: AgentDetail; tasks: TaskRo
         </Section>
       </div>
       <div className="space-y-6">
+        <PerformanceCard detail={detail} />
         <Card className="overflow-hidden">
           <CardHeader
             title="Latest tasks"

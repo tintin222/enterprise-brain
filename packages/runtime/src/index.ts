@@ -27,6 +27,8 @@ export * from "./notification-templates.ts";
 export * from "./channel-accounts.ts";
 export * from "./chat-cards.ts";
 export * from "./coaching-notes.ts";
+export * from "./reports.ts";
+export * from "./working-hours.ts";
 export * from "./chat-channels.ts";
 export * from "./teams.ts";
 export * from "./google-chat.ts";

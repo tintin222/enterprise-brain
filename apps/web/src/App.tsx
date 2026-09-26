@@ -11,6 +11,7 @@ import { RouteError } from "./pages/RouteError.tsx";
 
 const Home = lazy(() => import("./pages/Home.tsx"));
 const Company = lazy(() => import("./pages/company/Company.tsx"));
+const Performance = lazy(() => import("./pages/company/Performance.tsx"));
 const AiEmployee = lazy(() => import("./pages/ai/AiEmployee.tsx"));
 const Hire = lazy(() => import("./pages/hire/Hire.tsx"));
 const BuilderNew = lazy(() => import("./pages/builder/BuilderNew.tsx"));
@@ -138,6 +139,7 @@ const router = createBrowserRouter([
         children: [
           { index: true, element: <Home /> },
           { path: "company", element: <Company /> },
+          { path: "company/performance", element: <Performance /> },
           { path: "ai/:slug", element: <AiEmployee /> },
           { path: "hire", element: <Hire /> },
           { path: "hire/studio/new", element: <BuilderNew /> },

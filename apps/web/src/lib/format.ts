@@ -97,6 +97,17 @@ export function plural(n: number, singular: string, pluralForm = `${singular}s`)
   return `${n} ${n === 1 ? singular : pluralForm}`;
 }
 
+/** A share as a whole percentage ("75%"), or a dash when there is nothing to share. */
+export function percent(share: number | null): string {
+  return share === null ? "—" : `${Math.round(share * 100)}%`;
+}
+
+/** Working hours in words: "40 min", "2.5 h". */
+export function workingHoursText(hours: number | null): string {
+  if (hours === null) return "—";
+  return hours < 1 ? `${Math.round(hours * 60)} min` : `${Math.round(hours * 10) / 10} h`;
+}
+
 export function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`;

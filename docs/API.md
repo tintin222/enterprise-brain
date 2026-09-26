@@ -117,6 +117,17 @@ A replay item: `{ taskId, ref, title, corrected, notes[], originalRunId, runId, 
 | GET | `/api/companies/:company/home` | `{ person {name, departments[], isManager}, aiEmployees[] {id, slug, name, title, department, departmentId, status, probation, today {started, done, open, needsPerson, failed}, costTodayUsd}, aiMailbox }`: the AI employees of the viewer's departments (and those they manage), most in need of a person first |
 | GET | `/api/companies/:company/costs` | Managers and admins: `{ month (YYYY-MM), totalUsd, aiEmployees[] {slug, name, department, manager, status, probation, costThisMonthUsd, monthlyBudgetUsd, stoppedByBudget} }` for the AI employees they manage |
 
+## Performance reports
+
+What AI employees finish alone, how long people take to handle what they ask, what people correct later, and what it costs, against the product's targets. `period`: `last-4-weeks` (default), `this-week`, `last-week`, `this-month` or `last-month`, in the company's time zone.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/companies/:company/reports/performance?period=&department=` | Managers (their departments) and admins (all): `{ period {key, label, from, to}, workingHours {days, start, end, timeZone}, targets, total {measures, afterProbation}, departments[] {id, key, name, aiEmployees, measures, afterProbation}, aiEmployees[] {id, slug, name, departmentId, status, probation, measures}, weeks[] {start, measures, afterProbation} (8 weeks), hiring[] }` |
+| GET | `/api/companies/:company/agents/:agent/performance?period=` | Everyone who sees the AI employee: `{ period, workingHours, targets, probation, measures, weeks[] }` |
+
+`measures`: `started`, `finished`, `failed`; `finishedAlone` and `aloneShare` (finished with no person approving, answering, checking or retrying); `corrected` and `correctedShare` (finished tasks later marked as wrong); `handled` and `medianHandlingHours` (work-queue items people handled in the period: approvals decided, questions answered, checks and failures; the median time in working hours, by default Monday to Friday 09:00–18:00 in the company's time zone, set as `settings.workingHours` `{ days, start, end }`); `costUsd` (all model cost, tests included) and `costPerTaskUsd` (real work per finished task). `afterProbation` counts finishing alone among Trusted AI employees only, which the 70% target is for. `targets`: `{ aloneShare: 0.7, medianHandlingHours: 4, correctedShare: 0.05, readyMadeHours: 24, studioHours: 168 }`. A `hiring` row: `{ slug, name, source: ready-made | studio | other, startedAt, atWorkAt, hours, targetHours, met }` for AI employees hired in the last 90 days (a Studio hire counts from its interview).
+
 ## Work queue
 
 Everything that needs a person, in one list: approvals of AI employees' changes, questions they ask (`task_ask_person`), checks of every finished task of a Shadow AI employee, tasks that failed, and notices (an AI employee stopped at its budget). Items can be for one person (often the AI employee's manager) or for anyone who works in its department.

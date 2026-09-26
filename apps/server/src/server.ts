@@ -25,6 +25,7 @@ import { mcpRoutes } from "./routes/mcp.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { paperclipRoutes } from "./routes/paperclip.ts";
 import { peopleRoutes } from "./routes/people.ts";
+import { reportRoutes } from "./routes/reports.ts";
 import { taskRoutes } from "./routes/tasks.ts";
 import { workRoutes } from "./routes/work.ts";
 
@@ -115,6 +116,7 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   await notificationRoutes(app, ctx);
   await channelRoutes(app, ctx);
   await homeRoutes(app, ctx);
+  await reportRoutes(app, ctx);
   await knowledgeRoutes(app, ctx);
   await connectorRoutes(app, ctx);
   await connectionSignInRoutes(app, ctx);

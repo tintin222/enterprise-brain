@@ -1281,3 +1281,93 @@ export interface CoachingOverview {
   llm: { available: boolean };
   canDecide: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Performance reports
+// ---------------------------------------------------------------------------
+
+export type ReportPeriodKey = "last-4-weeks" | "this-week" | "last-week" | "this-month" | "last-month";
+
+export interface PerformanceMeasures {
+  started: number;
+  finished: number;
+  failed: number;
+  finishedAlone: number;
+  aloneShare: number | null;
+  corrected: number;
+  correctedShare: number | null;
+  handled: number;
+  medianHandlingHours: number | null;
+  costUsd: number;
+  costPerTaskUsd: number | null;
+}
+
+export interface AfterProbation {
+  aiEmployees: number;
+  finished: number;
+  finishedAlone: number;
+  aloneShare: number | null;
+}
+
+export interface PerformanceTargets {
+  aloneShare: number;
+  medianHandlingHours: number;
+  correctedShare: number;
+  readyMadeHours: number;
+  studioHours: number;
+}
+
+export interface WorkingHours {
+  days: number[];
+  start: string;
+  end: string;
+  timeZone: string;
+}
+
+export interface ReportPeriod {
+  key: ReportPeriodKey;
+  label: string;
+  from: string;
+  to: string;
+}
+
+export interface HiringRow {
+  id: string;
+  slug: string;
+  name: string;
+  departmentId: string | null;
+  source: "ready-made" | "studio" | "other";
+  startedAt: string;
+  atWorkAt: string | null;
+  hours: number | null;
+  targetHours: number | null;
+  met: boolean | null;
+}
+
+export interface PerformanceReport {
+  period: ReportPeriod;
+  workingHours: WorkingHours;
+  targets: PerformanceTargets;
+  total: { measures: PerformanceMeasures; afterProbation: AfterProbation };
+  departments: { id: string | null; key: string | null; name: string; aiEmployees: number; measures: PerformanceMeasures; afterProbation: AfterProbation }[];
+  aiEmployees: {
+    id: string;
+    slug: string;
+    name: string;
+    departmentId: string | null;
+    status: AgentStatus;
+    probation: Probation;
+    measures: PerformanceMeasures;
+  }[];
+  weeks: { start: string; measures: PerformanceMeasures; afterProbation: AfterProbation }[];
+  hiring: HiringRow[];
+}
+
+export interface AgentPerformance {
+  period: ReportPeriod;
+  workingHours: WorkingHours;
+  targets: PerformanceTargets;
+  probation: Probation;
+  measures: PerformanceMeasures;
+  weeks: { start: string; measures: PerformanceMeasures }[];
+}

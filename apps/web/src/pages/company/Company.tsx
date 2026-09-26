@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import { Bot, Building2, Lock, UserPlus, Users } from "lucide-react";
+import { Bot, Building2, Gauge, Lock, UserPlus, Users } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { Badge, StatusPill } from "../../components/Badge.tsx";
@@ -85,6 +85,11 @@ export default function Company() {
             {viewer?.isAdmin && (
               <ButtonLink to="/settings/people" icon={Users}>
                 People and roles
+              </ButtonLink>
+            )}
+            {isManager && (
+              <ButtonLink to="/company/performance" icon={Gauge}>
+                Performance
               </ButtonLink>
             )}
             {isManager && (

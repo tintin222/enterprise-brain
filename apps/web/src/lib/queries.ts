@@ -8,12 +8,15 @@ import type {
   CatalogResponse,
   ConnectorInstance,
   ConnectorManifest,
+  AgentPerformance,
   CostOverview,
   HomeData,
   InstalledDepartment,
   KnowledgeCollection,
   Mailbox,
+  PerformanceReport,
   Person,
+  ReportPeriodKey,
   RunRow,
   SessionView,
   StoredFile,
@@ -216,4 +219,23 @@ export function useTask(ref: string | undefined) {
 export function useCosts(enabled = true) {
   const { company, path } = useCompany();
   return useQuery({ queryKey: [company, "costs"], queryFn: () => api.get<CostOverview>(path("/costs")), enabled });
+}
+
+/** Performance of the AI employees a manager runs (all for admins), optionally one department's. */
+export function usePerformance(period: ReportPeriodKey, department?: string) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [company, "reports", "performance", period, department ?? null],
+    queryFn: () => api.get<PerformanceReport>(path(`/reports/performance${qs({ period, department })}`)),
+  });
+}
+
+/** One AI employee's performance and weekly trend. */
+export function useAgentPerformance(slug: string, period: ReportPeriodKey = "last-4-weeks") {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.agent(company, slug), "performance", period],
+    queryFn: () => api.get<AgentPerformance>(path(`/agents/${encodeURIComponent(slug)}/performance${qs({ period })}`)),
+    enabled: Boolean(slug),
+  });
 }

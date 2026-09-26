@@ -16,6 +16,7 @@ import { CoachingNotes } from "./coaching-notes.ts";
 import { ConnectorService } from "./connectors.ts";
 import { EmploymentService } from "./employment.ts";
 import { RunEngine } from "./engine.ts";
+import { ReportService } from "./reports.ts";
 import { PlatformEvents } from "./events.ts";
 import { FileService } from "./files.ts";
 import { GoogleChatTransport } from "./google-chat.ts";
@@ -59,6 +60,8 @@ export class Platform {
   readonly engine: RunEngine;
   /** Corrections from people, kept for AI employees' next versions. */
   readonly coachingNotes: CoachingNotes;
+  /** Performance and cost reports. */
+  readonly reports: ReportService;
   readonly chat: ChatService;
   readonly catalog: CatalogService;
   readonly triggers: TriggerService;
@@ -97,6 +100,7 @@ export class Platform {
     this.tasks = new TaskService(this.handle, this.events);
     this.work = new WorkService(this.handle, this.events);
     this.coachingNotes = new CoachingNotes(this.handle, this.activity);
+    this.reports = new ReportService(this.handle);
     this.engine = new RunEngine({
       handle: this.handle,
       llm: this.llm,
