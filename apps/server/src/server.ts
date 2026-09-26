@@ -14,6 +14,7 @@ import { builderRoutes } from "./routes/builder.ts";
 import { catalogRoutes } from "./routes/catalog.ts";
 import { channelRoutes } from "./routes/channels.ts";
 import { chatRoutes } from "./routes/chat.ts";
+import { coachingRoutes } from "./routes/coaching.ts";
 import { connectionSignInRoutes } from "./routes/connection-signin.ts";
 import { connectorRoutes } from "./routes/connectors.ts";
 import { coreRoutes } from "./routes/core.ts";
@@ -109,6 +110,7 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   await catalogRoutes(app, ctx);
   await agentRoutes(app, ctx);
   await taskRoutes(app, ctx);
+  await coachingRoutes(app, ctx);
   await workRoutes(app, ctx);
   await notificationRoutes(app, ctx);
   await channelRoutes(app, ctx);

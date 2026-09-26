@@ -21,7 +21,7 @@ export interface TestApp {
 }
 
 export async function createTestApp(
-  options: { llm?: LlmClient; seed?: boolean; config?: Partial<ServerConfig>; oidcProviders?: OidcProvider[] } = {},
+  options: { llm?: LlmClient; coachLlm?: LlmClient; seed?: boolean; config?: Partial<ServerConfig>; oidcProviders?: OidcProvider[] } = {},
 ): Promise<TestApp> {
   const dataDir = mkdtempSync(join(tmpdir(), "eb-test-"));
   const platform = await Platform.create({ dataDir, inMemory: true, llm: options.llm ?? new UnavailableLlm(), embedder: new LocalHashEmbedder(), env: {} });
@@ -37,7 +37,7 @@ export async function createTestApp(
     schedulerEnabled: false,
     ...options.config,
   };
-  const builder = new BuilderService(platform, { publicBaseUrl: config.publicUrl });
+  const builder = new BuilderService(platform, { publicBaseUrl: config.publicUrl, coachLlm: options.coachLlm });
   const auth = new AuthService(platform, config, { extraProviders: options.oidcProviders });
   const app = await buildServer({ platform, builder, config, auth });
   return {

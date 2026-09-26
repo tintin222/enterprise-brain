@@ -46,6 +46,10 @@ export interface PersistedRunState {
   warnings?: string[];
   /** Free-form task (e.g. a Paperclip issue): run one autonomous step instead of the workflow. */
   task?: string;
+  /** Test runs only: a version of the job that isn't live (a coaching proposal replayed on a past task). */
+  override?: Record<string, unknown>;
+  /** Replays: what the steps that waited on people found in the original task (its replies), by step id. */
+  recorded?: Record<string, unknown>;
 }
 
 export interface RunEventInput {
@@ -79,4 +83,6 @@ export interface ExecutionScope {
   context: RunContext;
   emit: (event: RunEventInput) => Promise<void>;
   onText?: (delta: string) => void;
+  /** Replays: what the original task's waits found, by step id. */
+  recorded?: Record<string, unknown>;
 }

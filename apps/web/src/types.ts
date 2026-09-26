@@ -1108,7 +1108,11 @@ export interface TaskDetail {
   runs: RunRow[];
   mails: { id: string; direction: "inbound" | "outbound"; from: string; to: string[]; subject: string; body: string; receivedAt: string }[];
   approvals: Approval[];
+  /** Corrections people made to this task's work, for its AI employee's next version. */
+  coaching: { id: string; kind: CoachingNoteKind; note: string; by: string; status: CoachingNoteStatus; appliedVersion: number | null; createdAt: string }[];
   canManage: boolean;
+  /** May the viewer mark this (finished) task as wrong? */
+  canCorrect: boolean;
 }
 
 export type WorkType = "approval" | "question" | "review" | "failure" | "notice";
@@ -1199,4 +1203,81 @@ export interface WatcherStatus {
   lastPolledAt: string | null;
   lastCount: number;
   lastError: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Coaching: corrections become rules in an AI employee's next version, tested on past tasks first
+// ---------------------------------------------------------------------------
+
+export type CoachingNoteKind = "task" | "check" | "correction" | "rejection";
+export type CoachingNoteStatus = "open" | "applied" | "kept";
+
+export interface CoachingNote {
+  id: string;
+  kind: CoachingNoteKind;
+  note: string;
+  by: string;
+  status: CoachingNoteStatus;
+  taskId: string | null;
+  taskRef: string | null;
+  taskTitle: string | null;
+  proposalId: string | null;
+  appliedVersion: number | null;
+  createdAt: string;
+}
+
+export interface JobChange {
+  path: string;
+  label: string;
+  before?: unknown;
+  after?: unknown;
+  added?: string[];
+  removed?: string[];
+}
+
+export interface ReplayItem {
+  taskId: string;
+  ref: string;
+  title: string;
+  corrected: boolean;
+  notes: string[];
+  originalRunId?: string;
+  runId?: string;
+  status: "pending" | "same" | "changed" | "failed";
+  error?: string;
+  changes: { key: string; label: string; before: unknown; after: unknown; kind: "outcome" | "wording" }[];
+  steps: { stepId: string; name: string; kind: "person" | "action"; change: "added" | "removed" }[];
+}
+
+export interface CoachingProposal {
+  id: string;
+  agentId: string;
+  baseVersion: number;
+  currentVersion: number;
+  stale: boolean;
+  status: "replaying" | "ready" | "published" | "kept" | "failed" | "superseded";
+  rules: string[];
+  explanation: string;
+  changes: JobChange[];
+  replay: {
+    items: ReplayItem[];
+    summary: { total: number; done: number; changed: number; failed: number; corrected: number; correctedChanged: number };
+    startedAt?: string;
+    finishedAt?: string;
+    error?: string;
+  };
+  notes: CoachingNote[];
+  createdBy: string;
+  createdAt: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  publishedVersion: number | null;
+  canDecide?: boolean;
+}
+
+export interface CoachingOverview {
+  notes: CoachingNote[];
+  proposals: CoachingProposal[];
+  llm: { available: boolean };
+  canDecide: boolean;
 }

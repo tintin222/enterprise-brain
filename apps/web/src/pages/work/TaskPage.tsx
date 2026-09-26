@@ -7,6 +7,7 @@ import {
   Clock,
   CornerDownLeft,
   ExternalLink,
+  GraduationCap,
   ListChecks,
   Mail,
   MessageSquareText,
@@ -28,6 +29,7 @@ import { Button, ButtonLink } from "../../components/Button.tsx";
 import { Card, CardHeader } from "../../components/Card.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
+import { Field } from "../../components/Form.tsx";
 import { JsonDetails } from "../../components/JsonView.tsx";
 import { Page } from "../../components/Layout.tsx";
 import { Callout, ErrorState, LoadingBlock } from "../../components/Spinner.tsx";
@@ -62,6 +64,14 @@ const EVENT: Record<string, { icon: LucideIcon; tone: TimelineItem["tone"] }> = 
   done: { icon: CircleCheck, tone: "green" },
   failed: { icon: TriangleAlert, tone: "red" },
   warning: { icon: TriangleAlert, tone: "amber" },
+  corrected: { icon: GraduationCap, tone: "amber" },
+  coached: { icon: GraduationCap, tone: "green" },
+};
+
+const CORRECTION_STATUS: Record<TaskDetail["coaching"][number]["status"], string> = {
+  open: "Its manager turns this into a rule after testing it on recent tasks.",
+  applied: "A rule since version",
+  kept: "Its manager kept the version it had.",
 };
 
 /** "Elif Arslan <elif@…>" → "Elif Arslan"; the AI employee's own steps show its name. */
@@ -146,6 +156,67 @@ function Emails({ mails }: { mails: TaskDetail["mails"] }) {
   );
 }
 
+/** Mark the finished task as wrong and say why: a correction for its AI employee's next version. */
+function CorrectDialog({ open, onClose, task, agentName }: { open: boolean; onClose: () => void; task: TaskRow; agentName: string }) {
+  const { company, path } = useCompany();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [note, setNote] = useState("");
+  const correct = useMutation({
+    mutationFn: () => api.post(path(`/tasks/${encodeURIComponent(task.ref)}/correct`), { note }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.tasks(company) });
+      void queryClient.invalidateQueries({ queryKey: keys.agents(company) });
+      toast.success("Thanks: it's a correction now", { description: `${agentName}'s manager can turn it into a rule, tested on recent tasks first.` });
+      setNote("");
+      onClose();
+    },
+    onError: (error) => toast.error(error),
+  });
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="What was wrong?"
+      description={`Say it in plain words, as you would to a colleague. It becomes a rule for ${agentName} once its manager agrees; what already happened stays as it is.`}
+      footer={
+        <>
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" icon={GraduationCap} disabled={note.trim().length < 3} loading={correct.isPending} onClick={() => correct.mutate()}>
+            Mark as wrong
+          </Button>
+        </>
+      }
+    >
+      <Field
+        label="What should it have done, and why?"
+        hint="For example: This was a complaint, not a delivery question: late deliveries are complaints and go to the team lead."
+      >
+        {(id) => <textarea id={id} className="input min-h-28" value={note} onChange={(e) => setNote(e.target.value)} autoFocus />}
+      </Field>
+    </Dialog>
+  );
+}
+
+function Corrections({ coaching }: { coaching: TaskDetail["coaching"] }) {
+  if (!coaching.length) return null;
+  return (
+    <Card>
+      <CardHeader title="Corrections" icon={GraduationCap} subtitle="What people said it got wrong." />
+      <ul className="divide-y divide-line">
+        {coaching.map((c) => (
+          <li key={c.id} className="px-5 py-3 text-sm">
+            <p className="text-fg">{c.note}</p>
+            <p className="mt-0.5 text-xs text-muted">
+              {c.by} · {timeAgo(c.createdAt)} · {c.status === "applied" ? `${CORRECTION_STATUS.applied} ${c.appliedVersion}.` : CORRECTION_STATUS[c.status]}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  );
+}
+
 function useTaskAction(ref: string) {
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
@@ -169,6 +240,7 @@ export default function TaskPage() {
   const work = useWork("all");
   const act = useTaskAction(ref);
   const [confirmStop, setConfirmStop] = useState(false);
+  const [correcting, setCorrecting] = useState(false);
 
   if (isLoading) return <LoadingBlock className="flex-1" />;
   if (isApiError(error, 404)) {
@@ -195,7 +267,7 @@ export default function TaskPage() {
     );
   }
 
-  const { task, agent, events, runs, mails, canManage } = data;
+  const { task, agent, events, runs, mails, canManage, canCorrect, coaching } = data;
   const open = ["working", "waiting", "needs_person", "paused"].includes(task.status);
   const pending = (work.data ?? []).filter((w) => w.task?.ref === task.ref);
   const waiting = waitingText(task);
@@ -229,24 +301,29 @@ export default function TaskPage() {
             {cost > 0 && ` · ${formatMoney(cost)}`}
           </p>
         </div>
-        {canManage && (
+        {(canManage || canCorrect) && (
           <div className="flex shrink-0 flex-wrap gap-2">
-            {task.status === "failed" && (
+            {canCorrect && (
+              <Button icon={GraduationCap} onClick={() => setCorrecting(true)}>
+                It was wrong
+              </Button>
+            )}
+            {canManage && task.status === "failed" && (
               <Button variant="primary" icon={RotateCcw} loading={busy && act.variables === "retry"} disabled={busy} onClick={() => act.mutate("retry")}>
                 Try again
               </Button>
             )}
-            {open && task.status !== "paused" && (
+            {canManage && open && task.status !== "paused" && (
               <Button icon={Pause} loading={busy && act.variables === "pause"} disabled={busy} onClick={() => act.mutate("pause")}>
                 Pause
               </Button>
             )}
-            {task.status === "paused" && (
+            {canManage && task.status === "paused" && (
               <Button variant="primary" icon={Play} loading={busy && act.variables === "resume"} disabled={busy} onClick={() => act.mutate("resume")}>
                 Resume
               </Button>
             )}
-            {open && (
+            {canManage && open && (
               <Button variant="ghost" icon={Square} disabled={busy} onClick={() => setConfirmStop(true)}>
                 Stop
               </Button>
@@ -292,6 +369,7 @@ export default function TaskPage() {
             </div>
           </Card>
           <div className="space-y-6">
+            <Corrections coaching={coaching ?? []} />
             <Request task={task} />
             <Emails mails={mails} />
             {runs.length > 0 && (
@@ -315,6 +393,7 @@ export default function TaskPage() {
         </div>
       </div>
 
+      <CorrectDialog open={correcting} onClose={() => setCorrecting(false)} task={task} agentName={agent.name} />
       <Dialog
         open={confirmStop}
         onClose={() => setConfirmStop(false)}

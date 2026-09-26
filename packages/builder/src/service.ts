@@ -19,8 +19,10 @@ import {
 } from "@enterprise-brain/core";
 import { builderMessages, builderSessions, stakeholderRequests } from "@enterprise-brain/db";
 import { analyzeSample, extractDocument } from "@enterprise-brain/documents";
+import type { LlmClient } from "@enterprise-brain/llm";
 import type { Platform } from "@enterprise-brain/runtime";
 import { Analyst } from "./analyst.ts";
+import { StudioCoach } from "./coaching.ts";
 import { generateDefinition, guessSystemCategory, probationOf, requirementsDigest, type Synthesis } from "./generate.ts";
 import { jobDescription, type JobDescription } from "./job.ts";
 import { buildInitialNodes } from "./nodes.ts";
@@ -124,12 +126,15 @@ export class BuilderError extends Error {
  */
 export class BuilderService {
   readonly analyst: Analyst;
+  /** Turns corrections into rules for AI employees' next versions, tested on past tasks first. */
+  readonly coach: StudioCoach;
 
   constructor(
     private readonly platform: Platform,
-    private readonly options: { publicBaseUrl: string } = { publicBaseUrl: "http://localhost:3200" },
+    private readonly options: { publicBaseUrl: string; coachLlm?: LlmClient } = { publicBaseUrl: "http://localhost:3200" },
   ) {
     this.analyst = new Analyst(platform.llm, platform.catalog.catalog);
+    this.coach = new StudioCoach(platform, options.coachLlm);
   }
 
   private get db() {

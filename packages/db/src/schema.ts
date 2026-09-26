@@ -713,3 +713,62 @@ export const activityLog = pgTable(
   },
   (t) => [index("activity_log_company_created").on(t.companyId, t.createdAt)],
 );
+
+/**
+ * Coaching notes: corrections from people (a finished task marked wrong and why, a check marked wrong,
+ * a change corrected before approving, a reasoned rejection). Each becomes a rule in a later version.
+ */
+export const coachingNotes = pgTable(
+  "coaching_notes",
+  {
+    id: id(),
+    companyId: companyId(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    taskId: uuid("task_id").references(() => tasks.id, { onDelete: "set null" }),
+    /** task (a finished task marked wrong) | check (a check marked wrong) | correction | rejection */
+    kind: text("kind").notNull(),
+    note: text("note").notNull(),
+    by: text("by").notNull(),
+    /** open | applied (in `appliedVersion`) | kept (its manager kept the version it corrected) */
+    status: text("status").notNull().default("open"),
+    proposalId: uuid("proposal_id"),
+    appliedVersion: integer("applied_version"),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("coaching_notes_agent").on(t.agentId, t.status, t.createdAt), index("coaching_notes_task").on(t.taskId)],
+);
+
+/** A change to an AI employee's job proposed from coaching notes: the rules, and how past tasks come out with it. */
+export const coachingProposals = pgTable(
+  "coaching_proposals",
+  {
+    id: id(),
+    companyId: companyId(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    /** The version it changes; publishing is refused when the job changed meanwhile. */
+    baseVersion: integer("base_version").notNull(),
+    definition: jsonb("definition").$type<Record<string, unknown>>().notNull(),
+    /** The rules in plain words, one per correction. */
+    rules: jsonb("rules").$type<string[]>().notNull().default([]),
+    explanation: text("explanation").notNull().default(""),
+    /** What changed in the job: paths with before and after. */
+    changes: jsonb("changes").$type<Record<string, unknown>[]>().notNull().default([]),
+    /** replaying | ready | published | kept | failed */
+    status: text("status").notNull().default("replaying"),
+    /** Past tasks run again with the proposal (as tests: nothing is sent or written), before and after. */
+    replay: jsonb("replay").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: text("created_by").notNull(),
+    decidedBy: text("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    publishedVersion: integer("published_version"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("coaching_proposals_agent").on(t.agentId, t.createdAt)],
+);

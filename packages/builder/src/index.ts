@@ -1,5 +1,6 @@
 export * from "./service.ts";
 export * from "./analyst.ts";
+export * from "./coaching.ts";
 export * from "./tree.ts";
 export * from "./nodes.ts";
 export * from "./parse.ts";

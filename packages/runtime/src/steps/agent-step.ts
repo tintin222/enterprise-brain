@@ -36,6 +36,7 @@ export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps:
     citations: [],
     emit: scope.emit,
     task: scope.task,
+    dryRun: scope.context.run.isTest,
   };
 
   if (!deps.llm.available) {

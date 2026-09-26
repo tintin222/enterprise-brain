@@ -12,6 +12,7 @@ import { ChannelAccounts } from "./channel-accounts.ts";
 import { ChatChannelSender } from "./chat-channels.ts";
 import { CatalogService } from "./catalog-service.ts";
 import { ChatService } from "./chat.ts";
+import { CoachingNotes } from "./coaching-notes.ts";
 import { ConnectorService } from "./connectors.ts";
 import { EmploymentService } from "./employment.ts";
 import { RunEngine } from "./engine.ts";
@@ -56,6 +57,8 @@ export class Platform {
   readonly mail: MailService;
   readonly agents: AgentService;
   readonly engine: RunEngine;
+  /** Corrections from people, kept for AI employees' next versions. */
+  readonly coachingNotes: CoachingNotes;
   readonly chat: ChatService;
   readonly catalog: CatalogService;
   readonly triggers: TriggerService;
@@ -93,6 +96,7 @@ export class Platform {
     this.agents = new AgentService(this.handle);
     this.tasks = new TaskService(this.handle, this.events);
     this.work = new WorkService(this.handle, this.events);
+    this.coachingNotes = new CoachingNotes(this.handle, this.activity);
     this.engine = new RunEngine({
       handle: this.handle,
       llm: this.llm,
@@ -105,6 +109,7 @@ export class Platform {
       tasks: this.tasks,
       work: this.work,
       events: this.events,
+      coaching: this.coachingNotes,
     });
     this.chat = new ChatService(this.handle, this.llm, this.agents, this.knowledge, this.engine.toolDeps);
     this.catalog = new CatalogService(this.handle, options.catalog, this.agents, this.knowledge, this.activity);

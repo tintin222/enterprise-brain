@@ -3,6 +3,7 @@ import { z } from "zod";
 import { OPEN_TASK_STATUSES } from "@enterprise-brain/runtime";
 import { actorOf, canManageDepartment, canSeeDepartment, viewerOf } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
+import { canCorrect } from "./coaching.ts";
 import { HttpError, companyOf } from "../http.ts";
 
 /**
@@ -41,11 +42,12 @@ export async function taskRoutes(app: FastifyInstance, ctx: AppContext) {
     const company = await companyOf(platform, request);
     const { task: ref } = request.params as { task: string };
     const { task, agent } = await taskFor(request, company.id, ref);
-    const [events, runs, mails, approvals] = await Promise.all([
+    const [events, runs, mails, approvals, coaching] = await Promise.all([
       platform.tasks.events(task.id),
       platform.tasks.runsOf(task.id),
       platform.tasks.mailsOf(task.id),
       platform.tasks.approvalsOf(task.id),
+      platform.coachingNotes.ofTask(company.id, task.id),
     ]);
     return {
       task,
@@ -54,7 +56,10 @@ export async function taskRoutes(app: FastifyInstance, ctx: AppContext) {
       runs: runs.map((r) => ({ ...r, context: undefined })),
       mails: mails.map((m) => ({ id: m.id, direction: m.direction, from: m.fromAddress, to: m.toAddresses, subject: m.subject, body: m.bodyText, receivedAt: m.receivedAt })),
       approvals,
+      /** Corrections people made to this task's work, for its AI employee's next version. */
+      coaching: coaching.map((n) => ({ id: n.id, kind: n.kind, note: n.note, by: n.by, status: n.status, appliedVersion: n.appliedVersion, createdAt: n.createdAt })),
       canManage: canManageDepartment(viewerOf(request), agent.row.departmentId),
+      canCorrect: task.status === "done" && canCorrect(viewerOf(request), agent, task.requestedBy),
     };
   });
 

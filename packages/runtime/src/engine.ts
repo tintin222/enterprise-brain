@@ -4,7 +4,7 @@ import {
   isRecord,
   stringify,
   truncate,
-  type AgentDefinition,
+  AgentDefinition,
   type WorkflowStep,
 } from "@enterprise-brain/core";
 import { activityLog, approvals, runEvents, runs, type DatabaseHandle } from "@enterprise-brain/db";
@@ -14,6 +14,7 @@ import { MailService } from "./mail.ts";
 import type { ActivityService } from "./activity.ts";
 import type { PlatformEvents } from "./events.ts";
 import { employmentOf, type AgentRecord, type AgentService } from "./agents.ts";
+import type { CoachingNotes } from "./coaching-notes.ts";
 import type {
   ApprovalAction,
   ExecutionScope,
@@ -40,6 +41,8 @@ export interface EngineDeps extends Omit<ToolDeps, "requestApproval" | "tasks" |
   work: WorkService;
   /** Tells other services (notifications) when approvals appear and are decided. */
   events?: PlatformEvents;
+  /** Where corrections are kept for the AI employee's next version. */
+  coaching: CoachingNotes;
 }
 
 export interface StartRunOptions {
@@ -57,6 +60,10 @@ export interface StartRunOptions {
   title?: string;
   /** Who asked for the work (a person's name, an email address). */
   requestedBy?: string | null;
+  /** Test runs only: run this version of the job instead of the live one (a coaching proposal). */
+  definition?: AgentDefinition;
+  /** Test runs only: what the original task's waits found, reused instead of waiting (replays). */
+  recorded?: Record<string, unknown>;
 }
 
 export interface Decision {
@@ -136,7 +143,7 @@ export class RunEngine {
     const trigger = options.trigger ?? "manual";
     this.assertRunnable(agent, trigger, options.isTest ?? false);
     if (!options.isTest) await this.assertWithinBudget(companyId, agent);
-    const missing = agent.definition.inputs
+    const missing = (options.isTest && options.definition ? options.definition : agent.definition).inputs
       .filter((f) => !options.task && f.required && (input[f.key] === undefined || input[f.key] === null || input[f.key] === ""))
       .map((f) => f.label ?? f.key);
     if (missing.length && trigger !== "mailbox") throw new RunError(`Missing required input: ${missing.join(", ")}`);
@@ -158,7 +165,14 @@ export class RunEngine {
       await this.deps.tasks.update(taskId, { status: "working" });
     }
 
-    const state: PersistedRunState = { steps: {}, completed: [], ...(options.task ? { task: options.task } : {}) };
+    if ((options.definition || options.recorded) && !options.isTest) throw new RunError("Only test runs can run a version that isn't live");
+    const state: PersistedRunState = {
+      steps: {},
+      completed: [],
+      ...(options.task ? { task: options.task } : {}),
+      ...(options.definition ? { override: AgentDefinition.parse(options.definition) as unknown as Record<string, unknown> } : {}),
+      ...(options.recorded ? { recorded: options.recorded } : {}),
+    };
     const [run] = await this.deps.handle.db
       .insert(runs)
       .values({
@@ -296,8 +310,10 @@ export class RunEngine {
     let agentSlug = "agent";
     let employment;
     let task: TaskRow | undefined;
+    const persisted = normalizeState(run.context);
     try {
-      definition = await this.deps.agents.definitionAt(run.agentId, run.agentVersion);
+      definition =
+        run.isTest && persisted.override ? AgentDefinition.parse(persisted.override) : await this.deps.agents.definitionAt(run.agentId, run.agentVersion);
       agentName = definition.name;
       agentSlug = definition.slug;
       // The level and limits as the manager set them now (a run resumed after a change follows the change).
@@ -307,7 +323,7 @@ export class RunEngine {
       await this.fail(run, error);
       return;
     }
-    const state = normalizeState(run.context);
+    const state = persisted;
     const started = run.startedAt ?? run.createdAt;
     const context: RunContext = {
       input: run.input,
@@ -326,6 +342,7 @@ export class RunEngine {
       context,
       emit: (event) => this.emit(runId, event),
       onText: (delta) => this.textListeners.get(runId)?.forEach((fn) => fn(delta)),
+      ...(state.recorded ? { recorded: state.recorded } : {}),
     };
     const workflow = state.task
       ? [taskStep(definition, state.task)]
@@ -373,15 +390,20 @@ export class RunEngine {
       }
 
       if (outcome.kind === "pause" && run.isTest) {
-        // Test runs never touch real systems: gated actions become dry runs, decisions auto-approve.
-        outcome = {
-          kind: "done",
-          result:
-            outcome.action.type === "decision"
-              ? { approved: true, note: "Auto-approved in test run", decidedBy: "test" }
-              : { dryRun: true, wouldExecute: outcome.action },
-          message: `${outcome.title} — skipped in test run (dry run)`,
-        };
+        // Test runs never touch real systems: gated actions become dry runs, decisions auto-approve. A replay
+        // takes the decision people made in the original task, when they were asked there too.
+        const decided = state.recorded?.[step.id];
+        outcome =
+          outcome.action.type === "decision" && isRecord(decided) && typeof decided.approved === "boolean"
+            ? { kind: "done", result: decided, message: `${outcome.title}: as decided in the original task (replay)` }
+            : {
+                kind: "done",
+                result:
+                  outcome.action.type === "decision"
+                    ? { approved: true, note: "Auto-approved in test run", decidedBy: "test" }
+                    : { dryRun: true, wouldExecute: outcome.action },
+                message: `${outcome.title} — skipped in test run (dry run)`,
+              };
       }
 
       if (outcome.kind === "pause") {
@@ -717,13 +739,14 @@ export class RunEngine {
       await record("checked", `${by} checked the work: ${input.verdict}${note ? ` (${note})` : ""}`, { verdict: input.verdict });
       if (input.verdict === "wrong" && item.agentId) {
         // Kept for coaching: the next version of the AI employee learns from it.
-        await this.deps.activity.record(companyId, {
-          actor: by,
-          action: "agent.coaching_note",
-          entityType: "agent",
-          entityId: item.agentId,
+        await this.deps.coaching.record(companyId, {
+          agentId: item.agentId,
+          taskId: item.taskId,
+          kind: "check",
+          note: note ?? `Marked as wrong: ${item.title}`,
+          by,
+          data: { workItemId: item.id },
           summary: `${by}: ${note ?? "marked a task as wrong"}`,
-          data: { taskId: item.taskId, workItemId: item.id, note },
         });
       }
       return resolved;
@@ -994,11 +1017,15 @@ export class RunEngine {
     if (corrected || (!decision.approved && decision.note?.trim())) {
       // A correction or a reasoned "no" is coaching: kept on the AI employee for its next version.
       const fields = Object.keys(isRecord(decision.edits?.input) ? decision.edits.input : (decision.edits ?? {}));
-      await this.deps.activity.record(companyId, {
-        actor: decidedBy,
-        action: "agent.coaching_note",
-        entityType: "agent",
-        entityId: approval.agentId,
+      const decidedRun = approval.runId ? await this.getRow(companyId, approval.runId).catch(() => undefined) : undefined;
+      await this.deps.coaching.record(companyId, {
+        agentId: approval.agentId,
+        taskId: decidedRun?.taskId ?? null,
+        kind: corrected ? "correction" : "rejection",
+        note: corrected
+          ? `Corrected “${approval.title}” before approving (${fields.join(", ")})${decision.note ? `: ${decision.note}` : ""}`
+          : `Rejected “${approval.title}”: ${decision.note}`,
+        by: decidedBy,
         summary: corrected
           ? `${decidedBy} corrected “${approval.title}” before approving (${fields.join(", ")})${decision.note ? `: ${decision.note}` : ""}`
           : `${decidedBy} rejected “${approval.title}”: ${decision.note}`,
@@ -1185,6 +1212,8 @@ function normalizeState(value: unknown): PersistedRunState {
     pending: isRecord(record.pending) ? (record.pending as PersistedRunState["pending"]) : undefined,
     warnings: Array.isArray(record.warnings) ? (record.warnings as string[]) : undefined,
     task: typeof record.task === "string" ? record.task : undefined,
+    override: isRecord(record.override) ? record.override : undefined,
+    recorded: isRecord(record.recorded) ? record.recorded : undefined,
   };
 }
 

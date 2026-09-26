@@ -58,8 +58,9 @@ import { keys, useAgent, useCollections, useConnectors, useDepartments, useTasks
 import { useDocumentTitle } from "../../lib/title.ts";
 import type { AgentDefinition, AgentDetail, Conversation, RunRow, TaskRow } from "../../types.ts";
 import { useAgentMutations } from "./actions.ts";
+import { CoachingTab, useCoaching } from "./Coaching.tsx";
 
-type Tab = "overview" | "work" | "duties" | "access" | "knowledge" | "rules" | "versions";
+type Tab = "overview" | "work" | "duties" | "access" | "knowledge" | "rules" | "coaching" | "versions";
 
 /** Rules from before probation levels ("every email", "every change"): the level decides those now. */
 const LEVEL_RULES = ["mail.send", "connector:write", "connector:*"];
@@ -447,26 +448,9 @@ function KnowledgeTab({ detail }: { detail: AgentDetail }) {
 }
 
 function RulesTab({ detail }: { detail: AgentDetail }) {
-  const notes = (detail.activity ?? []).filter((a) => a.action === "agent.coaching_note");
   return (
     <div className="space-y-6">
       <EmploymentPanel detail={detail} />
-      <Section title="Coaching notes" icon={GraduationCap} subtitle="Corrections from people. Each becomes a rule when its job is next changed.">
-        {notes.length ? (
-          <ul className="space-y-3">
-            {notes.map((n) => (
-              <li key={n.id} className="rounded-lg border border-line bg-subtle/40 px-3 py-2.5">
-                <p className="text-sm text-fg">{n.summary}</p>
-                <p className="mt-0.5 text-xs text-faint">{formatDateTime(n.createdAt)}</p>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-sm text-muted">
-            None yet. When someone corrects its work, rejects a change with a reason, or marks a check as wrong, it shows here.
-          </p>
-        )}
-      </Section>
     </div>
   );
 }
@@ -531,7 +515,7 @@ function JobEditor({ detail }: { detail: AgentDetail }) {
 function VersionsTab({ detail, editing, setEditing }: { detail: AgentDetail; editing: boolean; setEditing: (open: boolean) => void }) {
   const { rollback } = useAgentMutations();
   const versions = [...detail.versions].sort((a, b) => b.version - a.version);
-  const history = (detail.activity ?? []).filter((a) => a.action !== "agent.coaching_note");
+  const history = (detail.activity ?? []).filter((a) => !a.action.startsWith("agent.coaching"));
   return (
     <div className="space-y-6">
       <Section
@@ -712,6 +696,7 @@ export default function AiEmployee() {
   const { data, isLoading, error, refetch } = useAgent(slug);
   useDocumentTitle(data?.definition.name ?? "AI employee");
   const tasks = useTasks({ agent: slug, limit: 200 });
+  const coaching = useCoaching(slug ?? "");
   const departments = useDepartments();
   const { setStatus, remove } = useAgentMutations();
   const [talking, setTalking] = useState(false);
@@ -749,6 +734,8 @@ export default function AiEmployee() {
   const department = departments.data?.find((d) => d.id === agent.departmentId);
   const taskRows = tasks.data ?? [];
   const needsPerson = taskRows.filter((t) => t.status === "needs_person").length;
+  const corrections = (coaching.data?.notes ?? []).filter((n) => n.status === "open").length;
+  const deciding = (coaching.data?.proposals ?? []).some((p) => p.status === "ready");
   const working = agent.status === "active";
   const byline = [
     definition.title,
@@ -831,6 +818,7 @@ export default function AiEmployee() {
           { id: "access", label: "Access", icon: KeyRound },
           { id: "knowledge", label: "Knowledge", icon: BookOpen },
           { id: "rules", label: "Probation and rules", icon: ShieldCheck },
+          { id: "coaching", label: "Coaching", icon: GraduationCap, count: corrections || undefined, alert: deciding && data.canManage },
           { id: "versions", label: "Versions", icon: HistoryIcon },
         ]}
       />
@@ -841,6 +829,7 @@ export default function AiEmployee() {
       {tab === "access" && <AccessTab detail={data} />}
       {tab === "knowledge" && <KnowledgeTab detail={data} />}
       {tab === "rules" && <RulesTab detail={data} />}
+      {tab === "coaching" && <CoachingTab detail={data} />}
       {tab === "versions" && <VersionsTab detail={data} editing={editing} setEditing={setEditing} />}
 
       <div className="mt-8 flex flex-wrap items-center gap-2 border-t border-line pt-4">

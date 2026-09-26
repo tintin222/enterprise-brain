@@ -22,6 +22,8 @@ async function main() {
   const builder = new BuilderService(platform, { publicBaseUrl: config.publicUrl });
   const app = await buildServer({ platform, builder, config }, { logger: true });
   const resumed = await platform.engine.resumeInterrupted();
+  // Coaching replays cut short by a restart start over.
+  await builder.coach.resumeInterrupted();
   // Links in emails and chat cards point at the public address.
   platform.notifications.configure({ publicUrl: config.publicUrl });
   if (config.schedulerEnabled) {

@@ -82,7 +82,7 @@ A task is one piece of work from start to finish: a duty's email, a schedule, a 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/companies/:company/tasks?status=&agent=&limit=` | Tasks of the AI employees the viewer may see, newest activity first: `{ id, ref (EB-7K2Q9), title, status, source, sourceRef, requestedBy, input, waitingFor, nextCheckAt, outcome, wakeups, createdAt, updatedAt, closedAt, agent {id, slug, name, departmentId} }`. `status`: one or more of `working`, `waiting`, `needs_person`, `paused`, `done`, `stopped`, `failed` (comma-separated), or `open` for the first four |
-| GET | `/api/companies/:company/tasks/:task` | `{ task, agent, events[] {type, message, actor, runId, data, createdAt}, runs[], mails[] {direction, from, to, subject, body, receivedAt}, approvals[], canManage }` (`:task` = id or ref) |
+| GET | `/api/companies/:company/tasks/:task` | `{ task, agent, events[] {type, message, actor, runId, data, createdAt}, runs[], mails[] {direction, from, to, subject, body, receivedAt}, approvals[], coaching[] {kind, note, by, status, appliedVersion}, canManage, canCorrect }` (`:task` = id or ref) |
 | POST | `/api/companies/:company/tasks` | Give an AI employee work in plain words: `{ agent, text, wait? }` → `{ task, run }` |
 | POST | `/api/companies/:company/tasks/:task/pause` | Managers: no wake-ups; a run on it holds at its next step. Replies are kept for when it resumes |
 | POST | `/api/companies/:company/tasks/:task/resume` | Managers: back to where it was |
@@ -94,6 +94,21 @@ How tasks move:
 * A workflow's `wait` step (`{ type: "wait", for: "reply" | "time", days?, until? }`) holds the run (status `waiting`) until a reply arrives or the time passes; the step's result is `{ replied: true, reply: {from, subject, body, …} }` or `{ replied: false, timedOut: true }` (reply waits) and `{ waited: true }` (time waits), for the next steps' `when` conditions.
 * Autonomous AI employees plan with task tools: `task_note`, `task_wait_for_reply` (`days`), `task_follow_up` (`days` or `date`) and `task_complete` (`outcome`). When a run ends the task follows that plan, unless a person still has to decide on one of its changes (`needs_person`). Once everything is decided, a rejection wakes it to rethink; otherwise it follows the plan.
 * The scheduler wakes waiting tasks whose next check has come, every minute. A task that wakes continues from a brief of what happened so far and why it woke.
+
+## Coaching
+
+Corrections become rules in an AI employee's next version, tested on its recent tasks first. A correction (`kind`): `task` (a finished task marked wrong), `check` (a check marked wrong), `correction` (changed before approving), `rejection` (a no with a reason); `status`: `open`, `applied` (a rule since `appliedVersion`) or `kept`.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/companies/:company/tasks/:task/correct` | Mark a finished task as wrong: `{ note }` in plain words → `{ note }`. The AI employee's department, whoever asked for the task, admins |
+| GET | `/api/companies/:company/agents/:agent/coaching` | `{ notes[] {id, kind, note, by, status, taskRef, taskTitle, proposalId, appliedVersion, createdAt}, proposals[], llm {available}, canDecide }` (open notes first; proposals newest first) |
+| POST | `/api/companies/:company/agents/:agent/coaching/proposals` | Managers: `{ noteIds?, limit? (1-20, default 8), wait? }` → a proposal. Turns the open notes (or those given) into rules and a new version of the job, then replays recent tasks with it in the background (`status: replaying`, then `ready`) |
+| GET | `/api/companies/:company/coaching/proposals/:proposal` | `{ id, baseVersion, currentVersion, stale, status, rules[], explanation, changes[] {path, label, before?, after?, added?, removed?}, replay {items[], summary}, notes[], createdBy, decidedBy, publishedVersion, canDecide }` |
+| POST | `/api/companies/:company/coaching/proposals/:proposal/publish` | Managers: publish it as the next version (409 while replaying, or when the job changed since: `stale`) |
+| POST | `/api/companies/:company/coaching/proposals/:proposal/keep` | Managers: keep the current version; its corrections are closed as kept |
+
+A replay item: `{ taskId, ref, title, corrected, notes[], originalRunId, runId, status: same | changed | failed, error?, changes[] {key, label, before, after, kind: outcome | wording}, steps[] {stepId, name, kind: person | action, change: added | removed} }`; the summary counts `total`, `done`, `changed`, `failed`, `corrected` and `correctedChanged`. Proposal `status`: `replaying`, `ready`, `published`, `kept`, `failed` or `superseded` (a newer proposal took its place).
 
 ## Home and costs
 

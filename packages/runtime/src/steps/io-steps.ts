@@ -74,6 +74,15 @@ export async function runConnector(step: Step<"connector">, scope: ExecutionScop
   const op = deps.connectors.operation(resolved.impl, step.operation);
   const resolvedInput = resolveTemplate(step.input, scope.context);
   const input = isRecord(resolvedInput) ? stripEmpty(resolvedInput) : {};
+  if (scope.context.run.isTest && (op.kind === "write" || op.requiresApproval)) {
+    // Test runs never change a system, whatever approved them: what it would do is shown instead. A replay
+    // carries on with what the system answered in the original task (a case number), when it was called.
+    return {
+      kind: "done",
+      result: { ...replayed(scope, step.id), dryRun: true, wouldExecute: { type: "connector", system: resolved.name, operation: op.id, operationName: op.name, input } },
+      message: `${op.name} in ${resolved.name}: not done in a test run (dry run)`,
+    };
+  }
   const check =
     op.kind === "write" || op.requiresApproval
       ? await approvalCheck(deps, scope, { type: "connector", ref: binding.ref, operation: op.id, input, alwaysAsk: op.requiresApproval }, step.requiresApproval)
@@ -108,6 +117,14 @@ export async function runConnector(step: Step<"connector">, scope: ExecutionScop
   return { kind: "done", result, message: `${resolved.name}${resolved.sandbox ? " (sandbox)" : ""}: ${op.name}` };
 }
 
+/** Replays: what a step's call returned in the original task (without its own dry-run marks), or nothing. */
+function replayed(scope: ExecutionScope, stepId: string): Record<string, unknown> {
+  const recorded = scope.recorded?.[stepId];
+  if (!isRecord(recorded)) return {};
+  const { dryRun: _dryRun, wouldExecute: _wouldExecute, ...rest } = recorded;
+  return rest;
+}
+
 /** Drop undefined/empty-string values so optional operation parameters are omitted rather than sent blank. */
 function stripEmpty(input: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
@@ -132,6 +149,14 @@ export function runApproval(step: Step<"approval">, scope: ExecutionScope): Step
 
 export async function runMailSend(step: Step<"mail.send">, scope: ExecutionScope, deps: ToolDeps): Promise<StepOutcome> {
   const subject = renderTemplate(step.subject, scope.context);
+  if (scope.context.run.isTest) {
+    const to = renderTemplate(step.to, scope.context);
+    return {
+      kind: "done",
+      result: { ...replayed(scope, step.id), dryRun: true, wouldExecute: { type: "mail.send", to, subject, body: renderTemplate(step.body, scope.context) } },
+      message: `Email to ${to}: not sent in a test run (dry run)`,
+    };
+  }
   const action = {
     type: "mail.send" as const,
     to: renderTemplate(step.to, scope.context),
@@ -228,6 +253,9 @@ export function runWait(step: Step<"wait">, scope: ExecutionScope): StepOutcome 
   if (!until && step.days) until = new Date(Date.now() + step.days * 86_400_000);
   if (step.for === "time" && !until) throw new Error(`Step "${step.id}": a time wait needs days or a date in until`);
   if (!scope.task) {
+    // A replay reuses what the original task found (its reply); otherwise the time is taken as passed.
+    const recorded = scope.recorded?.[step.id];
+    if (recorded !== undefined) return { kind: "done", result: recorded, message: "As in the original task (replay)" };
     return {
       kind: "done",
       result: step.for === "reply" ? { replied: false, timedOut: true, skipped: true } : { waited: true, skipped: true },

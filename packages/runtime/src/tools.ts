@@ -63,6 +63,8 @@ export interface ToolScope {
   emit?: (event: RunEventInput) => Promise<void>;
   /** The task the run works on: its emails carry the reference, and the task tools act on it. */
   task?: { id: string; ref: string };
+  /** A test run: nothing is sent or written, the tools say what they would do. */
+  dryRun?: boolean;
 }
 
 export interface RuntimeTool {
@@ -291,6 +293,7 @@ export async function buildTools(
               inReplyTo: input.in_reply_to ? String(input.in_reply_to) : undefined,
               ...(scope.task ? { taskId: scope.task.id } : {}),
             };
+            if (scope.dryRun) return { content: `Test run: the email to ${action.to} ("${action.subject}") was not sent. Carry on as if it had been.` };
             const check = await approvalCheck(deps, scope, { type: "mail.send", to: action.to });
             if (check.needed) return deferred(`Send email to ${action.to}`, action, check.reason);
             const sent = await deps.mail.send(companyId, action);
@@ -340,6 +343,9 @@ export async function buildTools(
               inputSchema: objectSchema(op.input),
             },
             async execute(input) {
+              if (scope.dryRun && (op.kind === "write" || op.requiresApproval)) {
+                return { content: `Test run: ${op.name} in ${target.name} was not done. It would have been called with ${json(input, 2000)}. Carry on as if it had been.` };
+              }
               const check =
                 op.kind === "write" || op.requiresApproval
                   ? await approvalCheck(deps, scope, { type: "connector", ref: binding.ref, operation: op.id, input, alwaysAsk: op.requiresApproval })
