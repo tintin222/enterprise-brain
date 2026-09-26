@@ -23,7 +23,10 @@ export interface OutboundMail {
   mailbox?: string;
   to: string;
   subject: string;
+  /** Plain text: always sent (the HTML version's fallback, and what the outbox shows). */
   body: string;
+  /** An HTML version (e.g. an approval with buttons); sent instead of the text where the connection can. */
+  html?: string;
   inReplyTo?: string;
   cc?: string[];
   /** The task it is sent for. */
@@ -164,10 +167,14 @@ export class MailService {
       if (canReply) {
         await this.connectors.execute(companyId, resolved, "reply_to_message", { message_id: original!.externalId, body: mail.body });
       } else {
+        // The HTML version goes out where the connection takes one (Microsoft 365, Gmail); others get the text.
+        const properties = resolved.impl.manifest.operations.find((o) => o.id === "send_mail")?.input.properties;
+        const html = Boolean(mail.html) && typeof properties === "object" && properties !== null && "content_type" in properties;
         await this.connectors.execute(companyId, resolved, "send_mail", {
           to: mail.to,
           subject: mail.subject,
-          body: mail.body,
+          body: html ? mail.html : mail.body,
+          ...(html ? { content_type: "html" } : {}),
           ...(mail.cc?.length ? { cc: mail.cc } : {}),
         });
       }
@@ -190,6 +197,7 @@ export class MailService {
         toAddresses: [mail.to, ...(mail.cc ?? [])],
         subject: mail.subject,
         bodyText: mail.body,
+        bodyHtml: mail.html ?? null,
         status,
         inReplyTo: original?.id ?? null,
         threadId: original?.threadId ?? null,

@@ -2,7 +2,7 @@
 
 Base URL: `http://localhost:3200` (configurable with `PORT` / `EB_PUBLIC_URL`).
 
-* **Auth.** By default (`EB_AUTH=accounts`) people sign in and the browser sends the `eb_session` cookie (httpOnly, SameSite=Lax); see [People and sign-in](#people-and-sign-in). Machines send `Authorization: Bearer <EB_API_KEY>` and act as an admin; `/mcp` accepts only the key. What a person may see and change follows their departments: admins everything; managers run their departments' AI employees; workers see their departments' AI employees and the company-wide ones (departments marked `openToEveryone`, e.g. Shared Services). Public exceptions: `/api/health`, `/api/info`, `/api/auth/*`, `/api/public/*` (token-protected stakeholder pages) and `/api/hermes/*` (Paperclip gateway: Bearer Hermes key, which is `EB_HERMES_API_KEY`, else `EB_API_KEY`, else the key generated in `<EB_DATA_DIR>/hermes.key`). With `EB_AUTH=open` nobody signs in and every request acts as the owner, like Paperclip's `local_trusted`; setting `EB_API_KEY` then requires the key on every request.
+* **Auth.** By default (`EB_AUTH=accounts`) people sign in and the browser sends the `eb_session` cookie (httpOnly, SameSite=Lax); see [People and sign-in](#people-and-sign-in). Machines send `Authorization: Bearer <EB_API_KEY>` and act as an admin; `/mcp` accepts only the key. What a person may see and change follows their departments: admins everything; managers run their departments' AI employees; workers see their departments' AI employees and the company-wide ones (departments marked `openToEveryone`, e.g. Shared Services). Public exceptions: `/api/health`, `/api/info`, `/api/auth/*`, `/api/public/*` (token-protected stakeholder pages and email action links) and `/api/hermes/*` (Paperclip gateway: Bearer Hermes key, which is `EB_HERMES_API_KEY`, else `EB_API_KEY`, else the key generated in `<EB_DATA_DIR>/hermes.key`). With `EB_AUTH=open` nobody signs in and every request acts as the owner, like Paperclip's `local_trusted`; setting `EB_API_KEY` then requires the key on every request.
 * **Companies.** Every domain route is company-scoped: `/api/companies/:company/...`, where `:company` is the slug or id (default slug `acme`).
 * **Errors.** Non-2xx responses have the body `{ "error": string, "issues"?: [...] }`.
 * **Streaming.** Endpoints marked *SSE* return `text/event-stream`.
@@ -120,6 +120,17 @@ Everything that needs a person, in one list: approvals of AI employees' changes,
 | GET | `/api/companies/:company/approvals?status=pending` | `{ id, runId, agentId, agentName, origin (workflow/deferred), stepId, title, details, action {type: decision|connector|mail.send, …}, reason (why a person is asked, e.g. "12,500 TRY is above its limit of 10,000 TRY"), status, decidedBy, decisionNote, createdAt, decidedAt }` |
 | POST | `/api/companies/:company/approvals/:approval/decide` | `{ approved: boolean, note?, edits? }`: resumes the paused run. `edits` corrects the change before it runs: `{ to?, subject?, body? }` for an email, the input fields (or `{ input: {...} }`) for a system action. People of the AI employee's department and admins decide |
 
+## Notifications and approvals by email
+
+What reaches people outside the app. Approvals and questions (what an AI employee waits on) arrive at once; checks, failures and notices wait for a morning summary, unless the person wants everything at once. Each item reaches a person once, over one channel (Teams or Google Chat when connected for them, else email), and people get the items the app lists as theirs: the assignee, else the people of the AI employee's department (admins for company-wide AI employees). Delivery runs with the scheduler (`EB_SCHEDULER`); failed deliveries are tried again (up to three times, by email after a chat failure). Emails carry buttons that open a signed page: the link acts for one person on one item for a week, opening it changes nothing, and acting takes a click there (mail scanners open links too). Links point at `EB_PUBLIC_URL`.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/me/notifications` | Signed-in people: `{ preferences {deliver: "urgent"\|"all"\|"summary"\|"off", channel: "auto"\|"email"\|"teams"\|"google-chat", summaryAt: "HH:MM", timeZone}, modes[] {id, label, description}, channels[] {id, label, reaches}, email, recent[] {kind, itemType, channel, status, createdAt} }`. The default time zone is the company setting `timeZone`, else Europe/Istanbul |
+| PUT | `/api/me/notifications` | Any of the preference fields; 400 on an unknown time zone or a time not in HH:MM |
+| GET | `/api/public/act/:token` | The page behind an email's buttons: `{ company {name}, person {name}, item {type, id, title, details, reason, suggestion, options, action, agent {name}, task {ref, title, status}, status, resolvedBy, answer, createdAt}, canAct, expiresAt }`. 400 for a changed link, 410 once expired, 403 when the person is disabled or no longer works in the item's department |
+| POST | `/api/public/act/:token` | Act as the link's person: `{ choice: "approve"\|"reject", note?, edits? }` for approvals (edits as in `decide`), `{ answer }`, `{ verdict, note? }`, `{ retry }` or `{ dismiss }` for the rest. 409 when someone already handled it ("Approval is already approved by …"); the audit log says the decision was made in an email |
+
 ## Files
 
 | Method | Path | Description |
@@ -171,8 +182,8 @@ A new email goes back to its task when it is a reply (the task's reference, or i
 |---|---|---|
 | GET | `/api/companies/:company/watchers` | Admin. `[{ connection, connectionId, watching (new_message, or the event), lastPolledAt, lastCount, lastError }]` |
 | POST | `/api/companies/:company/watchers/poll` | Admin. Check now: `{ mail, events, errors[] }` |
-| GET | `/api/companies/:company/settings` | Admin. `{ aiMailbox, mailDomain }` |
-| PUT | `/api/companies/:company/settings` | Admin. `{ aiMailbox: "ai@acme.com.tr" \| null }`: the mailbox people forward work to (connect it as a mail connection too) |
+| GET | `/api/companies/:company/settings` | Admin. `{ aiMailbox, mailDomain, timeZone }` |
+| PUT | `/api/companies/:company/settings` | Admin. `{ aiMailbox?: "ai@acme.com.tr" \| null, timeZone?: "Europe/Istanbul" \| null }`: the mailbox people forward work to (connect it as a mail connection too), and the time zone of morning summaries for people who didn't choose their own |
 
 ## Mail (inbox)
 

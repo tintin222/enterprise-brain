@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { truncate } from "@enterprise-brain/core";
 import { workItems, type DatabaseHandle } from "@enterprise-brain/db";
+import type { PlatformEvents, QueueItemType } from "./events.ts";
 
 export type WorkItemRow = typeof workItems.$inferSelect;
 
@@ -33,7 +34,10 @@ export class WorkError extends Error {
 
 /** The work queue's own items (approvals live with the runs they pause). */
 export class WorkService {
-  constructor(private readonly handle: DatabaseHandle) {}
+  constructor(
+    private readonly handle: DatabaseHandle,
+    private readonly bus?: PlatformEvents,
+  ) {}
 
   async create(companyId: string, input: WorkItemInput): Promise<WorkItemRow> {
     const [row] = await this.handle.db
@@ -53,6 +57,7 @@ export class WorkService {
         data: input.data ?? {},
       })
       .returning();
+    this.bus?.emit("queue.added", { companyId, type: input.kind as QueueItemType, id: row!.id });
     return row!;
   }
 
@@ -82,12 +87,23 @@ export class WorkService {
   /** Close an item: done (answered, checked, handled) or dismissed. */
   async resolve(companyId: string, id: string, input: { status: "done" | "dismissed"; answer?: string | null; by: string; data?: Record<string, unknown> }): Promise<WorkItemRow> {
     const item = await this.get(companyId, id);
-    if (item.status !== "open") throw new WorkError(`This was already ${item.status === "done" ? "handled" : "dismissed"}${item.resolvedBy ? ` by ${item.resolvedBy}` : ""}`, 409);
+    const already = (current: WorkItemRow) =>
+      new WorkError(`This was already ${current.status === "done" ? "handled" : "dismissed"}${current.resolvedBy ? ` by ${current.resolvedBy}` : ""}`, 409);
+    if (item.status !== "open") throw already(item);
+    // Only one person's answer wins when several answer at once (the app, a chat card, an email).
     const [row] = await this.handle.db
       .update(workItems)
       .set({ status: input.status, answer: input.answer ?? null, resolvedBy: input.by, resolvedAt: new Date(), data: { ...item.data, ...(input.data ?? {}) } })
-      .where(eq(workItems.id, id))
+      .where(and(eq(workItems.id, id), eq(workItems.status, "open")))
       .returning();
+    if (!row) throw already(await this.get(companyId, id));
+    this.bus?.emit("queue.resolved", {
+      companyId,
+      type: item.kind as QueueItemType,
+      id,
+      by: input.by,
+      outcome: input.status === "dismissed" ? "dismissed" : (input.answer ?? "handled"),
+    });
     return row!;
   }
 

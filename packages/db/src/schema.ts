@@ -78,10 +78,69 @@ export const users = pgTable(
     authProvider: text("auth_provider"),
     externalId: text("external_id"),
     lastSignInAt: timestamp("last_sign_in_at", { withTimezone: true }),
+    /** What reaches them outside the app, and where (NotificationPreferences). */
+    preferences: jsonb("preferences").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [uniqueIndex("users_company_email").on(t.companyId, t.email)],
+);
+
+/**
+ * A person's account in a chat channel (Teams, Google Chat): who they are there, and where to reach
+ * them (the conversation with the company's app). Linked to the person by their email.
+ */
+export const channelAccounts = pgTable(
+  "channel_accounts",
+  {
+    id: id(),
+    companyId: companyId(),
+    /** teams · google-chat */
+    channel: text("channel").notNull(),
+    /** Their id in the channel: the Entra object id for Teams, users/… for Google Chat. */
+    externalId: text("external_id").notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    email: text("email"),
+    name: text("name"),
+    /** How to reach them: Teams { serviceUrl, conversationId, tenantId, botId }; Google Chat { space }. */
+    address: jsonb("address").$type<Record<string, unknown>>().notNull().default({}),
+    /** In a conversation with the app, the AI employee they are talking to. */
+    agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("channel_accounts_external").on(t.companyId, t.channel, t.externalId), index("channel_accounts_user").on(t.userId)],
+);
+
+/**
+ * What reached whom, where: a work-queue item, a morning summary, or news of a task someone gave.
+ * One row per person and thing, so nothing arrives twice; `ref` locates the message to update it.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: id(),
+    companyId: companyId(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** item · summary · task */
+    kind: text("kind").notNull(),
+    /** approval · question · review · failure · notice; "day" for summaries; a task status for task news */
+    itemType: text("item_type").notNull(),
+    /** The approval or work item id, the summary's local date, or the task id. */
+    itemId: text("item_id").notNull(),
+    /** email · teams · google-chat */
+    channel: text("channel").notNull(),
+    /** sending · sent · failed · updated */
+    status: text("status").notNull().default("sending"),
+    attempts: integer("attempts").notNull().default(0),
+    ref: jsonb("ref").$type<Record<string, unknown>>().notNull().default({}),
+    error: text("error"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("notifications_once").on(t.userId, t.kind, t.itemType, t.itemId), index("notifications_item").on(t.companyId, t.itemId)],
 );
 
 /** Who works in which department, as its manager or as a worker. */
@@ -478,6 +537,8 @@ export const mailMessages = pgTable(
     toAddresses: jsonb("to_addresses").$type<string[]>().notNull().default([]),
     subject: text("subject").notNull().default(""),
     bodyText: text("body_text").notNull().default(""),
+    /** The HTML version, when it was sent with one (notifications with buttons). */
+    bodyHtml: text("body_html"),
     attachments: jsonb("attachments")
       .$type<{ fileId: string; name: string; mimeType: string; size: number }[]>()
       .notNull()

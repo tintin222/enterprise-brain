@@ -19,13 +19,14 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import { Link, NavLink, Outlet, useLocation } from "react-router";
+import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router";
 import { signOut, useViewer } from "../lib/auth.tsx";
 import { useCompany } from "../lib/company.tsx";
 import { initials } from "../lib/format.ts";
 import { useWork } from "../lib/queries.ts";
 import { useTheme } from "../lib/theme.ts";
 import { GiveWorkDialog } from "./GiveWork.tsx";
+import { NotificationsDialog } from "./NotificationSettings.tsx";
 import { Wordmark } from "./Logo.tsx";
 import { LoadingBlock } from "./Spinner.tsx";
 
@@ -147,12 +148,22 @@ function LlmBadge() {
   );
 }
 
-/** The signed-in person: who they are, their departments, and sign out. */
+/** The signed-in person: who they are, their departments, what reaches them, and sign out. */
 function PersonMenu() {
   const viewer = useViewer();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [notifications, setNotifications] = useState(false);
+  const [search, setSearch] = useSearchParams();
   const ref = useRef<HTMLDivElement>(null);
+  // "Change what reaches you" in an email opens the app with ?notifications=1.
+  useEffect(() => {
+    if (search.get("notifications") !== "1") return;
+    setNotifications(true);
+    const next = new URLSearchParams(search);
+    next.delete("notifications");
+    setSearch(next, { replace: true });
+  }, [search, setSearch]);
   useEffect(() => {
     if (!open) return;
     const onPointer = (e: MouseEvent) => {
@@ -196,6 +207,18 @@ function PersonMenu() {
           <button
             type="button"
             role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              setNotifications(true);
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-subtle"
+          >
+            <Bell className="size-4 text-muted" />
+            What reaches me
+          </button>
+          <button
+            type="button"
+            role="menuitem"
             onClick={() => void signOut(queryClient)}
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-subtle"
           >
@@ -204,6 +227,7 @@ function PersonMenu() {
           </button>
         </div>
       )}
+      <NotificationsDialog open={notifications} onClose={() => setNotifications(false)} />
     </div>
   );
 }

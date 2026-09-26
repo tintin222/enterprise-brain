@@ -6,3 +6,4 @@ export * from "./connector.ts";
 export * from "./expressions.ts";
 export * from "./util.ts";
 export * from "./employment.ts";
+export * from "./notifications.ts";

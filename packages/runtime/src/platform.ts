@@ -13,9 +13,13 @@ import { ChatService } from "./chat.ts";
 import { ConnectorService } from "./connectors.ts";
 import { EmploymentService } from "./employment.ts";
 import { RunEngine } from "./engine.ts";
+import { PlatformEvents } from "./events.ts";
 import { FileService } from "./files.ts";
+import { ActionLinks } from "./links.ts";
 import { MailService } from "./mail.ts";
+import { EmailChannel, NotificationService } from "./notifications.ts";
 import { PeopleService } from "./people.ts";
+import { QueueService } from "./queue.ts";
 import { SecretBox } from "./secrets.ts";
 import { TaskService } from "./tasks.ts";
 import { TriggerService } from "./triggers.ts";
@@ -56,6 +60,12 @@ export class Platform {
   readonly tasks: TaskService;
   readonly work: WorkService;
   readonly watchers: WatcherService;
+  /** What changed, for the services that react to it (notifications, chat channels). */
+  readonly events: PlatformEvents;
+  readonly queue: QueueService;
+  /** Signed links people act through outside the app (an approval email's buttons). */
+  readonly actionLinks: ActionLinks;
+  readonly notifications: NotificationService;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -63,6 +73,7 @@ export class Platform {
     this.llm = options.llm;
     this.embedder = options.embedder;
     this.secretBox = options.secretBox;
+    this.events = new PlatformEvents();
     this.activity = new ActivityService(this.handle);
     this.people = new PeopleService(this.handle);
     this.files = new FileService(this.handle, join(options.dataDir, "files"));
@@ -70,8 +81,8 @@ export class Platform {
     this.knowledge = new KnowledgeService(this.handle, this.embedder);
     this.mail = new MailService(this.handle, this.files, this.connectors);
     this.agents = new AgentService(this.handle);
-    this.tasks = new TaskService(this.handle);
-    this.work = new WorkService(this.handle);
+    this.tasks = new TaskService(this.handle, this.events);
+    this.work = new WorkService(this.handle, this.events);
     this.engine = new RunEngine({
       handle: this.handle,
       llm: this.llm,
@@ -83,12 +94,24 @@ export class Platform {
       activity: this.activity,
       tasks: this.tasks,
       work: this.work,
+      events: this.events,
     });
     this.chat = new ChatService(this.handle, this.llm, this.agents, this.knowledge, this.engine.toolDeps);
     this.catalog = new CatalogService(this.handle, options.catalog, this.agents, this.knowledge, this.activity);
     this.triggers = new TriggerService(this.handle, this.agents, this.engine, this.mail, this.tasks, this.people);
     this.employment = new EmploymentService(this.agents, this.people, this.engine, this.activity);
     this.watchers = new WatcherService(this.handle, this.connectors, this.mail, this.agents, this.engine, this.triggers);
+    this.queue = new QueueService(this.handle, this.agents, this.work);
+    this.actionLinks = new ActionLinks(this.secretBox.deriveKey("action-links"));
+    this.notifications = new NotificationService({
+      handle: this.handle,
+      people: this.people,
+      agents: this.agents,
+      queue: this.queue,
+      events: this.events,
+      links: this.actionLinks,
+    });
+    this.notifications.register(new EmailChannel(this.mail));
   }
 
   /** Create a platform from the environment: embedded Postgres under dataDir unless DATABASE_URL is set. */
@@ -140,6 +163,7 @@ export class Platform {
   async close(): Promise<void> {
     this.triggers.stop();
     this.watchers.stop();
+    await this.notifications.stop();
     await this.handle.close();
   }
 }

@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
@@ -21,6 +21,11 @@ export class SecretBox {
     const generated = randomBytes(32).toString("base64");
     writeFileSync(keyFile, generated, { mode: 0o600 });
     return new SecretBox(generated);
+  }
+
+  /** A key for one purpose (e.g. signing action links), derived from the master key. */
+  deriveKey(purpose: string): Buffer {
+    return createHmac("sha256", this.key).update(`enterprise-brain:${purpose}`).digest();
   }
 
   encrypt(value: unknown): string {

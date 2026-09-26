@@ -19,3 +19,8 @@ export * from "./employment.ts";
 export * from "./tasks.ts";
 export * from "./work.ts";
 export * from "./watchers.ts";
+export * from "./events.ts";
+export * from "./queue.ts";
+export * from "./links.ts";
+export * from "./notifications.ts";
+export * from "./notification-templates.ts";

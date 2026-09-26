@@ -12,6 +12,7 @@ import type { LlmUsage } from "@enterprise-brain/llm";
 import { describeAction, executeAction } from "./actions.ts";
 import { MailService } from "./mail.ts";
 import type { ActivityService } from "./activity.ts";
+import type { PlatformEvents } from "./events.ts";
 import { employmentOf, type AgentRecord, type AgentService } from "./agents.ts";
 import type {
   ApprovalAction,
@@ -37,6 +38,8 @@ export interface EngineDeps extends Omit<ToolDeps, "requestApproval" | "tasks" |
   activity: ActivityService;
   tasks: TaskService;
   work: WorkService;
+  /** Tells other services (notifications) when approvals appear and are decided. */
+  events?: PlatformEvents;
 }
 
 export interface StartRunOptions {
@@ -62,7 +65,12 @@ export interface Decision {
   decidedBy?: string;
   /** Corrections to the proposed change before it runs: an email's to/subject/body, a system action's input fields. */
   edits?: Record<string, unknown>;
+  /** Where the person decided when not in the app: "email", "teams", "google-chat" (kept in the audit log). */
+  via?: string;
 }
+
+/** Where people act outside the app, as the audit log says it. */
+const VIA_LABELS: Record<string, string> = { email: "an email", teams: "Microsoft Teams", "google-chat": "Google Chat" };
 
 const AUTOMATED_TRIGGERS = new Set(["mailbox", "schedule", "webhook", "paperclip", "connector-event"]);
 
@@ -393,6 +401,7 @@ export class RunEngine {
           })
           .returning();
         state.pending = { stepId: step.id, approvalId: approval!.id, kind: outcome.action.type === "decision" ? "decision" : "gated" };
+        this.deps.events?.emit("queue.added", { companyId, type: "approval", id: approval!.id });
         await this.persist(runId, {
           status: "waiting_approval",
           context: state as unknown as Record<string, unknown>,
@@ -686,11 +695,13 @@ export class RunEngine {
     id: string,
     input: { answer?: string; verdict?: "right" | "wrong"; note?: string; retry?: boolean; dismiss?: boolean },
     by: string,
-    options: { wait?: boolean } = {},
+    options: { wait?: boolean; via?: string } = {},
   ): Promise<WorkItemRow> {
     const item = await this.deps.work.get(companyId, id);
     const record = (type: string, message: string, data: Record<string, unknown> = {}) =>
-      item.taskId ? this.deps.tasks.record(companyId, item.taskId, { type, message, actor: by, data: { workItemId: item.id, ...data } }) : Promise.resolve();
+      item.taskId
+        ? this.deps.tasks.record(companyId, item.taskId, { type, message, actor: by, data: { workItemId: item.id, ...(options.via ? { via: options.via } : {}), ...data } })
+        : Promise.resolve();
     if (item.kind === "question") {
       const answer = input.dismiss ? "No answer: the question was dismissed" : input.answer?.trim();
       if (!answer) throw new WorkError("Write an answer, or dismiss the question");
@@ -753,6 +764,7 @@ export class RunEngine {
     }
     for (const approval of await this.deps.tasks.approvalsOf(task.id, "pending")) {
       await this.deps.handle.db.update(approvals).set({ status: "cancelled", decidedAt: new Date(), decidedBy: by }).where(eq(approvals.id, approval.id));
+      this.deps.events?.emit("queue.resolved", { companyId, type: "approval", id: approval.id, by, outcome: "withdrawn: the task was stopped" });
     }
     for (const item of await this.deps.work.openFor(task.id)) {
       await this.deps.work.resolve(companyId, item.id, { status: "dismissed", by, answer: "The task was stopped" });
@@ -908,6 +920,7 @@ export class RunEngine {
         data: { approvalId: approval!.id, deferred: true, reason: request.reason ?? null },
       });
     }
+    this.deps.events?.emit("queue.added", { companyId, type: "approval", id: approval!.id });
     await this.deps.activity.record(companyId, {
       actor: `agent:${request.agentId}`,
       action: "approval.requested",
@@ -935,8 +948,23 @@ export class RunEngine {
       .from(approvals)
       .where(and(eq(approvals.companyId, companyId), eq(approvals.id, approvalId)));
     if (!approval) throw new RunError(`Approval ${approvalId} not found`, 404);
-    if (approval.status !== "pending") throw new RunError(`Approval is already ${approval.status}`, 409);
+    if (approval.status !== "pending") throw new RunError(`Approval is already ${approval.status}${approval.decidedBy ? ` by ${approval.decidedBy}` : ""}`, 409);
     const decidedBy = decision.decidedBy ?? "user";
+    // One decision wins: people may decide the same approval at once (in the app, a Teams card, an email).
+    const [claimed] = await this.deps.handle.db
+      .update(approvals)
+      .set({
+        status: decision.approved ? "approved" : "rejected",
+        decidedBy,
+        decisionNote: decision.note ?? null,
+        decidedAt: new Date(),
+      })
+      .where(and(eq(approvals.id, approvalId), eq(approvals.status, "pending")))
+      .returning({ id: approvals.id });
+    if (!claimed) {
+      const current = await this.approvalRow(approvalId);
+      throw new RunError(`Approval is already ${current.status}${current.decidedBy ? ` by ${current.decidedBy}` : ""}`, 409);
+    }
     if (decision.approved && decision.edits && Object.keys(decision.edits).length) {
       // The person corrected the proposed change: what runs is the corrected version, and the approval shows it.
       const corrected = applyEdits(approval.action as unknown as ApprovalAction, decision.edits);
@@ -946,24 +974,23 @@ export class RunEngine {
         .where(eq(approvals.id, approvalId));
       approval.action = corrected as unknown as Record<string, unknown>;
     }
-    await this.deps.handle.db
-      .update(approvals)
-      .set({
-        status: decision.approved ? "approved" : "rejected",
-        decidedBy,
-        decisionNote: decision.note ?? null,
-        decidedAt: new Date(),
-      })
-      .where(eq(approvals.id, approvalId));
     await this.deps.activity.record(companyId, {
       actor: decidedBy,
       action: decision.approved ? "approval.approved" : "approval.rejected",
       entityType: "approval",
       entityId: approvalId,
-      summary: `${decision.approved ? "Approved" : "Rejected"}: ${approval.title}`,
+      summary: `${decision.approved ? "Approved" : "Rejected"}${decision.via ? ` in ${VIA_LABELS[decision.via] ?? decision.via}` : ""}: ${approval.title}`,
+      data: decision.via ? { via: decision.via } : undefined,
     });
     const action = approval.action as unknown as ApprovalAction;
     const corrected = Boolean(decision.approved && decision.edits && Object.keys(decision.edits).length);
+    this.deps.events?.emit("queue.resolved", {
+      companyId,
+      type: "approval",
+      id: approvalId,
+      by: decidedBy,
+      outcome: corrected ? "corrected and approved" : decision.approved ? "approved" : "rejected",
+    });
     if (corrected || (!decision.approved && decision.note?.trim())) {
       // A correction or a reasoned "no" is coaching: kept on the AI employee for its next version.
       const fields = Object.keys(isRecord(decision.edits?.input) ? decision.edits.input : (decision.edits ?? {}));

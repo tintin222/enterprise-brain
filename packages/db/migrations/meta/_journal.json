@@ -64,6 +64,13 @@
       "when": 1790349677014,
       "tag": "0008_chat_owner",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790398375590,
+      "tag": "0009_notifications",
+      "breakpoints": true
     }
   ]
 }

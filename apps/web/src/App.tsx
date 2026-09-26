@@ -29,6 +29,7 @@ const ActivityPage = lazy(() => import("./pages/Activity.tsx"));
 const Installation = lazy(() => import("./pages/settings/Installation.tsx"));
 const Paperclip = lazy(() => import("./pages/Paperclip.tsx"));
 const AnswerPage = lazy(() => import("./pages/AnswerPage.tsx"));
+const ActPage = lazy(() => import("./pages/ActPage.tsx"));
 const AgentApp = lazy(() => import("./pages/AgentApp.tsx"));
 const RunDetail = lazy(() => import("./pages/runs/RunDetail.tsx"));
 const Search = lazy(() => import("./pages/Search.tsx"));
@@ -109,6 +110,15 @@ const router = createBrowserRouter([
         element: (
           <Suspense fallback={<LoadingBlock className="min-h-screen" />}>
             <AnswerPage />
+          </Suspense>
+        ),
+      },
+      {
+        // Public: the buttons of an approval email land here; the signed link is the credential.
+        path: "/act/:token",
+        element: (
+          <Suspense fallback={<LoadingBlock className="min-h-screen" />}>
+            <ActPage />
           </Suspense>
         ),
       },

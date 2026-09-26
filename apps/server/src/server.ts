@@ -19,6 +19,7 @@ import { homeRoutes } from "./routes/home.ts";
 import { knowledgeRoutes } from "./routes/knowledge.ts";
 import { mailRoutes } from "./routes/mail.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
+import { notificationRoutes } from "./routes/notifications.ts";
 import { paperclipRoutes } from "./routes/paperclip.ts";
 import { peopleRoutes } from "./routes/people.ts";
 import { taskRoutes } from "./routes/tasks.ts";
@@ -107,6 +108,7 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   await agentRoutes(app, ctx);
   await taskRoutes(app, ctx);
   await workRoutes(app, ctx);
+  await notificationRoutes(app, ctx);
   await homeRoutes(app, ctx);
   await knowledgeRoutes(app, ctx);
   await connectorRoutes(app, ctx);

@@ -2,6 +2,7 @@ import { randomInt } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNotNull, lte, ne, notInArray } from "drizzle-orm";
 import { isRecord, truncate } from "@enterprise-brain/core";
 import { agents, approvals, mailMessages, runs, taskEvents, tasks, type DatabaseHandle } from "@enterprise-brain/db";
+import type { PlatformEvents } from "./events.ts";
 import type { EmailInput, MailMessage } from "./mail.ts";
 
 export type TaskRow = typeof tasks.$inferSelect;
@@ -76,7 +77,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Tasks: storage, history and reply matching. The engine moves them through their statuses. */
 export class TaskService {
-  constructor(private readonly handle: DatabaseHandle) {}
+  constructor(
+    private readonly handle: DatabaseHandle,
+    private readonly bus?: PlatformEvents,
+  ) {}
 
   async create(
     companyId: string,
@@ -145,6 +149,7 @@ export class TaskService {
       .set({ ...patch, updatedAt: new Date() })
       .where(eq(tasks.id, taskId))
       .returning();
+    if (patch.status) this.bus?.emit("task.changed", { companyId: row!.companyId, taskId, status: patch.status });
     return row!;
   }
 
