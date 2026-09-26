@@ -315,9 +315,27 @@ importers:
       '@enterprise-brain/llm':
         specifier: workspace:*
         version: link:../llm
+      '@enterprise-brain/screens':
+        specifier: workspace:*
+        version: link:../screens
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.3(@electric-sql/pglite@0.5.8)(@types/pg@8.23.1)(mysql2@3.24.4(@types/node@25.9.8))(pg@8.23.0)
+
+  packages/screens:
+    dependencies:
+      '@enterprise-brain/connectors':
+        specifier: workspace:*
+        version: link:../connectors
+      '@enterprise-brain/core':
+        specifier: workspace:*
+        version: link:../core
+      '@enterprise-brain/llm':
+        specifier: workspace:*
+        version: link:../llm
+      playwright-core:
+        specifier: 1.56.1
+        version: 1.56.1
 
   plugins/paperclip-plugin:
     dependencies:
@@ -2807,6 +2825,11 @@ packages:
   pkce-challenge@5.0.1:
     resolution: {integrity: sha512-wQ0b/W4Fr01qtpHlqSqspcj3EhBvimsdh0KlHhH8HRZnMsEa0ea2fTULOXOS9ccQr3om+GcGRk4e+isrZWV8qQ==}
     engines: {node: '>=16.20.0'}
+
+  playwright-core@1.56.1:
+    resolution: {integrity: sha512-hutraynyn31F+Bifme+Ps9Vq59hKuUCz7H1kDOcBs+2oGguKkWTU50bBWrtz34OUWmIwpBTWDxaRPXrIXkgvmQ==}
+    engines: {node: '>=18'}
+    hasBin: true
 
   postcss@8.5.28:
     resolution: {integrity: sha512-RRuzqDtt5Y9h3quz5hWhK+TPnsmVs6WwSU6LkJMeY4HstUEDuYTG8UJSdawMRzmzAtV+KEoG8N3Qg2qLy5vM/A==}
@@ -5847,6 +5870,8 @@ snapshots:
       thread-stream: 4.2.0
 
   pkce-challenge@5.0.1: {}
+
+  playwright-core@1.56.1: {}
 
   postcss@8.5.28:
     dependencies:

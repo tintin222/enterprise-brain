@@ -4,7 +4,7 @@ import { chatConversations, chatMessages, type DatabaseHandle } from "@enterpris
 import type { KnowledgeService, SearchHit } from "@enterprise-brain/knowledge";
 import type { LlmClient, LlmUsage, MessageParam } from "@enterprise-brain/llm";
 import { employmentOf, type AgentService } from "./agents.ts";
-import { TOOL_GUIDANCE } from "./steps/index.ts";
+import { TOOL_GUIDANCE, mergeUsage } from "./steps/index.ts";
 import { buildTools, type ToolDeps } from "./tools.ts";
 
 export interface Citation {
@@ -119,9 +119,19 @@ export class ChatService {
     let usage: LlmUsage | undefined;
     if (this.llm.available) {
       const capabilities = [...new Set([...definition.tools, "knowledge.search"])];
+      let toolUsage: LlmUsage | undefined;
       const { tools, serverTools } = await buildTools(
         this.toolDeps,
-        { companyId, agentId: agent?.row.id ?? "company-assistant", definition, employment: agent ? employmentOf(agent.row) : undefined, citations },
+        {
+          companyId,
+          agentId: agent?.row.id ?? "company-assistant",
+          definition,
+          employment: agent ? employmentOf(agent.row) : undefined,
+          citations,
+          onUsage: (used) => {
+            toolUsage = mergeUsage(toolUsage, used);
+          },
+        },
         capabilities,
       );
       const byName = new Map(tools.map((t) => [t.definition.name, t]));
@@ -146,7 +156,7 @@ export class ChatService {
         },
       });
       answer = result.text || "I could not produce an answer.";
-      usage = result.usage;
+      usage = mergeUsage(result.usage, toolUsage);
     } else {
       const hits = await this.knowledge.search(companyId, text, {
         collections: definition.knowledge.collections.length ? definition.knowledge.collections : undefined,

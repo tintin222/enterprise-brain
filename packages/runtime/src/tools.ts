@@ -2,7 +2,7 @@ import type { AgentDefinition, ConnectorBinding, JsonSchema } from "@enterprise-
 import { operationToolName } from "@enterprise-brain/connectors";
 import { extractDocument, readWorkbook, writeWorkbook } from "@enterprise-brain/documents";
 import { buildContext, type KnowledgeService, type SearchHit } from "@enterprise-brain/knowledge";
-import type { LlmClient, ToolDefinition, ToolExecution } from "@enterprise-brain/llm";
+import type { LlmClient, LlmUsage, ToolDefinition, ToolExecution } from "@enterprise-brain/llm";
 import { describeAction } from "./actions.ts";
 import type { ConnectorService } from "./connectors.ts";
 import type { FileService } from "./files.ts";
@@ -65,6 +65,8 @@ export interface ToolScope {
   task?: { id: string; ref: string };
   /** A test run: nothing is sent or written, the tools say what they would do. */
   dryRun?: boolean;
+  /** Model use the tools had (working an old system's screens), counted with the step's. */
+  onUsage?: (usage: LlmUsage) => void;
 }
 
 export interface RuntimeTool {
@@ -366,7 +368,7 @@ export async function buildTools(
                   check.reason,
                 );
               }
-              const result = await deps.connectors.execute(companyId, target, op.id, input);
+              const result = await deps.connectors.execute(companyId, target, op.id, input, { onUsage: scope.onUsage });
               if (check) {
                 await scope.emit?.({
                   type: "action.executed",

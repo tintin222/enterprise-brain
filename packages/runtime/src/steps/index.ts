@@ -49,4 +49,5 @@ export async function executeStep(step: WorkflowStep, scope: ExecutionScope, dep
 }
 
 export { mergeUsage } from "./llm-steps.ts";
+export { carryUsage, usageOfError } from "./io-steps.ts";
 export { TOOL_GUIDANCE } from "./agent-step.ts";

@@ -1,0 +1,20 @@
+{
+  "name": "@enterprise-brain/screens",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Old systems through their screens: Claude's browser use and computer use tools run on a headless Chromium, with the system's addresses only, read-only guards and sign-ins the AI never sees.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "demo": "tsx demo/old-system.ts"
+  },
+  "dependencies": {
+    "@enterprise-brain/connectors": "workspace:*",
+    "@enterprise-brain/core": "workspace:*",
+    "@enterprise-brain/llm": "workspace:*",
+    "playwright-core": "1.56.1"
+  }
+}

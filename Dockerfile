@@ -8,8 +8,13 @@ COPY . .
 RUN pnpm install --frozen-lockfile && pnpm build
 
 FROM node:22-bookworm-slim
-ENV NODE_ENV=production HOST=0.0.0.0 PORT=3200 EB_DATA_DIR=/data
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=3200 EB_DATA_DIR=/data PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 COPY --from=build /app /app
+# The headless browser screen connections work old systems in; --build-arg SCREENS=off leaves it out.
+ARG SCREENS=on
+RUN if [ "$SCREENS" != "off" ]; then \
+      cd /app/packages/screens && node node_modules/playwright-core/cli.js install --with-deps --only-shell chromium && rm -rf /var/lib/apt/lists/*; \
+    fi
 WORKDIR /app/apps/server
 VOLUME ["/data"]
 EXPOSE 3200

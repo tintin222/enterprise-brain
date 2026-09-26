@@ -1,7 +1,9 @@
 import { renderTemplate, type WorkflowStep } from "@enterprise-brain/core";
 import { buildContext } from "@enterprise-brain/knowledge";
+import type { LlmUsage } from "@enterprise-brain/llm";
 import type { ExecutionScope, StepOutcome } from "../run-types.ts";
 import { buildTools, type ToolDeps, type ToolScope } from "../tools.ts";
+import { mergeUsage } from "./llm-steps.ts";
 
 type AgentStep = Extract<WorkflowStep, { type: "agent" }>;
 
@@ -27,6 +29,7 @@ export function taskGuidance(ref: string): string {
 export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps: ToolDeps): Promise<StepOutcome> {
   const task = renderTemplate(step.task, scope.context);
   const capabilities = [...new Set([...step.tools, ...scope.definition.tools])];
+  let toolUsage: LlmUsage | undefined;
   const toolScope: ToolScope = {
     companyId: scope.companyId,
     agentId: scope.agentId,
@@ -37,6 +40,9 @@ export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps:
     emit: scope.emit,
     task: scope.task,
     dryRun: scope.context.run.isTest,
+    onUsage: (usage) => {
+      toolUsage = mergeUsage(toolUsage, usage);
+    },
   };
 
   if (!deps.llm.available) {
@@ -108,6 +114,6 @@ export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps:
       stopReason: result.stopReason,
       citations: toolScope.citations.map((c, i) => ({ n: i + 1, title: c.title, collection: c.collectionKey, documentId: c.documentId })),
     },
-    usage: result.usage,
+    usage: mergeUsage(result.usage, toolUsage),
   };
 }

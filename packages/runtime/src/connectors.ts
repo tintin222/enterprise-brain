@@ -2,6 +2,7 @@ import { and, asc, eq, sql } from "drizzle-orm";
 import { NamedAction, type ConnectorBinding, type ConnectorManifest, type OperationManifest } from "@enterprise-brain/core";
 import {
   ConnectorError,
+  SCREEN_RESERVED_KEYS,
   sandboxConnectorFor,
   tlsFetch,
   tlsOptionsFrom,
@@ -10,7 +11,9 @@ import {
   type ConnectorFiles,
   type ConnectorImplementation,
   type ConnectorRegistry,
+  type ConnectorUsage,
   type SandboxStore,
+  type ScreenOperator,
 } from "@enterprise-brain/connectors";
 import { connectorInstances, sandboxRecords, type DatabaseHandle } from "@enterprise-brain/db";
 import type { FileService } from "./files.ts";
@@ -86,6 +89,12 @@ export interface ConnectorInstanceView {
   sandbox: boolean;
 }
 
+/** What a call may report back besides its result. */
+export interface ExecuteOptions {
+  /** Model use the call had (working an old system's screens), for the cost of the work it was made for. */
+  onUsage?: (usage: ConnectorUsage) => void;
+}
+
 export interface ResolvedConnector {
   impl: ConnectorImplementation;
   instanceId: string | null;
@@ -102,6 +111,8 @@ export class ConnectorService {
     private readonly secretBox: SecretBox,
     /** The company's files, for connections that bring files in or send them out (SFTP, shared folders). */
     private readonly files?: FileService,
+    /** Works old systems' screens, for screen connections (absent where no browser can run). */
+    private readonly screens?: ScreenOperator,
   ) {}
 
   catalog(): ConnectorManifest[] {
@@ -197,7 +208,13 @@ export class ConnectorService {
       ids.add(action.id);
       if (impl.manifest.type === "sql-database" && !action.sql) throw new ConnectorError(`${action.name}: a database action needs its SQL`, "validation");
       if (impl.manifest.type === "mcp-server" && !action.tool) throw new ConnectorError(`${action.name}: an MCP action needs the tool it calls`, "validation");
-      if (impl.manifest.type !== "sql-database" && impl.manifest.type !== "mcp-server" && !(action.method && action.path)) {
+      if (impl.manifest.type === "screen") {
+        if (!action.goal?.trim()) throw new ConnectorError(`${action.name}: say what to do on the screens`, "validation");
+        if (action.watch) throw new ConnectorError(`${action.name}: actions on screens can't be watched for new items`, "validation");
+        const reserved = (action.returns ?? []).find((r) => (SCREEN_RESERVED_KEYS as readonly string[]).includes(r.key));
+        if (reserved) throw new ConnectorError(`${action.name}: "${reserved.key}" is taken; name the value something else`, "validation");
+      }
+      if (!["sql-database", "mcp-server", "screen"].includes(impl.manifest.type) && !(action.method && action.path)) {
         throw new ConnectorError(`${action.name}: a web service action needs a method and a path`, "validation");
       }
     }
@@ -255,6 +272,7 @@ export class ConnectorService {
     config: Record<string, unknown> = {},
     secrets: Record<string, string> = {},
     saveSecrets?: (patch: Record<string, string>) => Promise<void>,
+    options: ExecuteOptions = {},
   ): ConnectorContext {
     // A client certificate or a company's own authority: requests go through a fetch that uses them.
     const tls = tlsOptionsFrom(config, secrets);
@@ -265,6 +283,8 @@ export class ConnectorService {
       fetch: tls ? tlsFetch(tls) : globalThis.fetch.bind(globalThis),
       ...(saveSecrets ? { saveSecrets } : {}),
       ...(this.files ? { files: this.filesOf(companyId, this.files) } : {}),
+      ...(this.screens ? { screens: this.screens } : {}),
+      ...(options.onUsage ? { recordUsage: options.onUsage } : {}),
       logger: {
         info: () => {},
         warn: (message, data) => console.warn(`[connector] ${message}`, data ?? ""),
@@ -280,12 +300,12 @@ export class ConnectorService {
     };
   }
 
-  private async instanceContext(companyId: string, id: string) {
+  private async instanceContext(companyId: string, id: string, options: ExecuteOptions = {}) {
     const row = await this.row(companyId, id);
     const impl = this.implFor(row);
     if (!impl) throw new ConnectorError(`Unknown connector type "${row.type}"`, "config");
     const secrets = row.secretsCiphertext ? this.secretBox.decrypt<Record<string, string>>(row.secretsCiphertext) : {};
-    return { row, impl, ctx: this.context(companyId, row.config, secrets, (patch) => this.saveSecrets(companyId, id, patch)) };
+    return { row, impl, ctx: this.context(companyId, row.config, secrets, (patch) => this.saveSecrets(companyId, id, patch), options) };
   }
 
   /** Store secret values on a connection (a sign-in's refresh token, a rotated one), keeping the others. */
@@ -356,18 +376,19 @@ export class ConnectorService {
     resolved: ResolvedConnector,
     operationId: string,
     input: Record<string, unknown>,
+    options: ExecuteOptions = {},
   ): Promise<unknown> {
     this.operation(resolved.impl, operationId);
     if (resolved.instanceId) {
-      const { impl, ctx } = await this.instanceContext(companyId, resolved.instanceId);
+      const { impl, ctx } = await this.instanceContext(companyId, resolved.instanceId, options);
       return impl.execute(operationId, input, ctx);
     }
-    return resolved.impl.execute(operationId, input, this.context(companyId));
+    return resolved.impl.execute(operationId, input, this.context(companyId, {}, {}, undefined, options));
   }
 
   /** Run an operation on a specific connection. */
-  async executeInstance(companyId: string, instanceId: string, operationId: string, input: Record<string, unknown>): Promise<unknown> {
-    const { impl, ctx } = await this.instanceContext(companyId, instanceId);
+  async executeInstance(companyId: string, instanceId: string, operationId: string, input: Record<string, unknown>, options: ExecuteOptions = {}): Promise<unknown> {
+    const { impl, ctx } = await this.instanceContext(companyId, instanceId, options);
     this.operation(impl, operationId);
     return impl.execute(operationId, input, ctx);
   }

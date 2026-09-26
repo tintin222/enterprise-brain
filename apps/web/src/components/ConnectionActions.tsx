@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Braces, Check, Eye, FileCode2, FlaskConical, PencilLine, Plus, Radar, Save, ShieldCheck, Trash, Wand } from "lucide-react";
+import { Braces, Check, Eye, FileCode2, FlaskConical, Monitor, PencilLine, Plus, Radar, Save, ShieldCheck, Trash, Wand } from "lucide-react";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { api } from "../api.ts";
 import { useCompany } from "../lib/company.tsx";
@@ -12,11 +12,13 @@ import { Badge } from "./Badge.tsx";
 import { Button } from "./Button.tsx";
 import { Drawer } from "./Dialog.tsx";
 import { JsonView } from "./JsonView.tsx";
+import { ScreenRunView, isScreenRun, paramsFromGoal } from "./ScreenRun.tsx";
 import { Callout } from "./Spinner.tsx";
 import { Segmented } from "./Tabs.tsx";
 
-/** "GET /customers/{id}" or the first line of the query. */
+/** "GET /customers/{id}", the first line of the query, or what to do on the screens. */
 function technical(action: NamedAction): string {
+  if (action.goal) return action.goal.replace(/\s+/g, " ").slice(0, 120);
   if (action.tool) return `tool ${action.tool}`;
   if (action.sql) return action.sql.trim().split("\n")[0]!.slice(0, 120);
   return `${action.method ?? "GET"} ${action.path ?? ""}`;
@@ -105,6 +107,7 @@ function ActionRow({
               onChange={(e) => onChange({ ...action, description: e.target.value })}
             />
           </div>
+          {action.goal !== undefined && <ScreenFields action={action} onChange={onChange} />}
           <label className="flex items-center gap-2 text-sm sm:col-span-2">
             <input
               type="checkbox"
@@ -184,12 +187,154 @@ function TryForm({ connection, action, onClose }: { connection: ConnectorInstanc
           Close
         </Button>
       </div>
-      {run.data && (
-        <div>
-          <p className="mb-1 text-xs text-emerald-700 dark:text-emerald-300">Worked in {run.data.durationMs} ms</p>
-          <JsonView data={run.data.result} className="max-h-72 overflow-auto" />
-        </div>
+      {run.isPending && action.goal !== undefined && (
+        <p className="text-xs text-muted">Working in {connection.name}'s screens, as a person would: this can take a minute or two.</p>
       )}
+      {run.data && <TryResult result={run.data.result} durationMs={run.data.durationMs} />}
+    </form>
+  );
+}
+
+function TryResult({ result, durationMs }: { result: unknown; durationMs: number }) {
+  const record = typeof result === "object" && result !== null && !Array.isArray(result) ? (result as Record<string, unknown>) : undefined;
+  const screens = record && isScreenRun(record.screens) ? record.screens : undefined;
+  const rest = screens && record ? Object.fromEntries(Object.entries(record).filter(([key]) => key !== "screens")) : result;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-emerald-700 dark:text-emerald-300">
+        Worked in {durationMs < 10_000 ? `${durationMs} ms` : `${Math.round(durationMs / 1000)} s`}
+      </p>
+      <JsonView data={rest} className="max-h-72 overflow-auto" />
+      {screens && <ScreenRunView run={screens} />}
+    </div>
+  );
+}
+
+/** What to do on the screens, and the values to bring back: the values it takes are the goal's {placeholders}. */
+function ScreenFields({ action, onChange }: { action: NamedAction; onChange: (next: NamedAction) => void }) {
+  const [returns, setReturns] = useState((action.returns ?? []).map((r) => r.key).join(", "));
+  return (
+    <>
+      <div className="sm:col-span-2">
+        <label className="label" htmlFor={`goal-${action.id}`}>
+          What to do on the screens
+        </label>
+        <textarea
+          id={`goal-${action.id}`}
+          className="input min-h-20"
+          value={action.goal ?? ""}
+          onChange={(e) => onChange({ ...action, goal: e.target.value, params: paramsFromGoal(e.target.value, action.params) })}
+        />
+        <p className="mt-1 text-xs text-faint">
+          Put the values it takes in braces: {"{order_number}"}. {action.params.length ? `It takes ${action.params.map((p) => p.key).join(", ")}.` : ""}
+        </p>
+      </div>
+      <div className="sm:col-span-2">
+        <label className="label" htmlFor={`returns-${action.id}`}>
+          Values it brings back
+        </label>
+        <input
+          id={`returns-${action.id}`}
+          className="input"
+          placeholder="status, delivery_date"
+          value={returns}
+          onChange={(e) => {
+            setReturns(e.target.value);
+            const keys = e.target.value
+              .split(/[,\s]+/)
+              .map((k) => k.trim())
+              .filter((k) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k));
+            onChange({ ...action, returns: keys.map((key) => action.returns?.find((r) => r.key === key) ?? { key, type: "string" }) });
+          }}
+        />
+      </div>
+    </>
+  );
+}
+
+const slugOf = (name: string) =>
+  name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/ı/g, "i")
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/^(?=[0-9_])/, "a_")
+    .slice(0, 40) || "action";
+
+/** A new action on an old system's screens, written in plain words. */
+function ScreenActionAdder({ taken, onAdd }: { taken: string[]; onAdd: (action: NamedAction) => void }) {
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<NamedAction["kind"]>("read");
+  const [goal, setGoal] = useState("");
+  const [returns, setReturns] = useState("");
+  const add = (e: FormEvent) => {
+    e.preventDefault();
+    let id = slugOf(name);
+    for (let n = 2; taken.includes(id); n++) id = `${slugOf(name)}_${n}`;
+    const keys = returns
+      .split(/[,\s]+/)
+      .map((k) => k.trim())
+      .filter((k) => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(k));
+    onAdd({
+      id,
+      name: name.trim(),
+      description: "",
+      kind,
+      goal: goal.trim(),
+      params: paramsFromGoal(goal, []),
+      returns: keys.map((key) => ({ key, type: "string" })),
+    });
+    setName("");
+    setGoal("");
+    setReturns("");
+  };
+  return (
+    <form onSubmit={add} className="space-y-3">
+      <p className="flex items-start gap-2 text-sm text-muted">
+        <Monitor className="mt-0.5 size-4 shrink-0" />
+        Say what a person would do on the screens. The AI employee signs in with the connection's account, stays on the system's own pages, and can't change
+        anything in an action that only reads.
+      </p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="label" htmlFor="screen-name">
+            Name people see
+          </label>
+          <input id="screen-name" className="input" placeholder="Look up an order" value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div>
+          <label className="label" htmlFor="screen-kind">
+            It
+          </label>
+          <select id="screen-kind" className="input" value={kind} onChange={(e) => setKind(e.target.value as NamedAction["kind"])}>
+            <option value="read">Only reads</option>
+            <option value="write">Changes data</option>
+          </select>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor="screen-goal">
+            What to do on the screens
+          </label>
+          <textarea
+            id="screen-goal"
+            className="input min-h-20"
+            placeholder="Search for order {order_number}, open it and read its status and delivery date."
+            value={goal}
+            onChange={(e) => setGoal(e.target.value)}
+          />
+        </div>
+        <div className="sm:col-span-2">
+          <label className="label" htmlFor="screen-returns">
+            Values it brings back
+          </label>
+          <input id="screen-returns" className="input" placeholder="status, delivery_date" value={returns} onChange={(e) => setReturns(e.target.value)} />
+        </div>
+      </div>
+      <Button type="submit" size="sm" icon={Plus} disabled={!name.trim() || !goal.trim()}>
+        Add action
+      </Button>
     </form>
   );
 }
@@ -363,14 +508,14 @@ export function ConnectionActionsDrawer({ connection, onClose }: { connection: C
     >
       {saved.data && !saved.data.supports && (
         <Callout tone="warning" className="mb-4">
-          This kind of connection has its own fixed actions; named actions are for web services and databases.
+          This kind of connection has its own fixed actions; named actions are for web services, databases, MCP servers and old systems' screens.
         </Callout>
       )}
       {json !== null ? (
         <div className="space-y-2">
           <p className="text-sm text-muted">
-            Each action: id, name, description, kind (read or write), params, and either method + path (web services) or sql (databases). Add a watch to start
-            duties for new items.
+            Each action: id, name, description, kind (read or write), params, and either method + path (web services), sql (databases), tool (MCP servers) or
+            goal and returns (screens). Add a watch to start duties for new items.
           </p>
           <textarea
             className="input min-h-[28rem] font-mono text-xs"
@@ -462,6 +607,8 @@ export function ConnectionActionsDrawer({ connection, onClose }: { connection: C
                   </Button>
                 </div>
               </div>
+            ) : connection.type === "screen" ? (
+              <ScreenActionAdder taken={draft.map((a) => a.id)} onAdd={(action) => setDraft([...draft, action])} />
             ) : connection.type === "mcp-server" ? (
               <McpImporter
                 connection={connection}

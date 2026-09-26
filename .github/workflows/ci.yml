@@ -13,6 +13,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The browser screen connections work old systems in (their tests run it).
+      - run: pnpm --filter @enterprise-brain/screens exec playwright-core install --with-deps chromium
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build

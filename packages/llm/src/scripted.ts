@@ -5,11 +5,17 @@ import {
   type CompleteRequest,
   type CompleteResult,
   type LlmClient,
+  type OperateRequest,
+  type OperateResult,
   type StructuredRequest,
   type StructuredResult,
+  type ToolCall,
   type ToolLoopRequest,
   type ToolLoopResult,
+  type ToolsetCall,
+  type ToolsetResult,
 } from "./types.ts";
+import { HALT_TEXT } from "./anthropic.ts";
 
 /** Used when no model is configured: `available` is false and every call throws. */
 export class UnavailableLlm implements LlmClient {
@@ -26,7 +32,13 @@ export class UnavailableLlm implements LlmClient {
   async runTools(): Promise<ToolLoopResult> {
     throw new LlmUnavailableError();
   }
+  async operate(): Promise<OperateResult> {
+    throw new LlmUnavailableError();
+  }
 }
+
+/** One scripted turn on screens: member calls (run in order), then optionally one of the caller's tools, or a text answer. */
+export type ScriptedOperateTurn = { actions?: { name: string; input?: Record<string, unknown> }[]; tool?: { name: string; input: unknown }; text?: string };
 
 export type ScriptHandler = {
   complete?: (request: CompleteRequest) => string | Promise<string>;
@@ -38,6 +50,8 @@ export type ScriptHandler = {
   tools?: (request: ToolLoopRequest, turn: number, previousResults: string[]) =>
     | { calls: { name: string; input: unknown }[] }
     | { text: string };
+  /** For screens: called once per turn with every action so far and what it returned. */
+  operate?: (request: OperateRequest, turn: number, history: { call: ToolsetCall; result: ToolsetResult }[]) => ScriptedOperateTurn | Promise<ScriptedOperateTurn>;
 };
 
 /**
@@ -105,5 +119,46 @@ export class ScriptedLlm implements LlmClient {
       }
     }
     return { text: "", stopReason: "max_turns", turns: maxTurns, messages: request.messages, usage: emptyUsage(), model: this.model };
+  }
+
+  async operate(request: OperateRequest): Promise<OperateResult> {
+    this.calls.push({ purpose: request.purpose, kind: "operate", request });
+    const handler = this.handlerFor(request.purpose);
+    if (!handler.operate) throw new Error(`ScriptedLlm: no operate() handler for "${request.purpose}"`);
+    const history: { call: ToolsetCall; result: ToolsetResult }[] = [];
+    const maxTurns = request.maxTurns ?? 40;
+    let actions = 0;
+    let text = "";
+    const usage = (turns: number) => ({ ...emptyUsage(), calls: turns, costUsd: Math.round(turns * 0.002 * 1e6) / 1e6 });
+    for (let turn = 1; turn <= maxTurns; turn++) {
+      const step = await handler.operate(request, turn, history);
+      const calls = (step.actions ?? []).map((a, i) => ({ id: `act_${turn}_${i}`, toolset: request.toolset, name: a.name, input: a.input ?? {} }));
+      const toolCall: ToolCall | undefined = step.tool ? { id: `tool_${turn}`, name: step.tool.name, input: step.tool.input } : undefined;
+      if (step.text) text = step.text;
+      await request.onEvent?.({ type: "assistant", turn, text: step.text ?? "", calls, toolCalls: toolCall ? [toolCall] : [] });
+      if (!calls.length && !toolCall) return { stopReason: "end_turn", text, turns: turn, actions, messages: request.messages, usage: usage(turn), model: this.model };
+      let failed = false;
+      for (const call of calls) {
+        let result: ToolsetResult;
+        if (failed) result = { text: HALT_TEXT[request.toolset], isError: true };
+        else {
+          const started = Date.now();
+          try {
+            result = await request.execute(call);
+          } catch (error) {
+            result = { text: `Error: ${error instanceof Error ? error.message : String(error)}`, isError: true };
+          }
+          actions++;
+          failed = Boolean(result.isError);
+          await request.onEvent?.({ type: "action", turn, call, result, durationMs: Date.now() - started });
+        }
+        history.push({ call, result });
+      }
+      if (toolCall && !failed && request.executeTool) {
+        const out = await request.executeTool(toolCall);
+        if (out.stop && !out.isError) return { stopReason: "tool", stoppedBy: toolCall, text, turns: turn, actions, messages: request.messages, usage: usage(turn), model: this.model };
+      }
+    }
+    return { stopReason: "max_turns", text, turns: maxTurns, actions, messages: request.messages, usage: usage(maxTurns), model: this.model };
   }
 }

@@ -40,6 +40,85 @@ export interface ConnectorContext {
   saveSecrets?: (patch: Record<string, string>) => Promise<void>;
   /** The company's files in Enterprise Brain (attachments, uploads, reports), for connections that move files. */
   files?: ConnectorFiles;
+  /** Works old systems' screens, for connections to systems without an API (only where a browser is available). */
+  screens?: ScreenOperator;
+  /** Counts the model use a call had (working screens) in the cost of the work it was made for. */
+  recordUsage?: (usage: ConnectorUsage) => void;
+}
+
+/** Model use, as the LLM layer counts it. */
+export interface ConnectorUsage {
+  calls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costUsd: number;
+}
+
+/** Where an old system is and how it is entered: its screens, reached through a browser. */
+export interface ScreenTarget {
+  /** The system's name, as people call it. */
+  system: string;
+  /** Where it opens: its sign-in page, or the remote desktop page showing it. */
+  startUrl: string;
+  /** web: its web pages (Claude's browser use); desktop: a desktop program shown in a remote desktop page (computer use). */
+  kind: "web" | "desktop";
+  /** Hosts besides the start page's that may be opened (a sign-in service); nothing else can be. */
+  allowedHosts: string[];
+  /** Typed where the AI employee types {{username}} and {{password}}, or given to the browser's own sign-in: never shown to it. */
+  credentials: { username?: string; password?: string };
+  /** The system asks for the username and password itself, in a browser window (HTTP authentication). */
+  httpAuth?: boolean;
+  /** Accept certificates the browser doesn't trust (a company's own authority). */
+  acceptInvalidCertificates?: boolean;
+}
+
+/** A job on an old system's screens: one named action, with its values filled in. */
+export interface ScreenJob extends ScreenTarget {
+  /** The action's name, and what to do in plain words. */
+  action: string;
+  goal: string;
+  /** Values to bring back, read from the screens. */
+  returns: { key: string; type: string; description?: string }[];
+  /** Reading only: nothing may change. In web systems, forms can only be sent to formPaths (sign-in, search). */
+  readOnly: boolean;
+  formPaths: string[];
+  /** IT's notes on how the system works. */
+  guidance?: string;
+  /** Most actions on the screens before giving up. */
+  maxSteps: number;
+}
+
+export interface ScreenOutcome {
+  /** false: the screens didn't allow it (not found, no permission, an error); summary says why. */
+  done: boolean;
+  summary: string;
+  /** The values asked for. */
+  result: Record<string, unknown>;
+  /** Actions on the screens. */
+  steps: number;
+  /** What it did, one line per action; secrets appear only as {{password}}. */
+  trail: string[];
+  /** The last screen (PNG). */
+  lastScreen?: Buffer;
+  usage?: ConnectorUsage;
+}
+
+export interface ScreenCheck {
+  ok: boolean;
+  message: string;
+  title?: string;
+  url?: string;
+  /** The start page as it opened (PNG). */
+  screen?: Buffer;
+}
+
+/** Works old systems through their screens, the way a person at a desk does. */
+export interface ScreenOperator {
+  operate(job: ScreenJob): Promise<ScreenOutcome>;
+  /** Open the start page without the AI: a connection's test. */
+  check(target: ScreenTarget): Promise<ScreenCheck>;
 }
 
 export interface ConnectorFiles {

@@ -1,11 +1,12 @@
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
 import { loadCatalog } from "@enterprise-brain/catalog";
-import { createDefaultRegistry, type ConnectorRegistry } from "@enterprise-brain/connectors";
+import { createDefaultRegistry, type ConnectorRegistry, type ScreenOperator } from "@enterprise-brain/connectors";
 import type { Catalog } from "@enterprise-brain/core";
 import { companies, createDatabase, type DatabaseHandle } from "@enterprise-brain/db";
 import { KnowledgeService } from "@enterprise-brain/knowledge";
 import { createEmbedderFromEnv, createLlmFromEnv, type Embedder, type LlmClient } from "@enterprise-brain/llm";
+import { createScreensFromEnv } from "@enterprise-brain/screens";
 import { ActivityService } from "./activity.ts";
 import { AgentService } from "./agents.ts";
 import { ChannelAccounts } from "./channel-accounts.ts";
@@ -42,6 +43,8 @@ export interface PlatformOptions {
   secretBox: SecretBox;
   catalog: Catalog;
   registry?: ConnectorRegistry;
+  /** Works old systems' screens (a headless browser with Claude's browser and computer use). */
+  screens?: ScreenOperator & { close?(): Promise<void> };
 }
 
 /** Composition root: every platform service, wired once and shared by the server, builder and CLI. */
@@ -82,6 +85,8 @@ export class Platform {
   readonly teams: TeamsTransport;
   /** Writes in Google Chat through the company's Chat app. */
   readonly googleChat: GoogleChatTransport;
+  /** Works old systems through their screens, for screen connections. */
+  readonly screens?: ScreenOperator & { close?(): Promise<void> };
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -93,7 +98,8 @@ export class Platform {
     this.activity = new ActivityService(this.handle);
     this.people = new PeopleService(this.handle);
     this.files = new FileService(this.handle, join(options.dataDir, "files"));
-    this.connectors = new ConnectorService(this.handle, options.registry ?? createDefaultRegistry(), this.secretBox, this.files);
+    this.screens = options.screens;
+    this.connectors = new ConnectorService(this.handle, options.registry ?? createDefaultRegistry(), this.secretBox, this.files, this.screens);
     this.knowledge = new KnowledgeService(this.handle, this.embedder);
     this.mail = new MailService(this.handle, this.files, this.connectors);
     this.agents = new AgentService(this.handle);
@@ -149,20 +155,23 @@ export class Platform {
     embedder?: Embedder;
     catalog?: Catalog;
     registry?: ConnectorRegistry;
+    screens?: ScreenOperator & { close?(): Promise<void> };
     env?: NodeJS.ProcessEnv;
   }): Promise<Platform> {
     const env = options.env ?? process.env;
     const db = await createDatabase(
       options.databaseUrl ? { url: options.databaseUrl } : options.inMemory ? {} : { dataDir: join(options.dataDir, "db") },
     );
+    const llm = options.llm ?? createLlmFromEnv(env);
     return new Platform({
       db,
       dataDir: options.dataDir,
-      llm: options.llm ?? createLlmFromEnv(env),
+      llm,
       embedder: options.embedder ?? createEmbedderFromEnv(env),
       secretBox: SecretBox.fromEnvOrFile(join(options.dataDir, "master.key"), env),
       catalog: options.catalog ?? (await loadCatalog()),
       registry: options.registry,
+      screens: options.screens ?? createScreensFromEnv(llm, env),
     });
   }
 
@@ -190,6 +199,7 @@ export class Platform {
     this.triggers.stop();
     this.watchers.stop();
     await this.notifications.stop();
+    await this.screens?.close?.();
     await this.handle.close();
   }
 }

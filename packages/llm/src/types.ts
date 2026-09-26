@@ -80,6 +80,63 @@ export interface ToolLoopRequest extends LlmRequest {
   onText?: (delta: string) => void;
 }
 
+/** Claude's client toolsets for working screens: "browser" (web pages) and "computer" (a whole display). */
+export type ToolsetName = "browser" | "computer";
+
+/** A call to one of a toolset's members (screenshot, left_click, read_page…), run by the caller in order. */
+export interface ToolsetCall {
+  id: string;
+  toolset: ToolsetName;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+/** The browser's tabs after a call, and the tabs it opened (browser toolset only). */
+export interface BrowserState {
+  tabs: { tab_id: string; title: string; url: string; active?: boolean }[];
+  state_changes?: { type: "tab_opened"; tab_id: string }[];
+}
+
+/** What a member call returns: text, an image, the browser's tabs; errors carry text only. */
+export interface ToolsetResult {
+  text?: string;
+  image?: { data: string; mediaType: "image/png" | "image/jpeg" };
+  browserState?: BrowserState;
+  isError?: boolean;
+}
+
+export type OperateEvent =
+  | { type: "assistant"; turn: number; text: string; calls: ToolsetCall[]; toolCalls: ToolCall[] }
+  | { type: "action"; turn: number; call: ToolsetCall; result: ToolsetResult; durationMs: number };
+
+export interface OperateRequest extends LlmRequest {
+  toolset: ToolsetName;
+  /** Members switched on or off (e.g. { zoom: { enabled: false } }). */
+  configs?: Record<string, { enabled?: boolean }>;
+  /** Run one member call. Throwing counts as a failed call. */
+  execute: (call: ToolsetCall) => Promise<ToolsetResult>;
+  /** The caller's own tools besides the toolset (e.g. one that ends the job with its outcome). */
+  tools?: ToolDefinition[];
+  /** Run one of those tools; `stop` ends the loop with that call as the outcome. */
+  executeTool?: (call: ToolCall) => Promise<ToolExecution & { stop?: boolean }>;
+  maxTurns?: number;
+  onEvent?: (event: OperateEvent) => void | Promise<void>;
+}
+
+export interface OperateResult {
+  /** "tool": one of the caller's tools ended it (stoppedBy); "end_turn": Claude answered in text; "max_turns". */
+  stopReason: string;
+  stoppedBy?: ToolCall;
+  text: string;
+  turns: number;
+  /** Member calls run. */
+  actions: number;
+  /** The conversation, to carry on from. */
+  messages: MessageParam[];
+  usage: LlmUsage;
+  model: string;
+}
+
 export interface CompleteResult {
   text: string;
   stopReason: string;
@@ -114,6 +171,8 @@ export interface LlmClient {
   complete(request: CompleteRequest): Promise<CompleteResult>;
   structured<T>(request: StructuredRequest): Promise<StructuredResult<T>>;
   runTools(request: ToolLoopRequest): Promise<ToolLoopResult>;
+  /** Work screens with one of Claude's client toolsets (browser use, computer use): the caller runs each action. */
+  operate(request: OperateRequest): Promise<OperateResult>;
 }
 
 export class LlmUnavailableError extends Error {

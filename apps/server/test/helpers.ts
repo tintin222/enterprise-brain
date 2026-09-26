@@ -24,7 +24,9 @@ export async function createTestApp(
   options: { llm?: LlmClient; coachLlm?: LlmClient; seed?: boolean; config?: Partial<ServerConfig>; oidcProviders?: OidcProvider[] } = {},
 ): Promise<TestApp> {
   const dataDir = mkdtempSync(join(tmpdir(), "eb-test-"));
-  const platform = await Platform.create({ dataDir, inMemory: true, llm: options.llm ?? new UnavailableLlm(), embedder: new LocalHashEmbedder(), env: {} });
+  // The browser for screen connections, when the machine names its own.
+  const env = process.env.EB_BROWSER_PATH ? { EB_BROWSER_PATH: process.env.EB_BROWSER_PATH } : {};
+  const platform = await Platform.create({ dataDir, inMemory: true, llm: options.llm ?? new UnavailableLlm(), embedder: new LocalHashEmbedder(), env });
   const company = await platform.ensureCompany({ slug: "acme", name: "Acme Endüstri A.Ş.", settings: { mailDomain: "acme.com.tr" } });
   if (options.seed ?? true) await seedDemo(platform, company.id);
   const config: ServerConfig = {

@@ -105,7 +105,16 @@ export async function runConnector(step: Step<"connector">, scope: ExecutionScop
       },
     };
   }
-  const result = await deps.connectors.execute(scope.companyId, resolved, op.id, input);
+  let usage: LlmUsage | undefined;
+  const result = await deps.connectors
+    .execute(scope.companyId, resolved, op.id, input, {
+      onUsage: (used) => {
+        usage = mergeUsage(usage, used);
+      },
+    })
+    .catch((error: unknown) => {
+      throw carryUsage(error, usage);
+    });
   if (check) {
     await scope.emit({
       type: "action.executed",
@@ -114,7 +123,19 @@ export async function runConnector(step: Step<"connector">, scope: ExecutionScop
       data: { alone: check.alone ?? false, reason: check.reason, action: { type: "connector", ref: binding.ref, operation: op.id } },
     });
   }
-  return { kind: "done", result, message: `${resolved.name}${resolved.sandbox ? " (sandbox)" : ""}: ${op.name}` };
+  return { kind: "done", result, message: `${resolved.name}${resolved.sandbox ? " (sandbox)" : ""}: ${op.name}`, ...(usage ? { usage } : {}) };
+}
+
+/** A call that failed after using the model (a job on screens that couldn't be done): what it used still counts. */
+export function carryUsage(error: unknown, usage: LlmUsage | undefined): unknown {
+  if (usage && error && typeof error === "object") Object.assign(error, { usage: mergeUsage((error as { usage?: LlmUsage }).usage, usage) });
+  return error;
+}
+
+/** Model use a failed step had, carried on its error. */
+export function usageOfError(error: unknown): LlmUsage | undefined {
+  const usage = error && typeof error === "object" ? (error as { usage?: unknown }).usage : undefined;
+  return usage && typeof usage === "object" && "costUsd" in usage ? (usage as LlmUsage) : undefined;
 }
 
 /** Replays: what a step's call returned in the original task (without its own dry-run marks), or nothing. */

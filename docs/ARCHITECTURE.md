@@ -44,6 +44,7 @@ It can also **extend [Paperclip](https://github.com/paperclipai/paperclip)**, no
 | `packages/documents` | Text extraction from PDF, DOCX, XLSX, CSV, HTML and JSON. OCR of scans and photos uses Claude vision (tesseract.js is optional). Also language and document-type detection (EN/TR and more), offline heuristic field extraction, and Excel read/write. |
 | `packages/knowledge` | Collections, structure-aware chunking, embeddings, and hybrid retrieval (vector + `tsvector`) with reciprocal rank fusion. Everything is company-scoped. |
 | `packages/connectors` | Connector SDK and built-in connectors. The real ones are **preview** quality and were not tested against live tenants. The sandbox ERP, CRM, HRIS, ATS and ITSM systems ship with demo data. |
+| `packages/screens` | Old systems without an API, worked through their screens: Claude's browser use and computer use toolsets run on a headless Chromium (Playwright), with the system's addresses only, reads that can't send changes, and sign-ins the AI never sees. |
 | `packages/catalog` | Department, process, agent and use-case templates, stored under `/catalog` as YAML and Markdown, with a validating loader and a template search. |
 | `packages/runtime` | Platform services: agents and versions, the run engine, approvals, tools, chat, files, encrypted secrets, the connector service with sandbox fallback, mail, triggers and scheduler, and catalog installation. |
 | `packages/builder` | The Agent Builder: requirement tree, analyst, stakeholder requests, generation, testing, refinement and deployment. |
@@ -173,12 +174,14 @@ See [AGENT-BUILDER.md](AGENT-BUILDER.md). In short, it implements the *grilling*
 - A connector is a manifest plus an implementation. The manifest declares the config fields (secret ones are encrypted), typed operations (read/write, with a JSON Schema input) and events. It also lists `itRequirements`, which the Agent Builder copies into IT requests.
 - Agents bind *categories* (`erp`, `crm`, `ats`, …) rather than specific products. A binding resolves in this order: the configured instance, the first connected system of that category, then the **sandbox** system. Every template therefore works out of the box on demo data and switches to the real system as soon as IT connects it.
 - Operations are exposed to Claude as tools (`erp__get_purchase_order`), to workflows as `connector` steps, and to Paperclip and other MCP clients through the MCP server (read operations only).
+- **Systems without an API** are worked through their screens (the `screen` connector, `packages/screens`). IT writes each action in plain words; the runtime gives the connector a screen operator that opens a fresh browser context, lets Claude work the pages with its browser use toolset (or a desktop program in a remote desktop page with computer use) until it calls `finish`, and returns the values, a summary, the steps and the last screen. The guards sit in the browser, not in the prompt: requests go only to the system's hosts, a read's requests that send data are blocked, and the password is typed by the browser where Claude writes `{{password}}`, only into a password field. The model use counts in the run's cost. See [CONNECTORS.md](CONNECTORS.md).
 
 ## 9. LLM usage (Claude)
 
 - **Model and settings.** The default model is `claude-opus-5` (`EB_LLM_MODEL` overrides it). Requests use adaptive thinking and are always streamed. Effort is set per purpose: `low` for extraction, classification and question phrasing; `medium` for evaluation and generation; `high` for autonomous agents and for synthesising the final agent.
 - **Structured outputs** (`output_config.format`) back every analysis the builder and the runtime consume.
 - **Refusal fallbacks** use the server-side `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`). Prompt caching is automatic (`cache_control`).
+- **Browser and computer use.** Screen connections use the client toolsets `browser_toolset_20260801` and `computer_toolset_20260801` (`LlmClient.operate`): member calls in a turn run in order, the rest of a batch is answered with the toolset's halt text after a failure, every result echoes `toolset_name`, and screenshots stay in the history (1280×800, within the image limits; removing old ones would invalidate later thinking), each job being bounded by its steps. `EB_SCREENS_MODEL` picks the model for them.
 - **Offline mode.** Without credentials, every feature still works with deterministic fallbacks and says so. This covers demos, CI and air-gapped installs.
 
 ## 10. Security & governance

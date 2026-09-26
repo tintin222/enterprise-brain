@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import {
   AnthropicLlm,
+  HALT_TEXT,
   LlmRefusalError,
   LocalHashEmbedder,
   ScriptedLlm,
@@ -117,6 +118,111 @@ describe("AnthropicLlm", () => {
     expect(toolResultMessage.content.map((c) => c.content)).toEqual(["A", "B"]);
     expect(events).toEqual(["assistant", "tool_result", "tool_result", "assistant"]);
     expect(result.usage.calls).toBe(2);
+  });
+});
+
+describe("AnthropicLlm.operate (browser and computer use)", () => {
+  it("runs a batch in order, halts it at a failure, and echoes the toolset on every result", async () => {
+    const { client, requests } = fakeClient([
+      message({
+        stop_reason: "tool_use",
+        content: [
+          { type: "tool_use", id: "a1", name: "left_click", toolset_name: "browser", input: { target: { type: "ref", ref: "ref_2" } } },
+          { type: "tool_use", id: "a2", name: "type", toolset_name: "browser", input: { text: "PO-4711" } },
+          { type: "tool_use", id: "a3", name: "screenshot", toolset_name: "browser", input: {} },
+        ] as BetaMessage["content"],
+      }),
+      message({
+        stop_reason: "tool_use",
+        content: [{ type: "tool_use", id: "f1", name: "finish", input: { outcome: "done", summary: "Found it" } }] as BetaMessage["content"],
+      }),
+    ]);
+    const llm = new AnthropicLlm({ client });
+    const ran: string[] = [];
+    const result = await llm.operate({
+      purpose: "screens.web",
+      messages: [{ role: "user", content: "Look up PO-4711" }],
+      toolset: "browser",
+      tools: [{ name: "finish", description: "End", inputSchema: { type: "object", properties: { outcome: { type: "string" } } } }],
+      execute: async (call) => {
+        ran.push(call.name);
+        if (call.name === "type") return { text: "Error: nothing has the keyboard", isError: true };
+        return { text: "Clicked element ref_2.", browserState: { tabs: [{ tab_id: "tab-1", title: "Orders", url: "https://erp.example/orders", active: true }] } };
+      },
+      executeTool: async (call) => ({ content: "Finished.", stop: call.name === "finish" }),
+    });
+
+    expect(requests[0]!.tools).toEqual([{ type: "browser_toolset_20260801" }, { name: "finish", description: "End", input_schema: { type: "object", properties: { outcome: { type: "string" } } } }]);
+    expect(ran).toEqual(["left_click", "type"]);
+    const second = requests[1]!.messages as { role: string; content: Record<string, unknown>[] }[];
+    const results = second.at(-1)!;
+    expect(results.role).toBe("user");
+    expect(results.content.map((r) => r.toolset_name)).toEqual(["browser", "browser", "browser"]);
+    expect(results.content[0]!.content).toEqual([
+      { type: "text", text: "Clicked element ref_2." },
+      { type: "browser_state", tabs: [{ tab_id: "tab-1", title: "Orders", url: "https://erp.example/orders", active: true }] },
+    ]);
+    expect(results.content[1]).toMatchObject({ is_error: true, content: "Error: nothing has the keyboard" });
+    expect(results.content[2]).toMatchObject({ is_error: true, content: HALT_TEXT.browser });
+    expect(result).toMatchObject({ stopReason: "tool", stoppedBy: { name: "finish", input: { outcome: "done", summary: "Found it" } }, actions: 2, turns: 2 });
+    expect(result.usage.calls).toBe(2);
+  });
+
+  it("returns screenshots as images, and ends when Claude answers in text", async () => {
+    const { client, requests } = fakeClient([
+      message({
+        stop_reason: "tool_use",
+        content: [
+          { type: "tool_use", id: "c1", name: "left_click", toolset_name: "computer", input: { coordinate: [640, 400] } },
+          { type: "tool_use", id: "c2", name: "screenshot", toolset_name: "computer", input: {} },
+        ] as BetaMessage["content"],
+      }),
+      message({ content: [{ type: "text", text: "The stock is 42.", citations: null }] }),
+    ]);
+    const llm = new AnthropicLlm({ client });
+    const result = await llm.operate({
+      purpose: "screens.desktop",
+      messages: [{ role: "user", content: "Read the stock" }],
+      toolset: "computer",
+      configs: { zoom: { enabled: false } },
+      execute: async (call) => (call.name === "screenshot" ? { image: { data: "iVBORw0KGgo=", mediaType: "image/png" } } : {}),
+    });
+    expect(requests[0]!.tools).toEqual([{ type: "computer_toolset_20260801", configs: { zoom: { enabled: false } } }]);
+    const results = (requests[1]!.messages as { content: Record<string, unknown>[] }[]).at(-1)!.content;
+    expect(results[0]).toEqual({ type: "tool_result", tool_use_id: "c1", toolset_name: "computer", content: [{ type: "text", text: "OK" }] });
+    expect(results[1]).toEqual({
+      type: "tool_result",
+      tool_use_id: "c2",
+      toolset_name: "computer",
+      content: [{ type: "image", source: { type: "base64", media_type: "image/png", data: "iVBORw0KGgo=" } }],
+    });
+    expect(result).toMatchObject({ stopReason: "end_turn", text: "The stock is 42.", actions: 2 });
+    expect(result.messages.at(-1)).toMatchObject({ role: "assistant" });
+  });
+
+  it("is scripted for tests, with the same halt rule", async () => {
+    const llm = new ScriptedLlm({
+      "screens.": {
+        operate: (_request, turn) =>
+          turn === 1
+            ? { actions: [{ name: "screenshot" }, { name: "key", input: { text: "Hyper" } }, { name: "wait", input: { duration: 1 } }] }
+            : { tool: { name: "finish", input: { outcome: "done", summary: "ok" } } },
+      },
+    });
+    const ran: string[] = [];
+    const result = await llm.operate({
+      purpose: "screens.web",
+      messages: [{ role: "user", content: "x" }],
+      toolset: "browser",
+      execute: async (call) => {
+        ran.push(call.name);
+        return call.name === "key" ? { text: "Error: Unknown key", isError: true } : { text: "OK" };
+      },
+      executeTool: async () => ({ content: "Finished.", stop: true }),
+    });
+    expect(ran).toEqual(["screenshot", "key"]);
+    expect(result).toMatchObject({ stopReason: "tool", stoppedBy: { name: "finish" }, actions: 2 });
+    await expect(new UnavailableLlm().operate()).rejects.toThrow(/No LLM is configured/);
   });
 });
 

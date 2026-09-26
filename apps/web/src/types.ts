@@ -281,6 +281,8 @@ export interface RunRow {
   createdAt: string;
   agentName?: string;
   agentSlug?: string;
+  /** What each step returned (a run's own page only). */
+  context?: { steps?: Record<string, unknown> } | null;
 }
 
 export interface RunEvent {
@@ -1208,7 +1210,17 @@ export interface NamedAction {
   /** MCP servers: the tool the action calls, and its input schema. */
   tool?: string;
   inputSchema?: Record<string, unknown>;
+  /** Old systems' screens: what to do there in plain words, with {params}, and the values to bring back. */
+  goal?: string;
+  returns?: { key: string; type: ActionParam["type"]; description?: string }[];
   watch?: { cursorField: string; idField?: string; start?: string };
+}
+
+/** How an action on an old system's screens went: its steps, and the last screen (a stored file). */
+export interface ScreenRun {
+  steps: number;
+  trail: string[];
+  lastScreenFileId?: string;
 }
 
 export interface WatcherStatus {

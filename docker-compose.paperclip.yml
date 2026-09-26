@@ -109,6 +109,9 @@ services:
       EB_HERMES_API_KEY: ${EB_HERMES_API_KEY:-}
       # Encrypts connector secrets. Unset: a random key is generated once in the data volume (/data).
       EB_MASTER_KEY: ${EB_MASTER_KEY:-}
+      # Old systems without an API, worked through their screens (EB_SCREENS=off turns it off).
+      EB_SCREENS: ${EB_SCREENS:-on}
+      EB_SCREENS_MODEL: ${EB_SCREENS_MODEL:-}
     volumes:
       - braindata:/data
       - eb-plugin:/opt/enterprise-brain/paperclip-plugin

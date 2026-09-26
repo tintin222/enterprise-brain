@@ -151,6 +151,9 @@ export function fakeLlm(reply: string | ((request: CompleteRequest) => string)) 
     async runTools() {
       throw new Error("runTools() is not used by document extraction");
     },
+    async operate() {
+      throw new Error("operate() is not used by document extraction");
+    },
   };
   return { llm, requests };
 }

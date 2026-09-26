@@ -11,11 +11,15 @@ import {
   type LlmRequest,
   type LlmUsage,
   type MessageParam,
+  type OperateRequest,
+  type OperateResult,
   type StructuredRequest,
   type StructuredResult,
   type ToolCall,
   type ToolLoopRequest,
   type ToolLoopResult,
+  type ToolsetName,
+  type ToolsetResult,
 } from "./types.ts";
 import { toStructuredOutputSchema } from "./schema.ts";
 
@@ -24,6 +28,30 @@ type BetaCreateParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
 type BetaTool = Anthropic.Beta.Messages.BetaTool;
 type BetaToolResultBlockParam = Anthropic.Beta.Messages.BetaToolResultBlockParam;
 type BetaToolUseBlock = Anthropic.Beta.Messages.BetaToolUseBlock;
+type BetaToolUnion = Anthropic.Beta.Messages.BetaToolUnion;
+type BetaToolResultContent = Exclude<BetaToolResultBlockParam["content"], string | undefined>[number];
+
+const TOOLSET_TYPES: Record<ToolsetName, string> = { browser: "browser_toolset_20260801", computer: "computer_toolset_20260801" };
+
+/** What answers the calls after a failed one in a batch: each toolset has its own exact text. */
+export const HALT_TEXT: Record<ToolsetName, string> = {
+  browser: "Not executed: an earlier action in this turn failed.",
+  computer: "Not executed: an earlier computer action in this turn failed.",
+};
+
+/** A member call's result as the API takes it: echoing the toolset, text/image/browser_state content, none of it on errors. */
+export function toolsetResultBlock(id: string, toolset: ToolsetName, result: ToolsetResult): BetaToolResultBlockParam {
+  if (result.isError) return { type: "tool_result", tool_use_id: id, toolset_name: toolset, is_error: true, content: result.text || "Error" };
+  const content: BetaToolResultContent[] = [];
+  if (result.text) content.push({ type: "text", text: result.text });
+  if (result.image) content.push({ type: "image", source: { type: "base64", media_type: result.image.mediaType, data: result.image.data } });
+  if (result.browserState && toolset === "browser") {
+    const { tabs, state_changes } = result.browserState;
+    content.push({ type: "browser_state", tabs, ...(state_changes?.length ? { state_changes } : {}) });
+  }
+  if (!content.length) content.push({ type: "text", text: "OK" });
+  return { type: "tool_result", tool_use_id: id, toolset_name: toolset, content };
+}
 
 export const DEFAULT_MODEL = "claude-opus-5";
 
@@ -223,5 +251,88 @@ export class AnthropicLlm implements LlmClient {
       messages.push({ role: "user", content: results });
     }
     return { text: lastText, stopReason: "max_turns", turns: maxTurns, messages, usage, model };
+  }
+
+  /**
+   * Work screens with a client toolset: Claude returns member calls (often several in a turn, a batch),
+   * which run in order; after a failure the rest of the batch is answered with the halt text. Every
+   * result echoes the toolset's name. Screenshots stay in the history: on current models removing one
+   * invalidates the later thinking, and each job is bounded by maxTurns.
+   */
+  async operate(request: OperateRequest): Promise<OperateResult> {
+    const toolset = { type: TOOLSET_TYPES[request.toolset], ...(request.configs ? { configs: request.configs } : {}) } as unknown as BetaToolUnion;
+    const tools: BetaTool[] = (request.tools ?? []).map((t) => ({ name: t.name, description: t.description, input_schema: t.inputSchema as BetaTool["input_schema"] }));
+    const messages: MessageParam[] = [...request.messages];
+    const maxTurns = request.maxTurns ?? 40;
+    let usage = emptyUsage();
+    let text = "";
+    let actions = 0;
+    let model = request.model ?? this.model;
+
+    for (let turn = 1; turn <= maxTurns; turn++) {
+      const params = this.baseParams({ ...request, messages }, 16000);
+      params.tools = [toolset, ...tools];
+      const message = await this.send(params);
+      usage = addUsage(usage, this.usageOf(message));
+      model = message.model;
+      this.assertNotRefused(message);
+      const said = this.textOf(message);
+      if (said) text = said;
+      const uses = message.content.filter((b): b is BetaToolUseBlock => b.type === "tool_use");
+      const members = (use: BetaToolUseBlock) => use.toolset_name === request.toolset;
+      await request.onEvent?.({
+        type: "assistant",
+        turn,
+        text: said,
+        calls: uses.filter(members).map((u) => ({ id: u.id, toolset: request.toolset, name: u.name, input: (u.input ?? {}) as Record<string, unknown> })),
+        toolCalls: uses.filter((u) => !members(u)).map((u) => ({ id: u.id, name: u.name, input: u.input })),
+      });
+      messages.push({ role: "assistant", content: message.content });
+
+      if (message.stop_reason === "pause_turn") continue;
+      if (!uses.length) return { stopReason: message.stop_reason ?? "end_turn", text, turns: turn, actions, messages, usage, model };
+      if (message.stop_reason === "max_tokens") throw new LlmOutputError("An action was truncated at max_tokens");
+
+      const results: BetaToolResultBlockParam[] = [];
+      let failed = false;
+      let stoppedBy: ToolCall | undefined;
+      for (const use of uses) {
+        if (members(use)) {
+          if (failed || stoppedBy) {
+            results.push(toolsetResultBlock(use.id, request.toolset, { text: HALT_TEXT[request.toolset], isError: true }));
+            continue;
+          }
+          const call = { id: use.id, toolset: request.toolset, name: use.name, input: (use.input ?? {}) as Record<string, unknown> };
+          const started = Date.now();
+          let result: ToolsetResult;
+          try {
+            result = await request.execute(call);
+          } catch (error) {
+            result = { text: `Error: ${error instanceof Error ? error.message : String(error)}`, isError: true };
+          }
+          actions++;
+          if (result.isError) failed = true;
+          await request.onEvent?.({ type: "action", turn, call, result, durationMs: Date.now() - started });
+          results.push(toolsetResultBlock(use.id, request.toolset, result));
+          continue;
+        }
+        const call: ToolCall = { id: use.id, name: use.name, input: use.input };
+        if (failed) {
+          results.push({ type: "tool_result", tool_use_id: use.id, is_error: true, content: HALT_TEXT[request.toolset] });
+          continue;
+        }
+        let out: { content: string; isError?: boolean; stop?: boolean };
+        try {
+          out = request.executeTool ? await request.executeTool(call) : { content: `Unknown tool ${use.name}`, isError: true };
+        } catch (error) {
+          out = { content: error instanceof Error ? error.message : String(error), isError: true };
+        }
+        if (out.stop && !out.isError) stoppedBy = call;
+        results.push({ type: "tool_result", tool_use_id: use.id, content: out.content, is_error: out.isError ?? false });
+      }
+      if (stoppedBy) return { stopReason: "tool", stoppedBy, text, turns: turn, actions, messages, usage, model };
+      messages.push({ role: "user", content: results });
+    }
+    return { stopReason: "max_turns", text, turns: maxTurns, actions, messages, usage, model };
   }
 }

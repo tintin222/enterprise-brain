@@ -41,11 +41,20 @@ export const ActionParam = z.object({
 });
 export type ActionParam = z.infer<typeof ActionParam>;
 
+/** A value an action on screens brings back, read from the screens (e.g. an order's status). */
+export const ActionReturn = z.object({
+  key: z.string().regex(/^[a-zA-Z_][a-zA-Z0-9_]*$/),
+  type: z.enum(["string", "number", "integer", "boolean", "date"]).default("string"),
+  description: z.string().optional(),
+});
+export type ActionReturn = z.infer<typeof ActionReturn>;
+
 /**
  * A named action: one thing AI employees may do in a connected system, named and described in plain
  * words by IT and marked read or write. A web service action is a method, a path and templates
- * (`/customers/{customer_id}`); a database action is a SQL statement with `:params`. Business users
- * and AI employees see only these, never raw calls.
+ * (`/customers/{customer_id}`); a database action is a SQL statement with `:params`; an action on an
+ * old system's screens says what to do there in plain words ("Open order {order_number} and read its
+ * status"). Business users and AI employees see only these, never raw calls.
  */
 export const NamedAction = z
   .object({
@@ -66,6 +75,9 @@ export const NamedAction = z
     // MCP servers: the tool the action calls, and its input as the server describes it.
     tool: z.string().optional(),
     inputSchema: z.record(z.string(), z.unknown()).optional(),
+    // Old systems through their screens: what to do there in plain words, with {params}, and the values to bring back.
+    goal: z.string().optional(),
+    returns: z.array(ActionReturn).optional(),
     /**
      * Watch it for new rows or items (by cursorField, e.g. created_at or id): each new one starts the
      * duties that listen for "new:<id>". The action receives the last value seen as `since`.
@@ -80,8 +92,11 @@ export const NamedAction = z
       .optional(),
   })
   .superRefine((action, ctx) => {
-    if (!action.sql && !(action.method && action.path) && !action.tool) {
-      ctx.addIssue({ code: "custom", message: `${action.id}: give a method and a path (web service), a SQL statement (database) or a tool (MCP server)` });
+    if (!action.sql && !(action.method && action.path) && !action.tool && !action.goal?.trim()) {
+      ctx.addIssue({
+        code: "custom",
+        message: `${action.id}: give a method and a path (web service), a SQL statement (database), a tool (MCP server) or what to do (screens)`,
+      });
     }
     const keys = new Set(action.params.map((p) => p.key));
     if (keys.size !== action.params.length) ctx.addIssue({ code: "custom", message: `${action.id}: parameter names must be unique` });

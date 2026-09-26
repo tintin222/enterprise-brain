@@ -65,6 +65,10 @@ services:
       EB_MASTER_KEY: ${EB_MASTER_KEY:-}
       # Folders shared-folder connections may use: mount network drives under /shares (below).
       EB_SHARED_FOLDER_ROOTS: ${EB_SHARED_FOLDER_ROOTS:-/shares}
+      # Old systems without an API, worked through their screens: the model for it (a Claude model with
+      # browser and computer use), and EB_SCREENS=off to turn it off.
+      EB_SCREENS: ${EB_SCREENS:-on}
+      EB_SCREENS_MODEL: ${EB_SCREENS_MODEL:-}
     volumes:
       - braindata:/data
       # A network drive AI employees work in, e.g. a Windows share mounted on this machine:

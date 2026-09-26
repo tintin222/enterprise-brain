@@ -26,7 +26,7 @@ import type {
   RunStatus,
   StepOutcome,
 } from "./run-types.ts";
-import { executeStep, mergeUsage } from "./steps/index.ts";
+import { executeStep, mergeUsage, usageOfError } from "./steps/index.ts";
 import { wakeText, type TaskPlan, type TaskRow, type TaskService, type TaskWait, type WakeReason } from "./tasks.ts";
 import { monthStartIn, workingHoursOf } from "./working-hours.ts";
 import type { AskPersonRequest, DeferredApprovalRequest, ToolDeps } from "./tools.ts";
@@ -470,6 +470,11 @@ export class RunEngine {
       try {
         outcome = await executeStep(step, scope, this.toolDeps);
       } catch (error) {
+        const spent = usageOfError(error);
+        if (spent) {
+          usage = mergeUsage(usage, spent);
+          await this.persist(runId, { usage: (usage ?? {}) as Record<string, unknown> });
+        }
         if (step.onError === "continue") {
           state.steps[step.id] = { error: errorMessage(error) };
           state.completed.push(step.id);
@@ -950,6 +955,14 @@ export class RunEngine {
     await this.afterRun(run.companyId, run.agentId).catch(() => undefined);
   }
 
+  /** Model use outside a step (an approved action that worked screens), added to the run's cost. */
+  private async addRunUsage(runId: string, usage: LlmUsage | undefined): Promise<void> {
+    if (!usage) return;
+    const [row] = await this.deps.handle.db.select({ usage: runs.usage }).from(runs).where(eq(runs.id, runId));
+    const current = row?.usage && "calls" in row.usage ? (row.usage as unknown as LlmUsage) : undefined;
+    await this.persist(runId, { usage: (mergeUsage(current, usage) ?? {}) as Record<string, unknown> });
+  }
+
   private async persist(runId: string, patch: Partial<Pick<RunRow, "status" | "context" | "usage" | "currentStep" | "output" | "error" | "finishedAt">>) {
     await this.deps.handle.db.update(runs).set(patch).where(eq(runs.id, runId));
   }
@@ -1139,10 +1152,17 @@ export class RunEngine {
         if (state.pending.kind === "decision") {
           result = { approved: decision.approved, note: decision.note ?? "", decidedBy, ...(decision.via ? { via: VIA_LABELS[decision.via] ?? decision.via } : {}) };
         } else if (decision.approved) {
+          let used: LlmUsage | undefined;
           try {
-            const executed = await executeAction(this.deps, companyId, action);
+            const executed = await executeAction(this.deps, companyId, action, {
+              onUsage: (spent) => {
+                used = mergeUsage(used, spent);
+              },
+            });
+            await this.addRunUsage(run.id, used);
             result = isRecord(executed) ? { ...executed, approvedBy: decidedBy } : { result: executed, approvedBy: decidedBy };
           } catch (error) {
+            await this.addRunUsage(run.id, used);
             state.pending = undefined;
             await this.persist(run.id, { context: state as unknown as Record<string, unknown> });
             await this.fail(run, error, approval.stepId);
@@ -1186,8 +1206,12 @@ export class RunEngine {
     // Deferred actions requested by autonomous steps/chat run when approved.
     const executes = decision.approved && action.type !== "decision";
     if (executes) {
+      let used: LlmUsage | undefined;
+      const spend = (spent: LlmUsage) => {
+        used = mergeUsage(used, spent);
+      };
       try {
-        const result = await executeAction(this.deps, companyId, action);
+        const result = await executeAction(this.deps, companyId, action, { onUsage: spend }).finally(() => (approval.runId ? this.addRunUsage(approval.runId, used) : undefined));
         await this.deps.handle.db
           .update(approvals)
           .set({ action: { ...(action as unknown as Record<string, unknown>), result } as Record<string, unknown> })

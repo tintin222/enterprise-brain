@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Ban, CirclePlay, FlaskConical, ListTree, Sparkles, UserCheck } from "lucide-react";
+import { Ban, CirclePlay, FlaskConical, ListTree, Monitor, Sparkles, UserCheck } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
 import { api, isApiError, subscribe } from "../../api.ts";
@@ -15,6 +15,7 @@ import { Page } from "../../components/Layout.tsx";
 import { Markdown } from "../../components/Markdown.tsx";
 import { OutputView } from "../../components/OutputView.tsx";
 import { RunTimeline, useRunDetail } from "../../components/RunViews.tsx";
+import { ScreenRunView, isScreenRun } from "../../components/ScreenRun.tsx";
 import { ErrorState, LoadingBlock, Spinner } from "../../components/Spinner.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { displayValue, formatDateTime, formatMoney, formatNumber, humanize, isRecord, isUuid, runDuration } from "../../lib/format.ts";
@@ -131,6 +132,10 @@ export default function RunDetail() {
   const { run, events, approvals, agent } = data;
   const inputEntries = Object.entries(run.input ?? {});
   const usage = run.usage ?? {};
+  // Steps that worked an old system's screens: what they found, and the last screen.
+  const screenSteps = Object.entries(run.context?.steps ?? {}).flatMap(([stepId, value]) =>
+    isRecord(value) && isScreenRun(value.screens) ? [{ stepId, summary: typeof value.summary === "string" ? value.summary : "", screens: value.screens }] : [],
+  );
 
   return (
     <Page>
@@ -237,6 +242,23 @@ export default function RunDetail() {
               )}
             </div>
           </Card>
+
+          {screenSteps.length > 0 && (
+            <Card>
+              <CardHeader title="On the screens" icon={Monitor} subtitle="What it did in systems without an API, and the last screen it saw" />
+              <div className="space-y-6 p-5">
+                {screenSteps.map((step) => (
+                  <div key={step.stepId}>
+                    <p className="mb-2 text-sm text-fg">
+                      <span className="font-mono text-xs text-muted">{step.stepId}</span>
+                      {step.summary ? ` · ${step.summary}` : ""}
+                    </p>
+                    <ScreenRunView run={step.screens} />
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
 
           <Card>
             <CardHeader title="Input" />

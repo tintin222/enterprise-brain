@@ -1,4 +1,4 @@
-import type { ConnectorService } from "./connectors.ts";
+import type { ConnectorService, ExecuteOptions } from "./connectors.ts";
 import type { MailService } from "./mail.ts";
 import type { ApprovalAction } from "./run-types.ts";
 
@@ -7,6 +7,7 @@ export async function executeAction(
   deps: { connectors: ConnectorService; mail: MailService },
   companyId: string,
   action: ApprovalAction,
+  options: ExecuteOptions = {},
 ): Promise<unknown> {
   switch (action.type) {
     case "decision":
@@ -17,8 +18,7 @@ export async function executeAction(
         category: action.category,
         instanceId: action.instanceId,
       });
-      const result = await deps.connectors.execute(companyId, resolved, action.operation, action.input);
-      return result;
+      return deps.connectors.execute(companyId, resolved, action.operation, action.input, options);
     }
     case "mail.send": {
       const sent = await deps.mail.send(companyId, {
