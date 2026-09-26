@@ -98,7 +98,7 @@ describe("Gate 3: a correction is tested on past tasks, then goes live", () => {
   let mehmet = "";
   let deniz = "";
   let zeynep = "";
-  const refs: Record<string, string> = {};
+  const refs = { late: "", line: "", datasheet: "" };
   const call = async (cookie: string, method: "GET" | "POST" | "PUT", url: string, payload?: unknown) =>
     t.app.inject({ method, url: `${base}${url}`, headers: { cookie }, ...(payload !== undefined ? { payload: payload as Record<string, unknown> } : {}) });
   const outbound = async () => (await t.platform.mail.list(companyId, { direction: "outbound" })).length;

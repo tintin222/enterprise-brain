@@ -103,6 +103,7 @@ export {
   DEFAULT_MAX_ROWS,
   guardReadOnlySql,
   limitQuery,
+  parseOracleConnection,
   sqlDatabaseConnector,
   type SqlClient,
   type SqlClientConfig,

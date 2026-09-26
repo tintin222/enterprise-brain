@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { ConnectorError, createSqlDatabaseConnector, guardReadOnlySql, limitQuery, type SqlClient, type SqlQueryResult } from "../src/index.ts";
+import {
+  ConnectorError,
+  bindNamedParams,
+  createSqlDatabaseConnector,
+  guardReadOnlySql,
+  limitQuery,
+  parseOracleConnection,
+  sqlDatabaseConnector,
+  withNamedActions,
+  type SqlClient,
+  type SqlQueryResult,
+} from "../src/index.ts";
 import { expectConnectorError, makeCtx, run } from "./helpers.ts";
 
 function rejects(sql: string): ConnectorError {
@@ -159,5 +170,102 @@ describe("sql-database", () => {
     const client = new FakeClient((text) => (text.includes("current_database") ? { rows: [{ database: "reporting", db_user: "readonly", version: "PostgreSQL 17.2" }] } : { rows: [] }));
     const connector = createSqlDatabaseConnector({ createClient: () => client });
     expect(await connector.test(ctx())).toMatchObject({ ok: true, message: 'Connected to database "reporting" as readonly.' });
+  });
+});
+
+describe("Oracle databases", () => {
+  const oracleCtx = (config: Record<string, unknown> = {}) =>
+    makeCtx({ config: { dialect: "oracle", max_rows: 50, statement_timeout_ms: 15000, ...config }, secrets: { connection_string: "oracle://eb_reader:p%40ss@db.acme.example:1521/ERPPDB" } });
+  const oracleError = (code: string, message: string) => Object.assign(new Error(`${code}: ${message}`), { code, errorNum: Number(code.slice(4)) });
+
+  it("reads the connection string in the forms Oracle people use", () => {
+    expect(parseOracleConnection("oracle://eb_reader:p%40ss@db.acme.example:1521/ERPPDB")).toEqual({ user: "eb_reader", password: "p@ss", connectString: "db.acme.example:1521/ERPPDB" });
+    expect(parseOracleConnection("oracle://eb:pw@db.acme.example:2484/ERPPDB?protocol=tcps").connectString).toBe("tcps://db.acme.example:2484/ERPPDB");
+    expect(parseOracleConnection("eb_reader/p@ss/w@db.acme.example:1521/ERPPDB")).toEqual({ user: "eb_reader", password: "p@ss/w", connectString: "db.acme.example:1521/ERPPDB" });
+    expect(
+      parseOracleConnection("User Id=eb_reader;Password=pw;Data Source=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=db)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ERPPDB)))"),
+    ).toEqual({ user: "eb_reader", password: "pw", connectString: "(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=db)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=ERPPDB)))" });
+    expect(() => parseOracleConnection("db.acme.example:1521/ERPPDB")).toThrow(/Oracle connection string/);
+  });
+
+  it("keeps Oracle's packages that reach outside the query out of ad-hoc reads", () => {
+    expect(rejects("SELECT dbms_lock.sleep(60) FROM dual").message).toMatch(/dbms_lock is not allowed/);
+    expect(rejects("SELECT utl_http.request('http://attacker.example/') FROM dual").message).toMatch(/utl_http is not allowed/);
+    expect(rejects("SELECT sys.dbms_pipe.receive_message('x', 5) FROM dual").message).toMatch(/sys\.dbms_pipe is not allowed/);
+    expect(rejects("SELECT httpuritype('http://attacker.example/').getclob() FROM dual").message).toMatch(/httpuritype is not allowed/);
+    expect(rejects("SELECT * FROM orders FOR UPDATE NOWAIT").message).toMatch(/UPDATE/);
+    expect(guardReadOnlySql("SELECT order_no, TO_CHAR(created, 'YYYY-MM-DD') AS day, NVL(note, '-') AS note FROM orders WHERE ROWNUM <= 10")).toMatch(/^SELECT order_no/);
+    expect(limitQuery("SELECT * FROM orders ORDER BY created DESC", 50, "oracle")).toBe("SELECT * FROM (SELECT * FROM orders ORDER BY created DESC) q FETCH FIRST 50 ROWS ONLY");
+  });
+
+  it("reads in a read-only transaction that is rolled back, with :1 binds and a row limit", async () => {
+    const client = new FakeClient((text) =>
+      text.startsWith("SELECT * FROM (") ? { fields: [{ name: "ORDER_NO" }, { name: "CREATED" }], rows: [{ ORDER_NO: "SO-1", CREATED: new Date("2026-09-01T08:00:00Z") }] } : { rows: [] },
+    );
+    let received: unknown;
+    const connector = createSqlDatabaseConnector({
+      createClient: (config) => {
+        received = config;
+        return client;
+      },
+    });
+    const result = await run(connector, "run_query", { sql: "SELECT order_no, created FROM orders WHERE customer_id = :1", params: ["C-1"] }, oracleCtx());
+    expect(received).toEqual({ connectionString: "oracle://eb_reader:p%40ss@db.acme.example:1521/ERPPDB", statementTimeoutMs: 15000, dialect: "oracle" });
+    expect(client.statements.map((s) => s.text)).toEqual([
+      "SET TRANSACTION READ ONLY",
+      "SELECT * FROM (SELECT order_no, created FROM orders WHERE customer_id = :1) q FETCH FIRST 50 ROWS ONLY",
+      "ROLLBACK",
+    ]);
+    expect(result).toMatchObject({ columns: ["ORDER_NO", "CREATED"], rows: [{ ORDER_NO: "SO-1", CREATED: "2026-09-01T08:00:00.000Z" }] });
+  });
+
+  it("binds a named action's :params once per use, and commits changes", async () => {
+    expect(bindNamedParams("SELECT * FROM orders WHERE customer_id = :customer OR payer_id = :customer AND created > :since", "oracle", { customer: "C-1", since: "2026-01-01" })).toEqual({
+      text: "SELECT * FROM orders WHERE customer_id = :1 OR payer_id = :2 AND created > :3",
+      params: ["C-1", "C-1", "2026-01-01"],
+    });
+    const client = new FakeClient((text) => (text.startsWith("UPDATE") ? { rows: [], rowCount: 1 } : { rows: [] }));
+    const connector = withNamedActions(createSqlDatabaseConnector({ createClient: () => client }), [
+      { id: "block_order", name: "Block an order", description: "", kind: "write", params: [{ key: "order_no", type: "string", required: true }], sql: "UPDATE orders SET status = 'BLOCKED' WHERE order_no = :order_no" },
+    ]);
+    expect(await connector.execute("block_order", { order_no: "SO-1" }, oracleCtx())).toEqual({ ok: true, affected_rows: 1 });
+    expect(client.statements.map((s) => [s.text, s.values])).toEqual([
+      ["UPDATE orders SET status = 'BLOCKED' WHERE order_no = :1", ["SO-1"]],
+      ["COMMIT", undefined],
+    ]);
+  });
+
+  it("lists and describes tables from Oracle's catalog, in capitals", async () => {
+    const client = new FakeClient((text) =>
+      text.includes("all_tab_columns")
+        ? { rows: [{ column_name: "ORDER_NO", data_type: "VARCHAR2", is_nullable: "NO", column_default: null }] }
+        : { rows: [{ table_schema: "ERP", table_name: "ORDERS", table_type: "BASE TABLE" }] },
+    );
+    const connector = createSqlDatabaseConnector({ createClient: () => client });
+    expect(await run(connector, "list_tables", { schema: "erp" }, oracleCtx())).toMatchObject({ items: [{ table_name: "ORDERS" }], total: 1 });
+    expect(client.statements[1]!.text).toMatch(/FROM all_tables WHERE owner NOT IN \(SELECT username FROM all_users WHERE oracle_maintained = 'Y'\) AND owner = :1/);
+    expect(client.statements[1]!.values).toEqual(["ERP", "ERP"]);
+    expect(await run(connector, "describe_table", { table: "orders" }, oracleCtx())).toMatchObject({ table: "ORDERS", columns: [{ column_name: "ORDER_NO" }] });
+    expect(client.statements.at(-2)!.values).toEqual(["ORDERS"]);
+    expect(client.statements.at(-2)!.text).toMatch(/owner = SYS_CONTEXT\('USERENV', 'CURRENT_SCHEMA'\) AND table_name = :1/);
+  });
+
+  it("puts Oracle's errors in plain words", async () => {
+    const failing = (error: Error) => createSqlDatabaseConnector({ createClient: () => new FakeClient((text) => (text.startsWith("SELECT * FROM (") ? error : { rows: [] })) });
+    const ask = (connector: ReturnType<typeof failing>) => expectConnectorError(connector.execute("run_query", { sql: "SELECT * FROM ordrs" }, oracleCtx()));
+    expect(await ask(failing(oracleError("ORA-00942", "table or view does not exist")))).toMatchObject({ code: "validation", message: /^Unknown table: ORA-00942/ });
+    expect(await ask(failing(oracleError("ORA-01031", "insufficient privileges")))).toMatchObject({ code: "auth" });
+    expect(await ask(failing(Object.assign(new Error("DPI-1067: call timeout of 15000 ms exceeded"), { code: "DPI-1067" })))).toMatchObject({ message: "Query was cancelled (timeout)" });
+    const refusing = createSqlDatabaseConnector({
+      createClient: () => Object.assign(new FakeClient(), { connect: () => Promise.reject(oracleError("ORA-01017", "invalid credential or not authorized; logon denied")) }),
+    });
+    expect(await refusing.test(oracleCtx())).toMatchObject({ ok: false, details: { code: "auth" } });
+  });
+
+  it("uses the real driver without Oracle's client software, and says when the database can't be reached", async () => {
+    const ctx = makeCtx({ config: { dialect: "oracle" }, secrets: { connection_string: "oracle://eb:pw@127.0.0.1:1/NOWHERE" } });
+    const outcome = await sqlDatabaseConnector.test(ctx);
+    expect(outcome.ok).toBe(false);
+    expect(outcome.message).toMatch(/^Database error: .*(ECONNREFUSED|NJS-5\d\d|refused|connect)/i);
   });
 });

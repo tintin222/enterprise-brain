@@ -1,11 +1,12 @@
 import type { NamedAction } from "@enterprise-brain/core";
+import type { Connection as OracleConnection, Metadata as OracleMetadata } from "oracledb";
 import { defineConnector, defineManifest } from "../define.ts";
 import { readOp, str } from "../schema.ts";
 import { ConnectorError, type ConnectorContext, type ConnectorImplementation } from "../types.ts";
 import { configNumber, configString, errorMessage, isRecord, optString, reqString, requireSecret, type Rec } from "../util.ts";
 
 /**
- * SQL databases: PostgreSQL, SQL Server and MySQL. Ad-hoc queries are read-only, with defence in depth:
+ * SQL databases: PostgreSQL, SQL Server, MySQL and Oracle. Ad-hoc queries are read-only, with defence in depth:
  * 1. guardReadOnlySql() accepts a single SELECT/WITH statement without
  *    data-modifying keywords, locking clauses or side-effect functions;
  * 2. the query runs in a transaction that is always rolled back (READ ONLY where the database has it)
@@ -15,7 +16,7 @@ import { configNumber, configString, errorMessage, isRecord, optString, reqStrin
  * Changes go only through named actions IT writes (SQL with :params), each in its own transaction.
  */
 
-export type SqlDialect = "postgres" | "sqlserver" | "mysql";
+export type SqlDialect = "postgres" | "sqlserver" | "mysql" | "oracle";
 
 export interface SqlQueryResult {
   rows: Rec[];
@@ -44,6 +45,7 @@ const defaultDeps: SqlDatabaseDeps = {
   async createClient(config) {
     if (config.dialect === "mysql") return mysqlClient(config);
     if (config.dialect === "sqlserver") return sqlServerClient(config);
+    if (config.dialect === "oracle") return oracleClient(config);
     const { Client } = await import("pg");
     return new Client({
       connectionString: config.connectionString,
@@ -106,6 +108,79 @@ async function sqlServerClient(config: SqlClientConfig): Promise<SqlClient> {
   };
 }
 
+/**
+ * An Oracle connection string: "oracle://user:password@host:1521/service" (add ?protocol=tcps for TLS),
+ * Easy Connect "user/password@host:1521/service", or "User Id=…;Password=…;Data Source=…" (a TNS
+ * descriptor or an Easy Connect string).
+ */
+export function parseOracleConnection(text: string): { user: string; password: string; connectString: string } {
+  const value = text.trim();
+  const fail = (): never => {
+    throw new ConnectorError("Oracle connection string: use oracle://user:password@host:1521/service, user/password@host:1521/service, or User Id=…;Password=…;Data Source=…", "config");
+  };
+  if (/^oracle:\/\//i.test(value)) {
+    let url: URL;
+    try {
+      url = new URL(value);
+    } catch {
+      return fail();
+    }
+    const service = url.pathname.replace(/^\/+/, "");
+    if (!url.username || !url.hostname || !service) return fail();
+    const protocol = url.searchParams.get("protocol")?.toLowerCase() === "tcps" ? "tcps://" : "";
+    return {
+      user: decodeURIComponent(url.username),
+      password: decodeURIComponent(url.password),
+      connectString: `${protocol}${url.hostname}${url.port ? `:${url.port}` : ""}/${service}`,
+    };
+  }
+  if (/(^|;)\s*(user id|data source)\s*=/i.test(value)) {
+    const fields = new Map<string, string>();
+    for (const part of value.split(";")) {
+      const at = part.indexOf("=");
+      if (at > 0) fields.set(part.slice(0, at).trim().toLowerCase(), part.slice(at + 1).trim());
+    }
+    const user = fields.get("user id") ?? fields.get("user");
+    const connectString = fields.get("data source");
+    if (!user || !connectString) return fail();
+    return { user, password: fields.get("password") ?? "", connectString };
+  }
+  const slash = value.indexOf("/");
+  const at = value.lastIndexOf("@");
+  if (slash <= 0 || at <= slash) return fail();
+  return { user: value.slice(0, slash), password: value.slice(slash + 1, at), connectString: value.slice(at + 1) };
+}
+
+/** Oracle through node-oracledb in thin mode (no Oracle client libraries needed): `:1, :2…` placeholders. */
+async function oracleClient(config: SqlClientConfig): Promise<SqlClient> {
+  const oracledb = (await import("oracledb")).default;
+  const settings = parseOracleConnection(config.connectionString);
+  let connection: OracleConnection | undefined;
+  return {
+    async connect() {
+      connection = await oracledb.getConnection({ ...settings, connectTimeout: 10 });
+      connection.callTimeout = config.statementTimeoutMs;
+    },
+    async query(text, values = []) {
+      const result = await connection!.execute<Rec>(text, values as never[], {
+        outFormat: oracledb.OUT_FORMAT_OBJECT,
+        // Long text and binary columns as values, not streams.
+        fetchTypeHandler: (meta: OracleMetadata<unknown>) =>
+          meta.dbType === oracledb.DB_TYPE_CLOB || meta.dbType === oracledb.DB_TYPE_NCLOB
+            ? { type: oracledb.STRING }
+            : meta.dbType === oracledb.DB_TYPE_BLOB
+              ? { type: oracledb.BUFFER }
+              : undefined,
+      });
+      if (result.rows) return { rows: result.rows, fields: (result.metaData ?? []).map((m) => ({ name: m.name })), rowCount: result.rows.length };
+      return { rows: [], rowCount: result.rowsAffected ?? 0 };
+    },
+    async end() {
+      await connection?.close();
+    },
+  };
+}
+
 interface DialectRules {
   placeholder(index: number): string;
   limit(sql: string, maxRows: number): string;
@@ -149,11 +224,23 @@ const DIALECTS: Record<SqlDialect, DialectRules> = {
     defaultSchema: "dbo",
     info: "SELECT DB_NAME() AS [database], SUSER_SNAME() AS db_user, @@VERSION AS version",
   },
+  oracle: {
+    placeholder: (i) => `:${i}`,
+    // Oracle takes no AS before a table alias; FETCH FIRST needs Oracle 12c or later.
+    limit: (sql, n) => `SELECT * FROM (${sql}) q FETCH FIRST ${Math.floor(n)} ROWS ONLY`,
+    // Transactions start by themselves; a read-only one says so first. The call timeout is the client's.
+    begin: (readOnly) => (readOnly ? ["SET TRANSACTION READ ONLY"] : []),
+    commit: "COMMIT",
+    rollback: "ROLLBACK",
+    systemSchemas: [],
+    defaultSchema: null,
+    info: `SELECT SYS_CONTEXT('USERENV', 'DB_NAME') AS "database", USER AS "db_user" FROM dual`,
+  },
 };
 
 function dialectOf(ctx: ConnectorContext): SqlDialect {
   const value = configString(ctx, "dialect", "postgres");
-  return value === "sqlserver" || value === "mysql" ? value : "postgres";
+  return value === "sqlserver" || value === "mysql" || value === "oracle" ? value : "postgres";
 }
 
 export const DEFAULT_MAX_ROWS = 500;
@@ -167,6 +254,9 @@ export const DEFAULT_MAX_ROWS = 500;
 const FORBIDDEN_KEYWORDS = [
   "insert", "update", "delete", "merge", "into", "drop", "alter", "create", "truncate", "grant", "revoke", "copy", "vacuum", "execute", "exec", "waitfor",
 ];
+
+/** Oracle packages that reach outside the query (network, files, locks, sessions), e.g. dbms_lock.sleep(…). */
+const FORBIDDEN_PACKAGES = /\b((?:sys\s*\.\s*)?(?:dbms_\w+|utl_\w+|owa_\w+|ctx_\w+|httpuritype))\s*(?:\.\s*\w+\s*)?\(/i;
 
 const FORBIDDEN_FUNCTIONS =
   /\b(pg_sleep\w*|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|pg_rotate_logfile|pg_promote|set_config|lo_\w+|pg_read_\w*file|pg_ls_\w+|pg_stat_file|pg_file_\w+|dblink\w*|pg_advisory\w*|pg_try_advisory\w*|nextval|setval|pg_notify|txid_current|pg_current_xact_id|sleep|benchmark|load_file|get_lock|openrowset|opendatasource|openquery|xp_\w+)\s*\(/i;
@@ -275,6 +365,8 @@ export function guardReadOnlySql(sql: string): string {
   const forbidden = FORBIDDEN_KEYWORDS.find((keyword) => words.has(keyword));
   if (forbidden) throw new ConnectorError(`Read-only queries must not contain ${forbidden.toUpperCase()}`, "validation");
   if (/\bfor\s+(no\s+key\s+|key\s+)?share\b/i.test(bodyMasked)) throw new ConnectorError("Locking clauses (FOR SHARE) are not allowed", "validation");
+  const pkg = FORBIDDEN_PACKAGES.exec(bodyMasked);
+  if (pkg) throw new ConnectorError(`${pkg[1]!.replace(/\s+/g, "")} is not allowed in read-only queries`, "validation");
   const fn = FORBIDDEN_FUNCTIONS.exec(bodyMasked);
   if (fn) throw new ConnectorError(`Function ${fn[1]} is not allowed in read-only queries`, "validation");
   let depth = 0;
@@ -305,7 +397,8 @@ export function bindNamedParams(sql: string, dialect: SqlDialect, values: Record
     const name = match[1]!;
     const value = values[name] ?? null;
     let index: number;
-    if (dialect === "mysql") {
+    // MySQL's ? and Oracle's positional binds take one value per occurrence.
+    if (dialect === "mysql" || dialect === "oracle") {
       params.push(value);
       index = params.length;
     } else {
@@ -343,16 +436,23 @@ function mapDbError(error: unknown): ConnectorError {
   if (code === "ER_CANT_EXECUTE_IN_READ_ONLY_TRANSACTION") return new ConnectorError("Only read-only queries are allowed", "validation");
   if (code === "ER_PARSE_ERROR" || code === "ER_BAD_FIELD_ERROR" || code === "EREQUEST") return new ConnectorError(`Invalid query: ${message}`, "validation");
   if (code === "ETIMEOUT" || code === "PROTOCOL_SEQUENCE_TIMEOUT") return new ConnectorError("Query was cancelled (timeout)", "remote");
+  // Oracle
+  if (["ORA-01017", "ORA-28000", "ORA-28001", "ORA-01005"].includes(code)) return new ConnectorError(`Database rejected the credentials: ${message}`, "auth");
+  if (code === "ORA-01031" || code === "ORA-01045" || code === "ORA-01749") return new ConnectorError(`Permission denied: ${message}`, "auth");
+  if (code === "ORA-00942" || code === "ORA-04043") return new ConnectorError(`Unknown table: ${message}`, "validation");
+  if (code === "ORA-01456") return new ConnectorError("Only read-only queries are allowed", "validation");
+  if (code === "ORA-01013" || code === "DPI-1067" || /^NJS-(040|123)$/.test(code) || /call timeout/i.test(message)) return new ConnectorError("Query was cancelled (timeout)", "remote");
+  if (/^ORA-(009\d\d|01722|01858|01861|00932|01400|01407|02291|02292|00001)$/.test(code)) return new ConnectorError(`Invalid query: ${message}`, "validation");
   return new ConnectorError(`Database error: ${message}`, "remote");
 }
 
 const manifest = defineManifest({
   type: "sql-database",
   name: "SQL database",
-  vendor: "PostgreSQL · SQL Server · MySQL",
+  vendor: "PostgreSQL · SQL Server · MySQL · Oracle",
   category: "database",
   description:
-    "Connects a PostgreSQL, SQL Server or MySQL database (reporting replicas, data warehouses, MES/WMS and ERP databases). Ad-hoc queries are read-only single SELECT/WITH statements with a row limit and timeout; IT saves named queries and changes as named actions.",
+    "Connects a PostgreSQL, SQL Server, MySQL or Oracle database (reporting replicas, data warehouses, MES/WMS and ERP databases). Ad-hoc queries are read-only single SELECT/WITH statements with a row limit and timeout; IT saves named queries and changes as named actions.",
   auth: "basic",
   docsUrl: "https://www.postgresql.org/docs/current/sql-select.html",
   maturity: "preview",
@@ -366,6 +466,7 @@ const manifest = defineManifest({
         { value: "postgres", label: "PostgreSQL" },
         { value: "sqlserver", label: "Microsoft SQL Server" },
         { value: "mysql", label: "MySQL / MariaDB" },
+        { value: "oracle", label: "Oracle Database (12c or later)" },
       ],
     },
     {
@@ -375,13 +476,13 @@ const manifest = defineManifest({
       required: true,
       secret: true,
       placeholder: "postgresql://readonly_user:password@db.acme.local:5432/reporting?sslmode=require",
-      help: "SQL Server: Server=db.acme.local,1433;Database=erp;User Id=eb_reader;Password=…;Encrypt=true · MySQL: mysql://eb_reader:…@db.acme.local:3306/erp",
+      help: "SQL Server: Server=db.acme.local,1433;Database=erp;User Id=eb_reader;Password=…;Encrypt=true · MySQL: mysql://eb_reader:…@db.acme.local:3306/erp · Oracle: oracle://eb_reader:…@db.acme.local:1521/ERPPDB (?protocol=tcps for TLS)",
     },
     { key: "max_rows", label: "Maximum rows per query", type: "number", default: DEFAULT_MAX_ROWS },
     { key: "statement_timeout_ms", label: "Statement timeout (ms)", type: "number", default: 15_000 },
   ],
   operations: [
-    readOp("run_query", "Run SQL query", `Run one read-only SELECT (or WITH ... SELECT) statement; at most ${DEFAULT_MAX_ROWS} rows are returned. Pass values with params and placeholders: $1, $2… (PostgreSQL), ? (MySQL) or @p1, @p2… (SQL Server).`, {
+    readOp("run_query", "Run SQL query", `Run one read-only SELECT (or WITH ... SELECT) statement; at most ${DEFAULT_MAX_ROWS} rows are returned. Pass values with params and placeholders: $1, $2… (PostgreSQL), ? (MySQL), @p1, @p2… (SQL Server) or :1, :2… (Oracle).`, {
       sql: str("SELECT statement, e.g. SELECT order_no, status FROM orders WHERE customer_id = $1 ORDER BY created_at DESC"),
       params: { type: "array", items: {}, description: "Values for $1, $2... placeholders (strings, numbers, booleans or null)" },
     }, ["sql"]),
@@ -394,7 +495,7 @@ const manifest = defineManifest({
     }, ["table"]),
   ],
   itRequirements: [
-    "A connection string (host, port, database) with TLS: PostgreSQL, SQL Server or MySQL",
+    "A connection string (host, port, database) with TLS: PostgreSQL, SQL Server, MySQL or Oracle (12c or later; no Oracle client software is needed)",
     "A dedicated read-only database login with SELECT grants on the required schemas/tables only, ideally on a read replica; a separate login with the needed grants for connections that run named write actions",
     "Network access from Enterprise Brain to the database port (firewall rule / private link)",
   ],
@@ -493,8 +594,23 @@ export function createSqlDatabaseConnector(deps: Partial<SqlDatabaseDeps> = {}):
       },
 
       async list_tables(input, ctx) {
-        const schema = optString(input, "schema") ?? null;
         const dialect = dialectOf(ctx);
+        const schema = optString(input, "schema") ?? null;
+        if (dialect === "oracle") {
+          // Oracle's catalog: tables and views of the schemas the user sees, without Oracle's own.
+          const owner = schema ? oracleName(schema) : null;
+          const where = `owner NOT IN (SELECT username FROM all_users WHERE oracle_maintained = 'Y')${owner ? " AND owner = :1" : ""}`;
+          const result = await readOnly(ctx, (client) =>
+            client.query(
+              `SELECT owner AS "table_schema", table_name AS "table_name", 'BASE TABLE' AS "table_type" FROM all_tables WHERE ${where}
+               UNION ALL SELECT owner, view_name, 'VIEW' FROM all_views WHERE ${where.replace(":1", ":2")}
+               ORDER BY 1, 2 FETCH FIRST 1000 ROWS ONLY`,
+              owner ? [owner, owner] : [],
+            ),
+          );
+          const items = toResult(result).rows as Rec[];
+          return { items, total: items.length };
+        }
         const result = await readOnly(ctx, (client, rules) => {
           const system = rules.systemSchemas.map((name) => `'${name}'`).join(", ");
           const text = `SELECT table_schema, table_name, table_type FROM information_schema.tables WHERE table_schema NOT IN (${system})${schema ? ` AND table_schema = ${rules.placeholder(1)}` : ""} ORDER BY table_schema, table_name`;
@@ -507,6 +623,19 @@ export function createSqlDatabaseConnector(deps: Partial<SqlDatabaseDeps> = {}):
       async describe_table(input, ctx) {
         const table = reqString(input, "table");
         const dialect = dialectOf(ctx);
+        if (dialect === "oracle") {
+          const owner = optString(input, "schema") ? oracleName(optString(input, "schema")!) : null;
+          const name = oracleName(table);
+          const result = await readOnly(ctx, (client) =>
+            client.query(
+              `SELECT column_name AS "column_name", data_type AS "data_type", CASE nullable WHEN 'Y' THEN 'YES' ELSE 'NO' END AS "is_nullable", data_default AS "column_default"
+               FROM all_tab_columns WHERE owner = ${owner ? ":1" : "SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA')"} AND table_name = ${owner ? ":2" : ":1"} ORDER BY column_id`,
+              owner ? [owner, name] : [name],
+            ),
+          );
+          if (result.rows.length === 0) throw new ConnectorError(`Table ${owner ? `${owner}.` : ""}${name} not found or not visible`, "not_found");
+          return { schema: owner, table: name, columns: toResult(result).rows };
+        }
         const schema = optString(input, "schema") ?? DIALECTS[dialect].defaultSchema ?? null;
         const result = await readOnly(ctx, (client, rules) =>
           client.query(
@@ -524,3 +653,10 @@ export function createSqlDatabaseConnector(deps: Partial<SqlDatabaseDeps> = {}):
 }
 
 export const sqlDatabaseConnector = createSqlDatabaseConnector();
+
+/** Oracle keeps unquoted names in capitals: orders → ORDERS; a "Quoted" name stays as written. */
+function oracleName(name: string): string {
+  const trimmed = name.trim();
+  if (/^"[^"]+"$/.test(trimmed)) return trimmed.slice(1, -1);
+  return /^[A-Za-z][A-Za-z0-9_$#]*$/.test(trimmed) ? trimmed.toUpperCase() : trimmed;
+}
