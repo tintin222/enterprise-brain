@@ -17,6 +17,8 @@ const DEMO_PEOPLE: { name: string; local: string; title: string; admin?: boolean
   { name: "Elif Arslan", local: "elif.arslan", title: "Accounts Payable Specialist", departments: [["finance", "worker"]] },
   { name: "Zeynep Kaya", local: "zeynep.kaya", title: "Customer Service Lead", departments: [["customer-service", "manager"]] },
   { name: "Deniz Aydın", local: "deniz.aydin", title: "Customer Service Agent", departments: [["customer-service", "worker"]] },
+  { name: "Selin Acar", local: "selin.acar", title: "Quality Manager", departments: [["operations", "manager"]] },
+  { name: "Kerem Yıldız", local: "kerem.yildiz", title: "Quality Engineer", departments: [["operations", "worker"]] },
   { name: "Emre Koç", local: "emre.koc", title: "IT Support Specialist", departments: [["it", "worker"]] },
 ];
 
@@ -114,6 +116,8 @@ export async function seedDemo(platform: Platform, companyId: string): Promise<v
     const result = await attempt(`department ${department}`, () => platform.catalog.installDepartment(companyId, department, { activate: true }));
     if (result) log(`installed ${department}: ${result.agents.length} agents`);
   }
+  // Operations starts with no AI employees: its quality manager builds what they need (Phase 4).
+  if (catalog.departments.some((d) => d.id === "operations")) await attempt("department operations", () => platform.catalog.addDepartment(companyId, "operations"));
 
   // Knowledge: each collection the installed agents use gets the policies of its topic; general
   // collections (a handbook) get everything. The company assistant searches all collections.

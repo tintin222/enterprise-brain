@@ -165,7 +165,7 @@ describe("demo people and departments", () => {
     expect(colleagues.map((p) => p.name)).toEqual(expect.arrayContaining(["Burak Şahin", "Elif Arslan", "Mehmet Öz"]));
     expect(colleagues.map((p) => p.name)).not.toContain("Ayşe Yılmaz");
     const everyone = (await t.app.inject({ url: "/api/companies/acme/people", headers: { cookie: mehmet } })).json() as unknown[];
-    expect(everyone.length).toBe(8);
+    expect(everyone.length).toBe(10);
 
     const add = (cookie: string) =>
       t.app.inject({ method: "POST", url: "/api/companies/acme/people", headers: { cookie }, payload: { name: "New Person", email: "new.person@acme.com.tr" } });

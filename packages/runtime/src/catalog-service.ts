@@ -41,6 +41,11 @@ export class CatalogService {
     private readonly activity: ActivityService,
   ) {}
 
+  /** A department from the catalog, without its AI employees: its people build what they need. */
+  async addDepartment(companyId: string, departmentId: string): Promise<DepartmentRow> {
+    return this.ensureDepartment(companyId, departmentId);
+  }
+
   private async ensureDepartment(companyId: string, departmentId: string): Promise<DepartmentRow> {
     const template = this.catalog.departments.find((d) => d.id === departmentId);
     if (!template) throw new Error(`Unknown department template "${departmentId}"`);
