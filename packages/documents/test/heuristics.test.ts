@@ -158,6 +158,16 @@ describe("heuristicExtract: invoices", () => {
     });
   });
 
+  it("reads a field whose key ends in a known kind as that kind (supplier_tax_id is a tax id)", () => {
+    const text = ["INVOICE", "Kaya Celik Sanayi A.S. · Tax ID: 5470321986 · satis@kayacelik.example", "PO Number: PO-4500012"].join("\n");
+    expect(
+      heuristicExtract(text, [
+        { key: "supplier_tax_id", type: "string", hints: ["Tax ID"] },
+        { key: "customer_po_number", type: "string", hints: ["PO Number"] },
+      ]),
+    ).toEqual({ supplier_tax_id: "5470321986", customer_po_number: "PO-4500012" });
+  });
+
   it("uses hints and labels, and reads English number and date formats", () => {
     const text = [
       "Northwind Traders Ltd",

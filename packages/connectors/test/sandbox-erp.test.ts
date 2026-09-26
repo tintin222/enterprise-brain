@@ -158,6 +158,53 @@ describe("sandbox-erp: post_supplier_invoice 3-way match", () => {
     expect(result.match.matched_lines).toEqual([20]);
   });
 
+  it("checks an invoice without posting it, and says what makes it an exception", async () => {
+    const ctx = freshCtx();
+    const check = (input: Record<string, unknown>) => run(erp, "check_supplier_invoice", { supplier_id: "SUP-1001", po_number: "PO-4500012", currency: "TRY", ...input }, ctx);
+    expect(await check({ net_amount: 718500 })).toMatchObject({ match_status: "matched", exception: false, summary: "matches PO-4500012 and its goods receipt" });
+    expect(await check({ net_amount: 804720 })).toMatchObject({
+      match_status: "price_mismatch",
+      exception: true,
+      summary: "is 12.0% (86,220.00 TRY) above the goods received on PO-4500012",
+      difference: 86220,
+      would_post_as: "blocked",
+    });
+    expect(await check({ net_amount: 804720, currency: "EUR" })).toMatchObject({ exception: true, summary: "is in EUR, but PO-4500012 is in TRY" });
+    expect(await check({ net_amount: 100, po_number: "PO-9999999" })).toMatchObject({ exception: true, summary: "refers to PO-9999999, which isn't in the ERP" });
+    expect(await check({ net_amount: 100, supplier_id: "SUP-1003" })).toMatchObject({ exception: true, summary: expect.stringMatching(/an order of another supplier/) });
+    expect(await check({ net_amount: 1, po_number: undefined })).toMatchObject({ match_status: "no_po", exception: true, summary: "refers to no purchase order" });
+    // Nothing was posted by checking.
+    await expectConnectorError(run(erp, "get_invoice_status", { invoice_number: "KCS-CHECK" }, ctx));
+    expect((await run(erp, "get_purchase_order", { po_number: "PO-4500012" }, ctx)).status).not.toBe("closed");
+  });
+
+  it("posts a difference a person approved as an exception, without a payment block", async () => {
+    const ctx = freshCtx();
+    const result = await run(
+      erp,
+      "post_supplier_invoice",
+      invoiceFor({
+        supplier_id: "SUP-1001",
+        invoice_number: "KCS2026000004188",
+        currency: "TRY",
+        net_amount: 804720,
+        tax_amount: 160944,
+        total_amount: 965664,
+        po_number: "PO-4500012",
+        variance_approved_by: "Elif Arslan in Microsoft Teams",
+      }),
+      ctx,
+    );
+    expect(result).toMatchObject({ match_status: "price_mismatch", status: "posted", payment_block: false });
+    expect(result.history[0].note).toMatch(/price variance above tolerance\. Difference approved by Elif Arslan in Microsoft Teams\.$/);
+    // It settles what was received: the order is closed, and the invoice counts as registered.
+    expect((await run(erp, "get_purchase_order", { po_number: "PO-4500012" }, ctx)).status).toBe("closed");
+    expect(await run(erp, "check_supplier_invoice", { po_number: "PO-4500012", currency: "TRY", net_amount: 1, invoice_number: "KCS2026000004188" }, ctx)).toMatchObject({
+      exception: true,
+      registered_as: result.document_number,
+    });
+  });
+
   it("parks invoices without purchase order (no_po)", async () => {
     const result = await run(
       erp,

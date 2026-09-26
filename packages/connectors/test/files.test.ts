@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -265,7 +265,7 @@ function fileOperations(name: string, setup: () => Setup) {
       expect((await connector.poll!("new_file", ctx(config, files), next.cursor)).events).toEqual([]);
     });
 
-    it("tells why a file is left alone", async () => {
+    it("tells why a file is left alone, for as long as it is there", async () => {
       const { connector, root, ctx } = setup();
       const config = { ...watch, max_file_mb: 1 };
       const start = await connector.poll!("new_file", ctx(config));
@@ -273,8 +273,11 @@ function fileOperations(name: string, setup: () => Setup) {
       const next = await connector.poll!("new_file", ctx(config), start.cursor);
       expect(next.events).toEqual([]);
       expect(next.warnings).toEqual(["incoming/huge-scan.pdf is 1 MB; files up to 1 MB are picked up"]);
-      // Said once, not at every check.
-      expect((await connector.poll!("new_file", ctx(config), next.cursor)).warnings).toEqual([]);
+      // Said at every check while it waits there (it is never picked up by itself), and no more once it's gone.
+      const again = await connector.poll!("new_file", ctx(config), next.cursor);
+      expect(again).toMatchObject({ events: [], warnings: next.warnings });
+      rmSync(join(root, "incoming/huge-scan.pdf"));
+      expect((await connector.poll!("new_file", ctx(config), again.cursor)).warnings).toEqual([]);
     });
   });
 }

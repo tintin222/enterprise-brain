@@ -23,7 +23,7 @@ function linkText(text: string): string {
 }
 
 /** Lines of plain text, one TextBlock each (a single line break doesn't show in a TextBlock). */
-function lineBlocks(text: string, max = 40): Json[] {
+function lineBlocks(text: string, max = 40, style: Json = {}): Json[] {
   const blocks: Json[] = [];
   let gap = false;
   for (const line of text.split(/\r?\n/)) {
@@ -35,7 +35,7 @@ function lineBlocks(text: string, max = 40): Json[] {
       blocks.push({ type: "TextBlock", text: "…", wrap: true, spacing: "None" });
       break;
     }
-    blocks.push({ type: "TextBlock", text: visible(line), wrap: true, spacing: gap ? "Medium" : "None" });
+    blocks.push({ type: "TextBlock", text: visible(line), wrap: true, ...style, spacing: gap ? "Medium" : "None" });
     gap = false;
   }
   return blocks;
@@ -43,15 +43,13 @@ function lineBlocks(text: string, max = 40): Json[] {
 
 function block(item: CardBlock): Json[] {
   switch (item.kind) {
-    case "text":
-      return [
-        {
-          type: "TextBlock",
-          text: visible(item.text),
-          wrap: true,
-          ...(item.style === "subtle" ? { isSubtle: true, size: "Small" } : item.style === "strong" ? { weight: "Bolder", spacing: "Medium" } : {}),
-        },
-      ];
+    case "text": {
+      const style = item.style === "subtle" ? { isSubtle: true, size: "Small" } : item.style === "strong" ? { weight: "Bolder" } : {};
+      // Several lines (an AP note, a list): one TextBlock each, or Teams runs them together.
+      if (/\r?\n/.test(item.text.trim()))
+        return [{ type: "Container", ...(item.style === "strong" ? { spacing: "Medium" } : {}), items: lineBlocks(item.text, 40, style) }];
+      return [{ type: "TextBlock", text: visible(item.text), wrap: true, ...style, ...(item.style === "strong" ? { spacing: "Medium" } : {}) }];
+    }
     case "notice":
       return [{ type: "Container", style: item.tone, items: [{ type: "TextBlock", text: visible(item.text), wrap: true }] }];
     case "facts":

@@ -6,7 +6,8 @@ title: Accounts Payable Specialist
 summary: >-
   Reads supplier invoices (PDF, scan or e-invoice) with OCR, extracts header and lines, finds the
   supplier and purchase order in the ERP, checks duplicates, amounts, prices, received quantities and
-  bank details (3-way match), and posts the invoice after the AP clerk approves.
+  bank details (3-way match), and posts the invoice after the AP clerk approves. An exception (a
+  difference to the order beyond the tolerance) reaches the AP clerk with what makes it one.
 department: finance
 process: finance.accounts-payable
 archetype: document-processing
@@ -19,6 +20,7 @@ capabilities:
   - connector:erp.get_supplier
   - connector:erp.get_purchase_order
   - connector:erp.get_invoice_status
+  - connector:erp.check_supplier_invoice
   - connector:erp.post_supplier_invoice
 triggers:
   - type: manual
@@ -65,6 +67,7 @@ outputs:
       - {value: review, label: Needs attention}
       - {value: fail, label: Do not post}
   - {key: issues, label: Issues, type: list, itemType: string}
+  - {key: exception, label: Exception, type: string}
   - {key: match_status, label: ERP match status, type: string}
   - {key: erp_document, label: ERP document number, type: string}
   - {key: status, label: Status, type: string}
@@ -73,7 +76,7 @@ connectors:
   - ref: erp
     category: erp
     purpose: Supplier master, purchase orders and goods receipts, invoice status and invoice posting.
-    operations: [search_suppliers, get_supplier, get_purchase_order, get_invoice_status, post_supplier_invoice]
+    operations: [search_suppliers, get_supplier, get_purchase_order, get_invoice_status, check_supplier_invoice, post_supplier_invoice]
 knowledge:
   collections: [ap-policies]
 workflow:
@@ -191,6 +194,19 @@ workflow:
     input:
       invoice_number: "{{ steps.invoice.invoice_number }}"
     onError: continue
+  - id: match
+    name: Match with the order and goods receipt in the ERP
+    type: connector
+    when: steps.supplier.supplier_id || steps.supplier_search.total
+    connector: erp
+    operation: check_supplier_invoice
+    input:
+      supplier_id: "{{ steps.supplier.supplier_id || steps.supplier_search.items.0.supplier_id }}"
+      po_number: "{{ input.po_number || steps.invoice.po_number }}"
+      currency: "{{ steps.invoice.currency | default:'TRY' }}"
+      net_amount: "{{ steps.invoice.net_amount }}"
+      invoice_number: "{{ steps.invoice.invoice_number }}"
+    onError: continue
   - id: policy
     name: Look up the AP policy
     type: knowledge.search
@@ -207,6 +223,7 @@ workflow:
       Supplier search results: {{ steps.supplier_search.total | default:0 }} match(es)
       Purchase order with received and invoiced quantities: {{ steps.purchase_order | json }}
       Existing invoice with the same number (an error here means none was found): {{ steps.duplicate_check | json }}
+      3-way match in the ERP (checked, nothing posted): {{ steps.match | json }}
       AP policy: {{ steps.policy.context }}
     passScore: 80
     instructions: >-
@@ -238,7 +255,7 @@ workflow:
         description: References an open purchase order of this supplier; prices within tolerance of the PO prices.
         kind: must
         weight: 3
-        keywords: [sipariş, purchase order, po no]
+        keywords: [sipariş, purchase order, po no, po number]
       - id: receipt_match
         label: Matches the goods receipt
         description: Invoiced quantities do not exceed the quantities received and not yet invoiced (3-way match).
@@ -265,12 +282,15 @@ workflow:
     prompt: |-
       Write a review note for the AP clerk about invoice {{ steps.invoice.invoice_number }} from {{ steps.invoice.supplier_name }}.
       Invoice: {{ steps.invoice | json }}
+      3-way match in the ERP: {{ steps.match | json }}
       Checks: {{ steps.checks | json }}
-      Structure: one-line status (ready to post / needs attention / do not post) with the total amount; a table
-      of the checks (check, result, evidence); the variances with amounts; the recommended action. Max 180 words.
+      Structure: one-line status (ready to post / needs attention / do not post) with the total amount; the 3-way
+      match result; a table of the checks (check, result, evidence); the variances with amounts; the recommended
+      action. Max 180 words.
     fallback: |-
       Invoice {{ steps.invoice.invoice_number | default:'(number not found)' }} from {{ steps.invoice.supplier_name | default:'(supplier not found)' }}
-      Total {{ steps.invoice.total_amount }} {{ steps.invoice.currency }} (net {{ steps.invoice.net_amount }}, VAT {{ steps.invoice.tax_amount }}), PO {{ input.po_number || steps.invoice.po_number | default:'none' }}
+      Total {{ steps.invoice.total_amount | money:steps.invoice.currency }} (net {{ steps.invoice.net_amount | money }}, VAT {{ steps.invoice.tax_amount | money }}), PO {{ input.po_number || steps.invoice.po_number | default:'none' }}
+      3-way match in the ERP: it {{ steps.match.summary | default:'was not checked' }}
       Checks: {{ steps.checks.verdict }}, score {{ steps.checks.score }}/100
 
       Passed:
@@ -281,17 +301,25 @@ workflow:
   - id: approve
     name: AP approval
     type: approval
-    when: "!steps.checks.knockout"
-    title: "Post invoice {{ steps.invoice.invoice_number }} from {{ steps.invoice.supplier_name }}: {{ steps.invoice.total_amount }} {{ steps.invoice.currency }}?"
+    when: "!steps.checks.knockout && !steps.match.exception"
+    title: "Post invoice {{ steps.invoice.invoice_number }} from {{ steps.invoice.supplier_name }}: {{ steps.invoice.total_amount | money:steps.invoice.currency }}?"
+    details: "{{ steps.ap_note.text }}"
+    assigneeRole: ap-clerk
+  - id: approve_exception
+    name: Exception approval
+    type: approval
+    when: "!steps.checks.knockout && steps.match.exception"
+    title: "Invoice {{ steps.invoice.invoice_number }} from {{ steps.invoice.supplier_name }} {{ steps.match.summary }}. Post it anyway?"
+    reason: "The invoice {{ steps.match.summary }}: posted without your approval, it would be blocked for payment."
     details: "{{ steps.ap_note.text }}"
     assigneeRole: ap-clerk
   - id: post
     name: Post the invoice in the ERP
     type: connector
-    when: steps.approve.approved
+    when: steps.approve.approved || steps.approve_exception.approved
     connector: erp
     operation: post_supplier_invoice
-    requiresApproval: false # approved by the AP clerk in "approve"
+    requiresApproval: false # approved by the AP clerk in "approve" or "approve_exception"
     input:
       supplier_id: "{{ steps.supplier.supplier_id || steps.supplier_search.items.0.supplier_id }}"
       invoice_number: "{{ steps.invoice.invoice_number }}"
@@ -301,6 +329,7 @@ workflow:
       tax_amount: "{{ steps.invoice.tax_amount | default:0 }}"
       total_amount: "{{ steps.invoice.total_amount }}"
       po_number: "{{ input.po_number || steps.invoice.po_number }}"
+      variance_approved_by: "{{ steps.approve_exception.approved && steps.approve_exception.decidedBy }}{{ steps.approve_exception.via && (' in ' + steps.approve_exception.via) }}"
     onError: continue
   - id: result
     type: output
@@ -311,9 +340,10 @@ workflow:
       check_score: "{{ steps.checks.score }}"
       verdict: "{{ steps.checks.verdict }}"
       issues: "{{ steps.checks.gaps }}"
-      match_status: "{{ steps.post.match_status }}"
+      exception: "{{ (steps.match.exception && steps.match.summary) || '' }}"
+      match_status: "{{ steps.post.match_status || steps.match.match_status }}"
       erp_document: "{{ steps.post.document_number }}"
-      status: "{{ (steps.checks.knockout && 'Rejected: failed a mandatory check') || steps.post.error || steps.post.status || (steps.approve && 'Not approved') || 'Pending' }}"
+      status: "{{ (steps.checks.knockout && 'Rejected: failed a mandatory check') || steps.post.error || steps.post.status || ((steps.approve || steps.approve_exception) && 'Not approved') || 'Pending' }}"
       ap_note: "{{ steps.ap_note.text }}"
 guardrails:
   approvalRequiredFor: [mail.send, "connector:write"]
@@ -449,8 +479,9 @@ You are the **Invoice Processor** of the accounts payable team. You turn supplie
 2. Find the supplier by tax ID (VKN) first, then by name; read the supplier master including status and IBAN.
 3. Read the purchase order with received and invoiced quantities, and check whether the invoice number already exists.
 4. Evaluate: supplier active, not a duplicate, arithmetic, PO prices, received quantities, bank details, mandatory fields.
-5. Write the AP note and ask the AP clerk for approval. Invoices that fail a mandatory check (unknown or blocked supplier, duplicate) are not offered for posting.
-6. Post the approved invoice; variances are blocked for payment by the ERP.
+5. Check the 3-way match in the ERP without posting. A difference beyond the tolerance is an exception: say what it is and let the AP clerk decide whether to post it anyway.
+6. Write the AP note and ask the AP clerk for approval. Invoices that fail a mandatory check (unknown or blocked supplier, duplicate) are not offered for posting.
+7. Post the approved invoice; an approved exception is posted with who approved it, other variances are blocked for payment by the ERP.
 
 ## Rules
 - Never change, round or "correct" amounts from the invoice. If numbers do not add up, report it.

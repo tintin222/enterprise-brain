@@ -155,6 +155,42 @@ export async function seedDemo(platform: Platform, companyId: string): Promise<v
 
   // Supplier invoices generated from the sandbox ERP's purchase orders: one exact 3-way match, one price mismatch.
   const invoicesMailbox = await mailboxFor(platform, companyId, ["finance.invoice-processor"], "invoices@acme.com.tr");
+  const invoices = await demoInvoices(platform, companyId);
+  for (const invoice of invoices) {
+    const data = await renderInvoice(invoice);
+    const stored = await platform.files.put(companyId, { name: invoice.fileName, data, mimeType: "application/pdf", source: "demo", metadata: { demoSet: "invoice" } });
+    const { total } = invoiceTotals(invoice);
+    await platform.mail.ingest(companyId, {
+      mailbox: invoicesMailbox,
+      from: invoice.supplierEmail,
+      fromName: invoice.supplierName,
+      subject: `Invoice ${invoice.invoiceNumber} for PO ${invoice.poNumber}`,
+      body: `Dear Accounts Payable,\n\nPlease find attached invoice ${invoice.invoiceNumber} (${total.toFixed(2)} ${invoice.currency}) for purchase order ${invoice.poNumber}.\n\nBest regards,\n${invoice.supplierName}`,
+      attachmentFileIds: [stored.id],
+    });
+  }
+  log(`mail: ${invoices.length} supplier invoices in ${invoicesMailbox}`);
+
+  const support = await mailboxFor(platform, companyId, ["customer-service.mail-triage", "shared-services.mail-assistant"], "support@acme.com.tr");
+  const helpdesk = await mailboxFor(platform, companyId, ["it.helpdesk-agent"], "it-helpdesk@acme.com.tr");
+  for (const email of DEMO_EMAILS) {
+    await platform.mail.ingest(companyId, {
+      mailbox: email.topic === "support" ? support : helpdesk,
+      from: email.from,
+      fromName: email.fromName,
+      subject: email.subject,
+      body: email.body,
+    });
+  }
+  log(`mail: ${DEMO_EMAILS.length} messages in ${support} and ${helpdesk}`);
+  await platform.activity.record(companyId, { actor: "system", action: "demo.seeded", entityType: "company", entityId: companyId, summary: "Demo company prepared" });
+}
+
+/**
+ * Supplier invoices for received purchase orders of the sandbox ERP that aren't (fully) invoiced yet:
+ * the first matches its order and goods receipt exactly, the second is 12% over the agreed prices.
+ */
+export async function demoInvoices(platform: Platform, companyId: string): Promise<DemoInvoice[]> {
   // Received purchase orders not yet (fully) invoiced; search results are summaries, so fetch each order's lines.
   const invoices: DemoInvoice[] = [];
   for (const status of ["received", "partially_received"]) {
@@ -196,32 +232,5 @@ export async function seedDemo(platform: Platform, companyId: string): Promise<v
       });
     }
   }
-  for (const invoice of invoices) {
-    const data = await renderInvoice(invoice);
-    const stored = await platform.files.put(companyId, { name: invoice.fileName, data, mimeType: "application/pdf", source: "demo", metadata: { demoSet: "invoice" } });
-    const { total } = invoiceTotals(invoice);
-    await platform.mail.ingest(companyId, {
-      mailbox: invoicesMailbox,
-      from: invoice.supplierEmail,
-      fromName: invoice.supplierName,
-      subject: `Invoice ${invoice.invoiceNumber} for PO ${invoice.poNumber}`,
-      body: `Dear Accounts Payable,\n\nPlease find attached invoice ${invoice.invoiceNumber} (${total.toFixed(2)} ${invoice.currency}) for purchase order ${invoice.poNumber}.\n\nBest regards,\n${invoice.supplierName}`,
-      attachmentFileIds: [stored.id],
-    });
-  }
-  log(`mail: ${invoices.length} supplier invoices in ${invoicesMailbox}`);
-
-  const support = await mailboxFor(platform, companyId, ["customer-service.mail-triage", "shared-services.mail-assistant"], "support@acme.com.tr");
-  const helpdesk = await mailboxFor(platform, companyId, ["it.helpdesk-agent"], "it-helpdesk@acme.com.tr");
-  for (const email of DEMO_EMAILS) {
-    await platform.mail.ingest(companyId, {
-      mailbox: email.topic === "support" ? support : helpdesk,
-      from: email.from,
-      fromName: email.fromName,
-      subject: email.subject,
-      body: email.body,
-    });
-  }
-  log(`mail: ${DEMO_EMAILS.length} messages in ${support} and ${helpdesk}`);
-  await platform.activity.record(companyId, { actor: "system", action: "demo.seeded", entityType: "company", entityId: companyId, summary: "Demo company prepared" });
+  return invoices;
 }

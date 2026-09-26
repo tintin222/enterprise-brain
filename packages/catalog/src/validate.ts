@@ -35,7 +35,7 @@ const KEBAB = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 /** Roots a template expression may start from (the run context) and literal words of the expression language. */
 const TEMPLATE_ROOTS = new Set(["input", "steps", "agent", "trigger", "run"]);
 const EXPRESSION_WORDS = new Set(["true", "false", "null", "undefined", "and", "or", "not", "in", "contains"]);
-const TEMPLATE_FILTERS = new Set(["json", "join", "default", "upper", "lower", "truncate", "length", "first", "pluck", "round", "bullets"]);
+const TEMPLATE_FILTERS = new Set(["json", "join", "default", "upper", "lower", "truncate", "length", "first", "pluck", "round", "bullets", "money"]);
 const DRY_RUN_CONTEXT = { input: {}, steps: {}, agent: {}, trigger: {}, run: {} };
 
 /** Step keys whose values are used verbatim by the runtime (a `{{ }}` there would never be resolved). */

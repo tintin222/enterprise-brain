@@ -1195,6 +1195,7 @@ export interface WatcherStatus {
   connection: string;
   connectionId: string;
   watching: string;
+  agent: string | null;
   lastPolledAt: string | null;
   lastCount: number;
   lastError: string | null;

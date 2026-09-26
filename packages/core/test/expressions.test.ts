@@ -54,6 +54,13 @@ describe("templates", () => {
     expect(renderTemplate("{{ input.nickname | default: input.name }}", ctx)).toBe("Ayşe");
   });
 
+  it("writes amounts as people read them", () => {
+    const amounts = { invoice: { total: 965664, net: "804720.5", currency: "TRY" } };
+    expect(renderTemplate("{{ invoice.total | money:invoice.currency }}", amounts)).toBe("965,664.00 TRY");
+    expect(renderTemplate("{{ invoice.net | money }}", amounts)).toBe("804,720.50");
+    expect(renderTemplate("{{ invoice.missing | money:'TRY' }}", amounts)).toBe("");
+  });
+
   it("resolves nested objects", () => {
     expect(resolveTemplate({ to: "{{ input.name }}", meta: ["{{ steps.evaluate.verdict }}", 1] }, ctx)).toEqual({
       to: "Ayşe",

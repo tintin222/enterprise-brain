@@ -1,4 +1,4 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CircleCheck,
   ClipboardList,
@@ -38,7 +38,7 @@ import { categoryIcon } from "../lib/icons.tsx";
 import { categoryLabel, CONNECTOR_CATEGORY_ORDER } from "../lib/labels.ts";
 import { keys, useConnectorCatalog, useConnectors } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
-import type { ConfigField, ConnectorInstance, ConnectorManifest, JsonSchema, OperationManifest } from "../types.ts";
+import type { ConfigField, ConnectorInstance, ConnectorManifest, JsonSchema, OperationManifest, WatcherStatus } from "../types.ts";
 
 // ---------------------------------------------------------------------------
 // Connect drawer
@@ -524,6 +524,30 @@ function SandboxExplorer({ manifests, initialType }: { manifests: ConnectorManif
 // Page
 // ---------------------------------------------------------------------------
 
+/** What a watcher watches, in words: "New mail", "New files for Scan Reader". */
+function watcherLabel(watcher: WatcherStatus): string {
+  const what =
+    watcher.watching === "new_message"
+      ? "New mail"
+      : watcher.watching === "new_file"
+        ? "New files"
+        : watcher.watching.startsWith("new:")
+          ? `New items from ${humanize(watcher.watching.slice(4)).toLowerCase()}`
+          : humanize(watcher.watching);
+  return watcher.agent ? `${what} for ${watcher.agent}` : what;
+}
+
+/** When it was last checked, what it brought in, and what it left alone (a file too large, a missing folder). */
+function WatcherLine({ watcher }: { watcher: WatcherStatus }) {
+  return (
+    <p className={`mt-0.5 text-xs ${watcher.lastError ? "text-amber-700 dark:text-amber-300" : "text-muted"}`}>
+      {watcherLabel(watcher)} · {watcher.lastPolledAt ? `checked ${timeAgo(watcher.lastPolledAt)}` : "not checked yet"}
+      {watcher.lastCount ? ` · ${watcher.lastCount} new last time` : ""}
+      {watcher.lastError ? ` · ${watcher.lastError}` : ""}
+    </p>
+  );
+}
+
 export default function Connectors() {
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
@@ -536,6 +560,18 @@ export default function Connectors() {
   const [naming, setNaming] = useState<ConnectorInstance | null>(null);
   const [editing, setEditing] = useState<ConnectorInstance | null>(null);
   const [hostKey, setHostKey] = useState<HostKeyCheck | null>(null);
+  // What each connection watches for AI employees (mailboxes, folders, systems), and how its last check went.
+  const watchers = useQuery({ queryKey: [...keys.connectors(company), "watchers"], queryFn: () => api.get<WatcherStatus[]>(path("/watchers")) });
+  const checkNow = useMutation({
+    mutationFn: () => api.post<{ mail: number; events: number; errors: string[] }>(path("/watchers/poll")),
+    onSuccess: (res) => {
+      void queryClient.invalidateQueries({ queryKey: keys.connectors(company) });
+      const brought = `${res.mail} email${res.mail === 1 ? "" : "s"} and ${res.events} event${res.events === 1 ? "" : "s"} brought in`;
+      if (res.errors.length) toast.error(`Checked: ${brought}, with problems`, { description: res.errors.join("\n") });
+      else toast.success(`Checked: ${brought}`);
+    },
+    onError: (e) => toast.error(e),
+  });
   const [search, setSearch] = useSearchParams();
   // Back from signing a connection in with OAuth 2.0: say how it went.
   useEffect(() => {
@@ -601,7 +637,17 @@ export default function Connectors() {
         description="Connect the company's systems: ERP, CRM, HR, mail, file servers, web services and databases. For web services and databases, name the actions AI employees may use. Until a system is connected, AI employees practise on built-in demo systems."
       />
 
-      <SectionTitle>Connected systems</SectionTitle>
+      <SectionTitle
+        actions={
+          watchers.data?.length ? (
+            <Button size="xs" variant="ghost" icon={RefreshCw} loading={checkNow.isPending} onClick={() => checkNow.mutate()}>
+              Check now
+            </Button>
+          ) : undefined
+        }
+      >
+        Connected systems
+      </SectionTitle>
       <Card className="mb-10 overflow-hidden">
         {instances.isLoading && <Skeleton className="m-4 h-16" />}
         {instances.error && <ErrorState error={instances.error} className="m-4" />}
@@ -638,6 +684,11 @@ export default function Connectors() {
                         {i.type} · {categoryLabel(i.category)} · {i.lastCheckedAt ? `checked ${timeAgo(i.lastCheckedAt)}` : "never tested"}
                         {i.lastError ? ` · ${i.lastError}` : ""}
                       </p>
+                      {(watchers.data ?? [])
+                        .filter((w) => w.connectionId === i.id)
+                        .map((w) => (
+                          <WatcherLine key={`${w.watching}:${w.agent ?? ""}`} watcher={w} />
+                        ))}
                     </div>
                   </div>
                   <div className="flex shrink-0 gap-2">

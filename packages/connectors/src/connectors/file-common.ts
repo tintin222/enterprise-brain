@@ -414,6 +414,8 @@ const MAX_WATCHED_FILES = 20_000;
 interface FileCursor {
   v: 1;
   seen: string[];
+  /** Files left alone for being too large: said at every check while they are there. */
+  skipped?: string[];
 }
 
 function signature(entry: FileEntry): string {
@@ -424,7 +426,10 @@ function parseCursor(cursor: string | undefined): FileCursor | undefined {
   if (!cursor) return undefined;
   try {
     const parsed = JSON.parse(cursor) as Partial<FileCursor>;
-    if (parsed.v === 1 && Array.isArray(parsed.seen)) return { v: 1, seen: parsed.seen.filter((s): s is string => typeof s === "string") };
+    if (parsed.v === 1 && Array.isArray(parsed.seen)) {
+      const strings = (list: unknown[]) => list.filter((s): s is string => typeof s === "string");
+      return { v: 1, seen: strings(parsed.seen), skipped: Array.isArray(parsed.skipped) ? strings(parsed.skipped) : [] };
+    }
   } catch {
     // Not a cursor of ours: start again.
   }
@@ -468,10 +473,16 @@ export async function pollNewFiles(store: FileStore, ctx: ConnectorContext, curs
   const warnings: string[] = [];
   const handled: string[] = [];
   const limit = maxBytes(ctx);
+  const tooLarge = (entry: FileEntry) => `${entry.path} is ${megabytes(entry.size)}; files up to ${megabytes(limit)} are picked up`;
+  // Files left alone earlier are named again while they are still there, so nobody misses them.
+  const skippedBefore = new Set(previous.skipped ?? []);
+  const skipped = entries.filter((e) => skippedBefore.has(signature(e)));
+  warnings.push(...skipped.map(tooLarge));
   for (const entry of fresh) {
     if (entry.size > limit) {
-      warnings.push(`${entry.path} is ${megabytes(entry.size)}; files up to ${megabytes(limit)} are picked up`);
+      warnings.push(tooLarge(entry));
       handled.push(signature(entry));
+      skipped.push(entry);
       continue;
     }
     let file: Rec;
@@ -505,7 +516,8 @@ export async function pollNewFiles(store: FileStore, ctx: ConnectorContext, curs
   // Remembered: the files still in the folder (one that left is forgotten, so it counts as new if it comes back).
   const present = new Set(entries.map(signature));
   const seenNext = [...new Set([...previous.seen.filter((s) => present.has(s)), ...handled])];
-  return { events, cursor: JSON.stringify({ v: 1, seen: seenNext }), warnings };
+  const cursorNext: FileCursor = { v: 1, seen: seenNext, ...(skipped.length ? { skipped: skipped.map(signature) } : {}) };
+  return { events, cursor: JSON.stringify(cursorNext), warnings };
 }
 
 /** "INV-1.pdf" → "INV-1 20260926-101500.pdf": a name free in the processed folder. */

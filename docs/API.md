@@ -202,7 +202,7 @@ A new email goes back to its task when it is a reply (the task's reference, or i
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/companies/:company/watchers` | Admin. `[{ connection, connectionId, watching (new_message, or the event), lastPolledAt, lastCount, lastError }]` |
+| GET | `/api/companies/:company/watchers` | Admin. `[{ connection, connectionId, watching (new_message, or the event), agent (the AI employee whose duty it is; null for mailboxes), lastPolledAt, lastCount, lastError }]` |
 | POST | `/api/companies/:company/watchers/poll` | Admin. Check now: `{ mail, events, errors[] }` |
 | GET | `/api/companies/:company/settings` | Admin. `{ aiMailbox, mailDomain, timeZone }` |
 | PUT | `/api/companies/:company/settings` | Admin. `{ aiMailbox?: "ai@acme.com.tr" \| null, timeZone?: "Europe/Istanbul" \| null }`: the mailbox people forward work to (connect it as a mail connection too), and the time zone of morning summaries for people who didn't choose their own |

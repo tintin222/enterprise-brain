@@ -87,6 +87,7 @@ export const SANDBOX_SYSTEMS: Readonly<Record<string, SandboxSystem>> = {
       read("get_purchase_order", "po_number"),
       read("search_purchase_orders", "supplier_id?, status?", { status: PO_STATUSES }),
       read("get_invoice_status", "invoice_number"),
+      read("check_supplier_invoice", "currency, net_amount, supplier_id?, po_number?, invoice_number?"),
       read("search_customers", "query?"),
       read("get_customer_balance", "customer_id"),
       read("list_open_items", "customer_id?, overdue_only?"),
@@ -97,7 +98,7 @@ export const SANDBOX_SYSTEMS: Readonly<Record<string, SandboxSystem>> = {
       write("create_purchase_order", "supplier_id, lines, currency?"),
       write(
         "post_supplier_invoice",
-        "supplier_id, invoice_number, invoice_date, currency, net_amount, tax_amount, total_amount, po_number?",
+        "supplier_id, invoice_number, invoice_date, currency, net_amount, tax_amount, total_amount, po_number?, variance_approved_by?",
       ),
       write("update_supplier_invoice_status", "invoice_number, status, note?", { status: INVOICE_STATUSES }),
     ],

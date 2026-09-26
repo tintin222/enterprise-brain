@@ -131,9 +131,20 @@ You are the CV Screener. …
 
 - Every value can be a template: `{{ path | filter }}`.
 - Paths start at `input`, `steps.<id>`, `agent`, `trigger` or `run`. `run.date` is the run's start date (`YYYY-MM-DD`) and `run.startedAt` its timestamp, for "today" in prompts and conditions.
-- Filters: `json`, `join`, `default`, `upper`, `lower`, `truncate`, `length`, `first`, `round`, `bullets`.
+- Filters: `json`, `join`, `default`, `upper`, `lower`, `truncate`, `length`, `first`, `pluck`, `round`, `bullets`, `money` (`{{ total | money:currency }}` → "965,664.00 TRY"). A filter's argument is an expression too: a path or a quoted text.
 - `a || b` returns the first truthy value.
 - `when` is an expression, for example `steps.evaluate.score >= 70 && input.role != 'intern'`.
+- An `approval` step takes a `title`, `details`, `assigneeRole` and a `reason`: why a person is asked, shown first wherever the question reaches them (the work queue, email, Teams and Google Chat). Give one when the step asks only in some cases, such as an exception:
+
+  ```yaml
+  - id: approve_exception
+    type: approval
+    when: "steps.match.exception"
+    title: "Invoice {{ steps.invoice.invoice_number }} {{ steps.match.summary }}. Post it anyway?"
+    reason: "The invoice {{ steps.match.summary }}: posted without your approval, it would be blocked for payment."
+  ```
+
+  Its result is `{ approved, note, decidedBy, via? }`, `via` naming where it was decided ("Microsoft Teams", "Google Chat", "an email").
 
 The step types and their results are documented in [ARCHITECTURE.md §3](ARCHITECTURE.md#3-agents). Mailbox-triggered runs receive `input.email = { id, from, fromName, to, subject, body, attachments: [fileIds], attachmentNames, receivedAt }`.
 

@@ -1017,7 +1017,7 @@ export class RunEngine {
         });
         let result: unknown;
         if (state.pending.kind === "decision") {
-          result = { approved: decision.approved, note: decision.note ?? "", decidedBy };
+          result = { approved: decision.approved, note: decision.note ?? "", decidedBy, ...(decision.via ? { via: VIA_LABELS[decision.via] ?? decision.via } : {}) };
         } else if (decision.approved) {
           try {
             const executed = await executeAction(this.deps, companyId, action);

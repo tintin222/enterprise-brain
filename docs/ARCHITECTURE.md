@@ -105,7 +105,7 @@ An agent is an `AgentDefinition` with these parts:
 | `llm.generate` | Prompt → text | `fallback` template |
 | `knowledge.search` | Query → hits plus numbered context | Same (hybrid retrieval) |
 | `connector` | Operation on a bound system. Writes are approval-gated. | Same (sandbox by default) |
-| `approval` | Pauses for a human decision | Same |
+| `approval` | Pauses for a human decision, saying why when it has a `reason` | Same |
 | `mail.send` | Sends mail through the company's mail connector. Approval-gated by default. | Same (sandbox outbox) |
 | `excel.read` / `excel.write` | Reads a workbook / produces an `.xlsx` file | Same |
 | `agent` | Autonomous Claude tool loop over the agent's capabilities | Knowledge-only fallback |

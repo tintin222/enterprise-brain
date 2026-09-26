@@ -61,6 +61,21 @@ describe("item cards", () => {
     expect(teamsActivity({ card })).toMatchObject({ summary: card.summary, attachments: [{ contentType: "application/vnd.microsoft.card.adaptive" }] });
   });
 
+  it("keeps the lines of a note apart in Teams, where one line break doesn't show", () => {
+    const note = "Invoice INV-7 from Kaya Çelik\nTotal 965,664.00 TRY\n\nNeeds attention:\n- Matches the goods receipt";
+    const approval = entry({ details: note, action: { type: "decision" }, reason: "The invoice is 12.0% above the goods received on PO-4500012" });
+    const adaptive = adaptiveCard(itemCard({ companyId: "c1", companyName: "Acme", person, entry: approval, links }));
+    const lines = (adaptive.body as { type: string; items?: { text: string; spacing: string }[] }[]).find(
+      (b) => b.type === "Container" && b.items?.length === 4,
+    )!;
+    expect(lines.items!.map((l) => [l.text, l.spacing])).toEqual([
+      ["Invoice INV-7 from Kaya Çelik", "None"],
+      ["Total 965,664.00 TRY", "None"],
+      ["Needs attention:", "Medium"],
+      ["- Matches the goods receipt", "None"],
+    ]);
+  });
+
   it("asks a question with its options, and says how items ended", () => {
     const question = itemCard({
       companyId: "c1",

@@ -38,7 +38,8 @@ const SENT_LABEL: Record<string, string> = {
   day: "Morning summary",
 };
 
-function timeZones(current: string): string[] {
+/** Every time zone the browser knows, with the current one first when it doesn't. */
+export function timeZones(current: string): string[] {
   const all = (Intl as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.("timeZone") ?? [];
   return all.includes(current) ? all : [current, ...all];
 }

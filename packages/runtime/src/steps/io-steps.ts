@@ -119,12 +119,14 @@ function stripEmpty(input: Record<string, unknown>): Record<string, unknown> {
 }
 
 export function runApproval(step: Step<"approval">, scope: ExecutionScope): StepOutcome {
+  const reason = step.reason ? renderTemplate(step.reason, scope.context).trim() : "";
   return {
     kind: "pause",
     title: renderTemplate(step.title, scope.context),
     details: step.details ? renderTemplate(step.details, scope.context) : "",
     assigneeRole: step.assigneeRole,
     action: { type: "decision" },
+    ...(reason ? { reason } : {}),
   };
 }
 

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AtSign, Building, KeyRound, Moon, Save, Server, Sun } from "lucide-react";
+import { AtSign, Building, Clock, KeyRound, Moon, Save, Server, Sun } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { api, getApiKey, setApiKey } from "../../api.ts";
@@ -7,6 +7,7 @@ import { Badge } from "../../components/Badge.tsx";
 import { Button } from "../../components/Button.tsx";
 import { Card, CardHeader, PageHeader } from "../../components/Card.tsx";
 import { Field } from "../../components/Form.tsx";
+import { timeZones } from "../../components/NotificationSettings.tsx";
 import { KeyValue } from "../../components/KeyValue.tsx";
 import { Page } from "../../components/Layout.tsx";
 import { Callout } from "../../components/Spinner.tsx";
@@ -74,6 +75,56 @@ function AiMailbox() {
   );
 }
 
+/** The company's time zone: morning summaries arrive in it for people who didn't choose their own. */
+function CompanyTimeZone() {
+  const { company, path } = useCompany();
+  const toast = useToast();
+  const settings = useQuery({
+    queryKey: [company, "settings"],
+    queryFn: () => api.get<{ aiMailbox: string | null; timeZone: string | null }>(path("/settings")),
+  });
+  // Unless an admin chose one, summaries follow Istanbul time.
+  const current = settings.data?.timeZone ?? "Europe/Istanbul";
+  const [value, setValue] = useState("");
+  useEffect(() => setValue(current), [current]);
+  const zones = timeZones(value || current);
+  const save = useMutation({
+    mutationFn: () => api.put<{ timeZone: string }>(path("/settings"), { timeZone: value }),
+    onSuccess: (res) => {
+      void settings.refetch();
+      toast.success(`Morning summaries follow ${res.timeZone} for people who haven't chosen their own`);
+    },
+    onError: (e) => toast.error(e),
+  });
+  return (
+    <Card>
+      <CardHeader title="Time zone" icon={Clock} subtitle="Morning summaries arrive in this time zone, unless someone chose their own under What reaches me." />
+      <form
+        className="space-y-3 p-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate();
+        }}
+      >
+        <Field label="Company time zone">
+          {(id) => (
+            <select id={id} className="input sm:max-w-sm" value={value || current} onChange={(e) => setValue(e.target.value)} disabled={!settings.data}>
+              {zones.map((zone) => (
+                <option key={zone} value={zone}>
+                  {zone.replace(/_/g, " ")}
+                </option>
+              ))}
+            </select>
+          )}
+        </Field>
+        <Button type="submit" variant="primary" icon={Save} loading={save.isPending} disabled={!value || value === current}>
+          Save
+        </Button>
+      </form>
+    </Card>
+  );
+}
+
 export default function Installation() {
   const { info, company, companies, setCompany } = useCompany();
   const { theme, setTheme } = useTheme();
@@ -107,6 +158,7 @@ export default function Installation() {
       <PageHeader icon={Server} title="Installation" description="The company, how people reach AI employees, access for machines, and this installation." />
       <div className="space-y-6">
         <AiMailbox />
+        <CompanyTimeZone />
         <Card>
           <CardHeader title="Company" icon={Building} subtitle="All data in the console belongs to the selected company." />
           <div className="space-y-5 p-5">

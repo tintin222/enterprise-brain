@@ -149,6 +149,8 @@ export const WorkflowStep = z.discriminatedUnion("type", [
     type: z.literal("approval"),
     title: z.string(),
     details: z.string().optional(),
+    /** Why a person is asked (e.g. what makes it an exception); shown first wherever it reaches them. */
+    reason: z.string().optional(),
     assigneeRole: z.string().optional(),
   }),
   z.object({

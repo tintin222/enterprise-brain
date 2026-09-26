@@ -1008,6 +1008,17 @@ function threeWayMatch(po: PurchaseOrder | undefined, currency: string, net: num
   };
 }
 
+/** What makes an invoice an exception, as it reads after "Invoice INV-7 from Kaya Çelik": "is 12.0% (86,220.00 TRY) above the goods received on PO-4500012". */
+function exceptionSummary(match: MatchResult, po: PurchaseOrder | undefined, currency: string): string {
+  if (!po || match.status === "no_po") return "refers to no purchase order";
+  if (match.status === "matched") return `matches ${po.po_number} and its goods receipt`;
+  if (currency !== po.currency) return `is in ${currency}, but ${po.po_number} is in ${po.currency}`;
+  const difference = match.difference ?? 0;
+  const percent = match.difference_percent === null ? "" : `${Math.abs(match.difference_percent).toFixed(1)}% `;
+  if (match.status === "quantity_mismatch") return `bills ${fmt(difference, currency)} of goods not received or already invoiced on ${po.po_number}`;
+  return `is ${percent}(${fmt(Math.abs(difference), currency)}) ${difference > 0 ? "above" : "below"} the goods received on ${po.po_number}`;
+}
+
 /** Business key as stored ("PO-4500012"); bare numbers such as "4500012" get the prefix added. */
 function erpId(value: string, prefix: string): string {
   const id = value.trim().toUpperCase();
@@ -1067,6 +1078,13 @@ const manifest = defineManifest({
     readOp("get_invoice_status", "Get supplier invoice status", "Status, 3-way match result, due date and approval history of a supplier invoice.", {
       invoice_number: str("Supplier's invoice number (or the internal document number)"),
     }, ["invoice_number"]),
+    readOp("check_supplier_invoice", "Check supplier invoice", "Checks an invoice against its purchase order and goods receipt (3-way match) without posting it: the match status, the difference, and whether it is an exception a person must approve.", {
+      supplier_id: str("Supplier id, e.g. SUP-1001"),
+      po_number: str("Purchase order the invoice refers to, e.g. PO-4500012"),
+      currency: str("ISO currency code, e.g. TRY or EUR"),
+      net_amount: num("Invoiced net amount (before tax)"),
+      invoice_number: str("Invoice number, to spot one already registered"),
+    }, ["currency", "net_amount"]),
     readOp("search_customers", "Search customers", "Find customers by name, customer id, tax id, city, segment or e-mail.", {
       query: str("Free-text search, e.g. 'Hansa' or 'Konya'"),
     }),
@@ -1112,6 +1130,7 @@ const manifest = defineManifest({
       tax_amount: num("Tax (VAT/KDV) amount"),
       total_amount: num("Gross total"),
       po_number: str("Purchase order the invoice refers to, e.g. PO-4500012"),
+      variance_approved_by: str("The person who approved the difference to the purchase order as an exception (from an approval in Enterprise Brain; never set it without one): the invoice is then posted without a payment block"),
     }, ["supplier_id", "invoice_number", "invoice_date", "currency", "net_amount", "tax_amount", "total_amount"]),
     writeOp("update_supplier_invoice_status", "Update supplier invoice status", "Approve, reject, block, hold or mark a supplier invoice as paid, with an optional note for the audit trail.", {
       invoice_number: str("Supplier's invoice number"),
@@ -1192,6 +1211,39 @@ export const sandboxErpConnector = defineSandboxConnector({
 
     async get_invoice_status(input, db) {
       return invoiceStatusView(await findInvoice(db, reqString(input, "invoice_number")));
+    },
+
+    async check_supplier_invoice(input, db) {
+      const currency = reqString(input, "currency").toUpperCase();
+      const net = round2(reqNumber(input, "net_amount"));
+      const poNumberInput = optString(input, "po_number");
+      const po = poNumberInput ? await db.get<PurchaseOrder>("purchase_orders", erpId(poNumberInput, "PO-")) : undefined;
+      const supplierId = optString(input, "supplier_id");
+      const invoiceNumber = optString(input, "invoice_number");
+      const registered = invoiceNumber
+        ? (await db.list<SupplierInvoice>("supplier_invoices")).find((i) => normalizeText(i.invoice_number) === normalizeText(invoiceNumber))
+        : undefined;
+      if (poNumberInput && !po) {
+        return { match_status: "no_po", exception: true, summary: `refers to ${erpId(poNumberInput, "PO-")}, which isn't in the ERP`, po_number: null };
+      }
+      if (po && supplierId && po.supplier_id !== erpId(supplierId, "SUP-")) {
+        return { match_status: "no_po", exception: true, summary: `refers to ${po.po_number}, an order of another supplier (${po.supplier_name})`, po_number: po.po_number };
+      }
+      const match = threeWayMatch(po, currency, net);
+      return {
+        match_status: match.status,
+        exception: match.status !== "matched" || Boolean(registered),
+        summary: registered ? `was already registered as document ${registered.document_number}` : exceptionSummary(match, po, currency),
+        details: match.details,
+        po_number: po?.po_number ?? null,
+        invoiced_net_amount: match.invoiced_net_amount,
+        expected_net_amount: match.expected_net_amount,
+        difference: match.difference,
+        difference_percent: match.difference_percent,
+        tolerance: match.tolerance,
+        would_post_as: match.status === "matched" ? "posted" : match.status === "no_po" ? "parked" : "blocked",
+        ...(registered ? { registered_as: registered.document_number } : {}),
+      };
     },
 
     async search_customers(input, db) {
@@ -1454,7 +1506,9 @@ export const sandboxErpConnector = defineSandboxConnector({
       }
 
       const match = threeWayMatch(po, currency, net);
-      const status: InvoiceStatus = match.status === "matched" ? "posted" : match.status === "no_po" ? "parked" : "blocked";
+      // A difference a person approved as an exception is posted without a payment block, and the approval is kept.
+      const approvedBy = match.status !== "matched" ? optString(input, "variance_approved_by") : undefined;
+      const status: InvoiceStatus = match.status === "matched" || approvedBy ? "posted" : match.status === "no_po" ? "parked" : "blocked";
       const now = nowIso();
       const today = todayIso();
       const invoice: SupplierInvoice = {
@@ -1475,13 +1529,14 @@ export const sandboxErpConnector = defineSandboxConnector({
         match_details: match.details,
         payment_block: status !== "posted",
         paid_at: null,
-        history: [{ at: now, status, note: match.details }],
+        history: [{ at: now, status, note: approvedBy ? `${match.details} Difference approved by ${approvedBy}.` : match.details }],
         created_at: now,
       };
       await db.put("supplier_invoices", invoice);
 
-      if (po && match.status === "matched") {
-        const covered = new Set(match.matched_lines);
+      if (po && (match.status === "matched" || approvedBy)) {
+        // An approved difference settles what was received and not yet invoiced.
+        const covered = new Set(match.status === "matched" ? match.matched_lines : po.lines.map((l) => l.line));
         for (const line of po.lines) {
           if (covered.has(line.line)) line.invoiced_quantity = Math.max(line.invoiced_quantity, line.received_quantity);
         }

@@ -37,6 +37,14 @@ const FILTERS: Record<string, Filter> = {
     return Math.round(n * 10 ** d) / 10 ** d;
   },
   bullets: (v) => (Array.isArray(v) ? v.map((x) => `- ${stringify(x)}`).join("\n") : stringify(v)),
+  /** An amount as people read it: `total | money:'TRY'` → "965,664.00 TRY". */
+  money: (v, arg) => {
+    const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;
+    if (Number.isNaN(n)) return v;
+    const amount = n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const currency = arg === undefined || arg === null ? "" : stringify(arg).trim();
+    return currency ? `${amount} ${currency}` : amount;
+  },
 };
 
 export function stringify(value: unknown): string {

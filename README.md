@@ -32,6 +32,7 @@ Later:     a CV arrives at careers@ → the CV Screener screens it by itself →
 |---|---|
 | ![Home: what needs me, what my AI employees did today, and a box to give work](docs/screenshots/home.png) | ![An AI employee's page: duties, access, probation level and rules, versions](docs/screenshots/ai-employee.png) |
 | ![Hire: the Studio interview on the left, the job description building up on the right](docs/screenshots/hire-studio.png) | ![A task from start to finish: its history, emails and what it waits for](docs/screenshots/task.png) |
+| ![An invoice exception reaches the AP specialist in Microsoft Teams: why she is asked, the AP note, and buttons that decide](docs/screenshots/teams-invoice-exception.png) | ![Settings → Connections: what each connection watches for AI employees, and a file it left alone](docs/screenshots/connections-watchers.png) |
 
 ## Quick start
 
@@ -155,5 +156,6 @@ Phase 1 is built: people and sign-in, AI employees with managers, probation leve
 - Microsoft 365 and Google **sign-in** follow the providers' OpenID Connect documentation and are tested against a stand-in provider, not yet against live tenants.
 - The enterprise connectors are **preview**: built from vendor API documentation and tested against recorded request/response contracts, but not against live tenants. Verify each one in the customer's environment.
 - **Microsoft Teams** and **Google Chat** follow the Bot Framework's and the Chat API's documentation (signed calls, cards with buttons) and are tested against stand-ins for Microsoft and Google, not yet against live tenants.
+- **SFTP** is tested against a real SSH server in the test suite (ssh2's), and **shared folders** against local folders; verify with the customer's SFTP servers and SMB or NFS mounts.
 
-Phase 2 is under way: approvals by email, notification preferences and the morning summary, Microsoft Teams and Google Chat, calendars, OAuth 2.0 and client certificates for connections, MCP servers, and SFTP servers and shared folders are built. Coming next: Gate 2, an invoice exception approved in a Teams card, end to end.
+Phase 2 is built: approvals by email, notification preferences and the morning summary, Microsoft Teams and Google Chat, calendars, OAuth 2.0 and client certificates for connections, MCP servers, and SFTP servers and shared folders. `apps/server/test/gate2.test.ts` runs its gate end to end: a supplier's invoice arrives 12% over its purchase order; the Invoice Processor checks the 3-way match in the ERP, finds the exception by itself and asks the AP specialist in Microsoft Teams, saying why; she approves it on the card; it posts the invoice with her approval on record, and the finance manager's copy of the question (by email) now shows who decided. The card above is that approval as Teams draws it.

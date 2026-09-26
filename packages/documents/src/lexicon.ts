@@ -216,8 +216,18 @@ export function normalizeKey(key: string): string {
     .replace(/^_+|_+$/g, "");
 }
 
+/** Typed groups a longer key may end with: "supplier_tax_id" is a tax id, "customer_po_number" a PO number. */
+const SUFFIX_GROUPS = new Set(["tax_id", "invoice_number", "po_number", "account_number", "document_number", "delivery_note_number", "iban", "email", "phone"]);
+
 export function groupForKey(key: string): TermGroup | undefined {
-  return GROUP_BY_KEY.get(normalizeKey(key));
+  const normalized = normalizeKey(key);
+  const exact = GROUP_BY_KEY.get(normalized);
+  if (exact) return exact;
+  let found: { key: string; group: TermGroup } | undefined;
+  for (const [groupKey, group] of GROUP_BY_KEY) {
+    if (SUFFIX_GROUPS.has(group.id) && normalized.endsWith(`_${groupKey}`) && groupKey.length > (found?.key.length ?? 0)) found = { key: groupKey, group };
+  }
+  return found?.group;
 }
 
 /** Folded section heading → section group, for recognizing headings in any document. */

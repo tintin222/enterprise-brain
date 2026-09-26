@@ -78,14 +78,20 @@ export async function connectorRoutes(app: FastifyInstance, ctx: AppContext) {
     const company = await companyOf(platform, request);
     requireAdmin(request);
     const instances = new Map((await platform.connectors.list(company.id)).map((i) => [i.id, i]));
-    return (await platform.watchers.status(company.id)).map((w) => ({
-      connection: instances.get(w.connectorInstanceId)?.name ?? w.connectorInstanceId,
-      connectionId: w.connectorInstanceId,
-      watching: w.key.split("#")[0],
-      lastPolledAt: w.lastPolledAt,
-      lastCount: w.lastCount,
-      lastError: w.lastError,
-    }));
+    const agents = new Map((await platform.agents.list(company.id)).map((a) => [a.row.id, a.definition.name]));
+    return (await platform.watchers.status(company.id)).map((w) => {
+      const [watching, agentId] = w.key.split("#");
+      return {
+        connection: instances.get(w.connectorInstanceId)?.name ?? w.connectorInstanceId,
+        connectionId: w.connectorInstanceId,
+        watching,
+        /** The AI employee whose duty it is (none for mailboxes, which every duty shares). */
+        agent: agentId ? (agents.get(agentId) ?? null) : null,
+        lastPolledAt: w.lastPolledAt,
+        lastCount: w.lastCount,
+        lastError: w.lastError,
+      };
+    });
   });
 
   /** Check connected mailboxes and systems now (they are also checked every minute). */
