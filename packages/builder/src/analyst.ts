@@ -62,7 +62,7 @@ function offlinePrefill(description: string): Discovery["prefilled"] {
   if (/(e-?mail|e-?posta|mail|inbox|mailbox)/i.test(description)) channels.add("email");
   if (/(upload|yükle|yukle|drag|sürükle)/i.test(description)) channels.add("upload");
   if (/(sap|erp|crm|hr system|ik sistemi|successfactors|workday|salesforce|hubspot|ats|system)/i.test(description)) channels.add("system");
-  if (/(sharepoint|onedrive|shared folder|ortak klasör|klasör)/i.test(description)) channels.add("shared-folder");
+  if (/(sharepoint|onedrive|shared folder|network drive|file share|s?ftp|ortak klasör|ağ sürücüsü|klasör)/i.test(description)) channels.add("shared-folder");
   if (/(website|web site|web sitesi|kariyer sayfası|careers page|web form)/i.test(description)) channels.add("web-form");
   if (channels.size) prefilled.push({ nodeId: "inputs.channels", value: [...channels], confidence: 0.6, quote: "from your description" });
   const mailbox = description.match(/[\w.+-]+@[\w-]+(\.[\w-]+)+/)?.[0];

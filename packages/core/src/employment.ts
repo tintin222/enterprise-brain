@@ -54,7 +54,8 @@ export interface Duty {
  * The AI employee's duties from its triggers: "Reads every email sent to careers@acme.com.tr".
  * Manual starts are requests from people, not duties.
  */
-export function describeDuties(triggers: TriggerSpec[]): Duty[] {
+/** `names`: what to call the connections the triggers name (their refs), e.g. the connected system's name. */
+export function describeDuties(triggers: TriggerSpec[], names: Record<string, string> = {}): Duty[] {
   return triggers.flatMap((trigger): Duty[] => {
     switch (trigger.type) {
       case "manual":
@@ -79,8 +80,12 @@ export function describeDuties(triggers: TriggerSpec[]): Duty[] {
         return [{ kind: "chat", text: "Answers people in chat" }];
       case "paperclip":
         return [{ kind: "paperclip", text: "Works on the tasks assigned to it in Paperclip" }];
-      case "connector-event":
-        return [{ kind: "connector-event", text: `Acts when ${humanizeEvent(trigger.event)} in ${trigger.connector}` }];
+      case "connector-event": {
+        const system = Object.hasOwn(names, trigger.connector) ? names[trigger.connector]! : trigger.connector;
+        if (trigger.event === "new_file") return [{ kind: "connector-event", text: `Picks up each new file in ${system}` }];
+        if (trigger.event.startsWith("new:")) return [{ kind: "connector-event", text: `Acts on each new item from ${humanizeAction(trigger.event.slice(4))} in ${system}` }];
+        return [{ kind: "connector-event", text: `Acts when ${humanizeEvent(trigger.event)} in ${system}` }];
+      }
     }
   });
 }
@@ -108,6 +113,10 @@ export function scheduleText(cron: string): string {
   }
   if (/^\d+$/.test(dayOfMonth) && dayOfWeek === "*") return `on day ${dayOfMonth} of every month ${at}`;
   return `on the schedule “${cron}”`;
+}
+
+function humanizeAction(action: string): string {
+  return `“${action.replace(/[_.-]+/g, " ").trim()}”`;
 }
 
 function humanizeEvent(event: string): string {

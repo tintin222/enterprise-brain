@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
-import { isRecord, truncate } from "@enterprise-brain/core";
+import { isRecord, truncate, type AgentDefinition } from "@enterprise-brain/core";
+import type { ConnectorEvent } from "@enterprise-brain/connectors";
 import { companies, watchCursors, type DatabaseHandle } from "@enterprise-brain/db";
 import type { AgentService } from "./agents.ts";
 import type { ConnectorInstanceView, ConnectorService } from "./connectors.ts";
@@ -75,7 +76,7 @@ export class WatcherService {
   /** Bring in a mailbox's new mail and route each email: a reply goes to its task, anything else to the duties that follow the mailbox. */
   private async pollMailbox(companyId: string, instance: ConnectorInstanceView, wait: boolean): Promise<number> {
     const address = mailboxAddress(instance);
-    return this.withCursor(companyId, instance.id, NEW_MESSAGE, async (cursor) => {
+    const watched = await this.withCursor(companyId, instance.id, NEW_MESSAGE, async (cursor) => {
       const polled = await this.connectors.poll(companyId, instance.id, NEW_MESSAGE, cursor);
       if (!polled) return { cursor, count: 0 };
       let count = 0;
@@ -114,6 +115,7 @@ export class WatcherService {
       }
       return { cursor: polled.cursor, count };
     });
+    return watched.count;
   }
 
   /** Events in connected systems that start AI employees' duties (connector-event triggers). */
@@ -129,13 +131,13 @@ export class WatcherService {
           : instances.find((i) => i.id === trigger.connector || i.type === trigger.connector);
         if (!instance) continue;
         try {
-          started += await this.withCursor(companyId, instance.id, `${trigger.event}#${agent.row.id}`, async (cursor) => {
+          const watched = await this.withCursor(companyId, instance.id, `${trigger.event}#${agent.row.id}`, async (cursor) => {
             const polled = await this.connectors.poll(companyId, instance.id, trigger.event, cursor);
             if (!polled) return { cursor, count: 0 };
             let count = 0;
             for (const event of polled.events) {
               try {
-                await this.engine.start(companyId, agent.row.id, { event: event.data, eventType: event.type, eventId: event.id }, {
+                await this.engine.start(companyId, agent.row.id, eventInput(agent.definition, event), {
                   trigger: "connector-event",
                   triggerRef: `${instance.name}: ${event.type} ${event.id}`,
                   title: `${agent.definition.name}: ${eventTitle(event.data) ?? `${event.type} ${event.id}`}`,
@@ -147,8 +149,10 @@ export class WatcherService {
                 if (!(error instanceof RunError)) throw error;
               }
             }
-            return { cursor: polled.cursor, count };
+            return { cursor: polled.cursor, count, warnings: polled.warnings };
           });
+          started += watched.count;
+          errors.push(...watched.warnings.map((warning) => `${agent.definition.name} (${instance.name}): ${warning}`));
         } catch (error) {
           errors.push(`${agent.definition.name} (${instance.name}): ${message(error)}`);
         }
@@ -157,18 +161,32 @@ export class WatcherService {
     return started;
   }
 
-  /** Run one poll with the stored cursor, and store the new one (or the error). */
-  private async withCursor(companyId: string, instanceId: string, key: string, poll: (cursor?: string) => Promise<{ cursor?: string; count: number }>): Promise<number> {
+  /**
+   * Run one poll with the stored cursor, and store the new one (or the error). What the poll left
+   * alone, and why, shows as the watcher's last error.
+   */
+  private async withCursor(
+    companyId: string,
+    instanceId: string,
+    key: string,
+    poll: (cursor?: string) => Promise<{ cursor?: string; count: number; warnings?: string[] }>,
+  ): Promise<{ count: number; warnings: string[] }> {
     const [row] = await this.handle.db
       .select()
       .from(watchCursors)
       .where(and(eq(watchCursors.connectorInstanceId, instanceId), eq(watchCursors.key, key)));
     try {
-      const { cursor, count } = await poll(row?.cursor ?? undefined);
-      const values = { cursor: cursor ?? row?.cursor ?? null, lastPolledAt: new Date(), lastCount: count, lastError: null, updatedAt: new Date() };
+      const { cursor, count, warnings = [] } = await poll(row?.cursor ?? undefined);
+      const values = {
+        cursor: cursor ?? row?.cursor ?? null,
+        lastPolledAt: new Date(),
+        lastCount: count,
+        lastError: warnings.length ? truncate(warnings.join("; "), 500) : null,
+        updatedAt: new Date(),
+      };
       if (row) await this.handle.db.update(watchCursors).set(values).where(eq(watchCursors.id, row.id));
       else await this.handle.db.insert(watchCursors).values({ companyId, connectorInstanceId: instanceId, key, ...values });
-      return count;
+      return { count, warnings };
     } catch (error) {
       const values = { lastPolledAt: new Date(), lastError: truncate(message(error), 500), updatedAt: new Date() };
       if (row) await this.handle.db.update(watchCursors).set(values).where(eq(watchCursors.id, row.id));
@@ -240,6 +258,21 @@ function bodyText(message: Record<string, unknown>): string {
       .trim();
   }
   return body;
+}
+
+/**
+ * A duty's input from an event in a connected system. A file the event brought in (a new file in a
+ * watched folder) is the AI employee's file to work on too: `file`, and its own file input.
+ */
+export function eventInput(definition: Pick<AgentDefinition, "inputs">, event: ConnectorEvent): Record<string, unknown> {
+  const input: Record<string, unknown> = { event: event.data, eventType: event.type, eventId: event.id };
+  const fileId = typeof event.data.file_id === "string" ? event.data.file_id : undefined;
+  if (fileId) {
+    input.file = fileId;
+    const field = definition.inputs.find((f) => f.type === "file" || f.type === "files");
+    if (field && !(field.key in input)) input[field.key] = field.type === "files" ? [fileId] : fileId;
+  }
+  return input;
 }
 
 function eventTitle(data: Record<string, unknown>): string | undefined {

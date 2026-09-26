@@ -1,6 +1,7 @@
 import { PROBATION_LEVELS, describeDuties, type Duty, type Probation, type TrustLimits } from "@enterprise-brain/core";
 import type { ActivityService } from "./activity.ts";
 import { employmentOf, type AgentRecord, type AgentService, type EmploymentPatch } from "./agents.ts";
+import type { ConnectorService } from "./connectors.ts";
 import type { RunEngine } from "./engine.ts";
 import { PeopleError, type PeopleService, type Person } from "./people.ts";
 
@@ -28,7 +29,23 @@ export class EmploymentService {
     private readonly people: PeopleService,
     private readonly engine: RunEngine,
     private readonly activity: ActivityService,
+    /** To name the connected systems its duties watch. */
+    private readonly connectors?: ConnectorService,
   ) {}
+
+  /** The connected systems its duties watch, by the ref the duty names ("files" → "Scanned invoices"). */
+  private async watchedNames(companyId: string, agent: AgentRecord): Promise<Record<string, string>> {
+    const names: Record<string, string> = {};
+    if (!this.connectors) return names;
+    for (const trigger of agent.definition.triggers) {
+      if (trigger.type !== "connector-event" || trigger.connector in names) continue;
+      const binding = agent.definition.connectors.find((c) => c.ref === trigger.connector);
+      if (!binding) continue;
+      const resolved = await this.connectors.resolve(companyId, binding).catch(() => undefined);
+      names[trigger.connector] = resolved ? resolved.name : `${trigger.connector} (not connected yet)`;
+    }
+    return names;
+  }
 
   async view(companyId: string, agent: AgentRecord): Promise<EmploymentView> {
     const { probation, limits } = employmentOf(agent.row);
@@ -43,7 +60,7 @@ export class EmploymentService {
       costThisMonthUsd: Math.round(cost * 100) / 100,
       stoppedByBudget: budget !== null && cost >= budget,
       changesToday,
-      duties: describeDuties(agent.definition.triggers),
+      duties: describeDuties(agent.definition.triggers, await this.watchedNames(companyId, agent)),
     };
   }
 

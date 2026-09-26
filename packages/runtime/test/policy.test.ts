@@ -94,11 +94,15 @@ describe("duties in plain words", () => {
       { type: "mailbox", mailbox: "careers@acme.com.tr", filter: { hasAttachment: true } },
       { type: "schedule", cron: "0 8 * * 1-5" },
       { type: "connector-event", connector: "erp", event: "invoice.created" },
+      { type: "connector-event", connector: "Scanned invoices", event: "new_file" },
+      { type: "connector-event", connector: "crm", event: "new:new_orders" },
     ]);
     expect(duties.map((d) => d.text)).toEqual([
       "Reads every email sent to careers@acme.com.tr with an attachment",
       "Works every weekday at 08:00",
       "Acts when “invoice created” happens in erp",
+      "Picks up each new file in Scanned invoices",
+      "Acts on each new item from “new orders” in crm",
     ]);
   });
 

@@ -87,7 +87,7 @@ export class Platform {
     this.activity = new ActivityService(this.handle);
     this.people = new PeopleService(this.handle);
     this.files = new FileService(this.handle, join(options.dataDir, "files"));
-    this.connectors = new ConnectorService(this.handle, options.registry ?? createDefaultRegistry(), this.secretBox);
+    this.connectors = new ConnectorService(this.handle, options.registry ?? createDefaultRegistry(), this.secretBox, this.files);
     this.knowledge = new KnowledgeService(this.handle, this.embedder);
     this.mail = new MailService(this.handle, this.files, this.connectors);
     this.agents = new AgentService(this.handle);
@@ -109,7 +109,7 @@ export class Platform {
     this.chat = new ChatService(this.handle, this.llm, this.agents, this.knowledge, this.engine.toolDeps);
     this.catalog = new CatalogService(this.handle, options.catalog, this.agents, this.knowledge, this.activity);
     this.triggers = new TriggerService(this.handle, this.agents, this.engine, this.mail, this.tasks, this.people);
-    this.employment = new EmploymentService(this.agents, this.people, this.engine, this.activity);
+    this.employment = new EmploymentService(this.agents, this.people, this.engine, this.activity, this.connectors);
     this.watchers = new WatcherService(this.handle, this.connectors, this.mail, this.agents, this.engine, this.triggers);
     this.queue = new QueueService(this.handle, this.agents, this.work);
     this.actionLinks = new ActionLinks(this.secretBox.deriveKey("action-links"));

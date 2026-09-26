@@ -80,6 +80,18 @@ export {
   type GoogleChatSettings,
 } from "./connectors/google-chat.ts";
 export { sharepointConnector } from "./connectors/sharepoint.ts";
+export {
+  cleanPath,
+  fileMatcher,
+  isHiddenOrPartial,
+  mimeTypeOf,
+  NEW_FILE_EVENT,
+  pollNewFiles,
+  type FileEntry,
+  type FileStore,
+} from "./connectors/file-common.ts";
+export { openSharedFolder, SHARED_FOLDER_ROOTS_ENV, sharedFolderConnector, sharedFolderRoots } from "./connectors/shared-folder.ts";
+export { hostKeyFingerprint, loadSsh2, openSftp, sftpConnector } from "./connectors/sftp.ts";
 export { successFactorsConnector } from "./connectors/sap-successfactors.ts";
 export { workdayConnector } from "./connectors/workday.ts";
 export { oauthSettings, resolveRestUrl, restApiConnector, secureUrl } from "./connectors/rest-api.ts";

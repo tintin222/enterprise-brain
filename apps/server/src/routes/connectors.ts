@@ -27,10 +27,20 @@ export async function connectorRoutes(app: FastifyInstance, ctx: AppContext) {
 
   app.put("/api/companies/:company/connectors/:id", async (request) => {
     const company = await companyOf(platform, request);
-    requireAdmin(request);
+    const viewer = requireAdmin(request);
     const { id } = request.params as { id: string };
     const body = z.object({ name: z.string().optional(), values: z.record(z.string(), z.unknown()).optional() }).parse(request.body);
-    return platform.connectors.update(company.id, id, body);
+    const instance = await platform.connectors.update(company.id, id, body);
+    const changed = Object.keys(body.values ?? {});
+    await platform.activity.record(company.id, {
+      actor: actorOf(viewer),
+      action: "connector.updated",
+      entityType: "connector",
+      entityId: instance.id,
+      summary: `Changed the settings of ${instance.name}`,
+      data: { fields: changed },
+    });
+    return instance;
   });
 
   app.delete("/api/companies/:company/connectors/:id", async (request) => {

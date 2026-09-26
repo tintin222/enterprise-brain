@@ -181,9 +181,9 @@ Google Chat works the same way through the company's Chat app (a `google-chat` c
 | GET | `/api/connectors/catalog` | Connector manifests `{ type, name, vendor, category, description, auth, config: ConfigField[], operations: [{id, name, description, kind: read|write, input}], maturity (stable|preview|sandbox), itRequirements[] }` |
 | GET | `/api/companies/:company/connectors` | Configured instances `{ id, type, name, category, config, secretFields[], status, lastCheckedAt, lastError, sandbox }` |
 | POST | `/api/companies/:company/connectors` | `{ type, name?, values: { <configKey>: value } }` (secret values are encrypted, never returned) |
-| PUT | `/api/companies/:company/connectors/:id` | `{ name?, values? }` |
+| PUT | `/api/companies/:company/connectors/:id` | Admin. `{ name?, values? }`: changes the settings given; a setting given empty is cleared, a secret given empty is kept |
 | DELETE | `/api/companies/:company/connectors/:id` | |
-| POST | `/api/companies/:company/connectors/:id/test` | `{ ok, message }` |
+| POST | `/api/companies/:company/connectors/:id/test` | `{ ok, message, details? }`; an SFTP server whose host key isn't confirmed yet answers `details: { host_key_fingerprint, key_type, changed }` |
 | GET | `/api/companies/:company/connectors/:id/oauth/start` | Admin, in the browser: sends them to the provider to sign the connection in (OAuth 2.0 authorization code with PKCE; the state is single-use, for ten minutes, and theirs) |
 | GET | `/api/connectors/oauth/callback?state&code` | Where the provider sends them back (`/api/info` gives it as `oauthRedirectUrl`): keeps the refresh token on the connection, tests it, and returns to `/settings/connections?signin=ok\|failed\|expired` |
 | POST | `/api/companies/:company/connectors/types/:type/operations/:operation` | `{ input }` → `{ result }` (e.g. browse the sandbox ERP) |
@@ -196,7 +196,7 @@ Google Chat works the same way through the company's Chat app (a `google-chat` c
 
 ## Watching mailboxes and systems
 
-AI employees follow connected mailboxes and systems on their own: every minute (`EB_WATCH_INTERVAL` seconds) each connected mail connection (Microsoft 365, Gmail, IMAP) is checked for new mail, and each system an AI employee's `connector-event` duty names for new events (a new record, row or file). The first check only records the starting point, so nothing from before is replayed; each email is brought in once.
+AI employees follow connected mailboxes and systems on their own: every minute (`EB_WATCH_INTERVAL` seconds) each connected mail connection (Microsoft 365, Gmail, IMAP) is checked for new mail, and each system an AI employee's `connector-event` duty names for new events (a new record, row or file). The first check only records the starting point, so nothing from before is replayed; each email is brought in once. A new file in a watched folder (SFTP, shared folder: event `new_file`) is stored once and handed to the duty as its file (`input.file` and the AI employee's own file input); what a check left alone, and why (a file too large), shows as the watcher's `lastError`.
 
 A new email goes back to its task when it is a reply (the task's reference, or its thread); otherwise every active AI employee whose mailbox duty matches gets it as new work. An email to the company's AI mailbox gives one AI employee work: `ai+cv-screener@acme.com.tr` (plus-addressing), or `CV Screener: …` in the subject. Only people with an account can give work this way; other senders' emails are marked `ignored`.
 

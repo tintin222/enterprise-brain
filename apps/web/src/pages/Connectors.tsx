@@ -12,6 +12,9 @@ import {
   Plug,
   PlugZap,
   RefreshCw,
+  Settings2,
+  ShieldAlert,
+  ShieldCheck,
   Trash,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
@@ -21,6 +24,7 @@ import { Badge, StatusPill } from "../components/Badge.tsx";
 import { Button, ButtonAnchor } from "../components/Button.tsx";
 import { Card, CardHeader, PageHeader, SectionTitle } from "../components/Card.tsx";
 import { ConnectionActionsDrawer } from "../components/ConnectionActions.tsx";
+import { CopyButton } from "../components/CopyButton.tsx";
 import { Dialog, Drawer } from "../components/Dialog.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { Field, Switch } from "../components/Form.tsx";
@@ -84,7 +88,44 @@ function visible(field: ConfigField, values: Record<string, string | boolean>): 
   return !field.showWhen || field.showWhen.values.includes(String(values[field.showWhen.key] ?? ""));
 }
 
-function ConnectDrawer({ manifest, onClose }: { manifest: ConnectorManifest | null; onClose: () => void }) {
+interface TestResult {
+  ok: boolean;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
+/** A server whose host key someone has to confirm before Enterprise Brain talks to it (SFTP). */
+interface HostKeyCheck {
+  instance: ConnectorInstance;
+  fingerprint: string;
+  keyType: string;
+  changed: boolean;
+}
+
+function hostKeyOf(instance: ConnectorInstance, test: TestResult): HostKeyCheck | undefined {
+  const fingerprint = test.details?.host_key_fingerprint;
+  if (test.ok || typeof fingerprint !== "string") return undefined;
+  return { instance, fingerprint, keyType: String(test.details?.key_type ?? "host"), changed: test.details?.changed === true };
+}
+
+function testConnection(path: (p: string) => string, id: string): Promise<TestResult> {
+  return api
+    .post<TestResult>(path(`/connectors/${encodeURIComponent(id)}/test`))
+    .catch((e: unknown) => ({ ok: false, message: e instanceof Error ? e.message : String(e) }));
+}
+
+/** Connect a system, or change a connection's settings (`editing`). Secrets stay stored unless replaced. */
+function ConnectDrawer({
+  manifest,
+  editing,
+  onClose,
+  onHostKey,
+}: {
+  manifest: ConnectorManifest | null;
+  editing?: ConnectorInstance | null;
+  onClose: () => void;
+  onHostKey: (check: HostKeyCheck) => void;
+}) {
   const { company, path, info } = useCompany();
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -92,24 +133,43 @@ function ConnectDrawer({ manifest, onClose }: { manifest: ConnectorManifest | nu
   const [values, setValues] = useState<Record<string, string | boolean>>({});
   useEffect(() => {
     if (!manifest) return;
-    setName(manifest.name);
-    setValues(Object.fromEntries(manifest.config.map((f) => [f.key, f.default ?? (f.type === "boolean" ? false : "")])) as Record<string, string | boolean>);
-  }, [manifest]);
+    setName(editing?.name ?? manifest.name);
+    setValues(
+      Object.fromEntries(
+        manifest.config.map((f) => {
+          const current = editing && !f.secret ? editing.config[f.key] : undefined;
+          if (typeof current === "boolean") return [f.key, current];
+          if (current !== undefined && current !== null) return [f.key, String(current)];
+          return [f.key, f.default ?? (f.type === "boolean" ? false : "")];
+        }),
+      ) as Record<string, string | boolean>,
+    );
+  }, [manifest, editing]);
+  const stored = (f: ConfigField) => Boolean(editing && f.secret && editing.secretFields.includes(f.key));
 
   const connect = useMutation({
     mutationFn: async () => {
       if (!manifest) throw new Error("No connector selected");
-      const shown = new Set(manifest.config.filter((f) => visible(f, values)).map((f) => f.key));
-      const clean = Object.fromEntries(Object.entries(values).filter(([key, v]) => v !== "" && v !== undefined && shown.has(key)));
-      const instance = await api.post<ConnectorInstance>(path("/connectors"), { type: manifest.type, name: name || undefined, values: clean });
-      const test = await api
-        .post<{ ok: boolean; message: string }>(path(`/connectors/${encodeURIComponent(instance.id)}/test`))
-        .catch((e: unknown) => ({ ok: false, message: e instanceof Error ? e.message : String(e) }));
-      return { instance, test };
+      const shown = manifest.config.filter((f) => visible(f, values));
+      let instance: ConnectorInstance;
+      if (editing) {
+        // Settings given empty are cleared; secrets left empty are kept.
+        const changed = Object.fromEntries(
+          shown.filter((f) => !(f.secret && (values[f.key] === "" || values[f.key] === undefined))).map((f) => [f.key, values[f.key] ?? ""]),
+        );
+        instance = await api.put<ConnectorInstance>(path(`/connectors/${encodeURIComponent(editing.id)}`), { name: name || undefined, values: changed });
+      } else {
+        const shownKeys = new Set(shown.map((f) => f.key));
+        const clean = Object.fromEntries(Object.entries(values).filter(([key, v]) => v !== "" && v !== undefined && shownKeys.has(key)));
+        instance = await api.post<ConnectorInstance>(path("/connectors"), { type: manifest.type, name: name || undefined, values: clean });
+      }
+      return { instance, test: await testConnection(path, instance.id) };
     },
     onSuccess: ({ instance, test }) => {
       void queryClient.invalidateQueries({ queryKey: keys.connectors(company) });
-      if (test.ok) toast.success(`${instance.name} connected`, { description: test.message });
+      const hostKey = hostKeyOf(instance, test);
+      if (test.ok) toast.success(editing ? `${instance.name} saved` : `${instance.name} connected`, { description: test.message });
+      else if (hostKey) onHostKey(hostKey);
       else toast.error(`${instance.name} saved, but the connection test failed`, { description: test.message });
       onClose();
     },
@@ -117,7 +177,9 @@ function ConnectDrawer({ manifest, onClose }: { manifest: ConnectorManifest | nu
   });
 
   const missing =
-    manifest?.config.filter((f) => f.required && visible(f, values) && (values[f.key] === "" || values[f.key] === undefined)).map((f) => f.label) ?? [];
+    manifest?.config
+      .filter((f) => f.required && visible(f, values) && !stored(f) && (values[f.key] === "" || values[f.key] === undefined))
+      .map((f) => f.label) ?? [];
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (!missing.length) connect.mutate();
@@ -128,13 +190,13 @@ function ConnectDrawer({ manifest, onClose }: { manifest: ConnectorManifest | nu
       open={Boolean(manifest)}
       onClose={onClose}
       width="md"
-      title={manifest ? `Connect ${manifest.name}` : "Connect"}
+      title={editing ? `Settings of ${editing.name}` : manifest ? `Connect ${manifest.name}` : "Connect"}
       description={manifest ? `${manifest.vendor} · ${categoryLabel(manifest.category)} · ${humanize(manifest.auth)} authentication` : undefined}
       footer={
         <>
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" icon={PlugZap} loading={connect.isPending} disabled={missing.length > 0} onClick={() => connect.mutate()}>
-            Connect & test
+            {editing ? "Save & test" : "Connect & test"}
           </Button>
         </>
       }
@@ -142,7 +204,7 @@ function ConnectDrawer({ manifest, onClose }: { manifest: ConnectorManifest | nu
       {manifest && (
         <form onSubmit={submit} className="space-y-6">
           <p className="text-sm text-muted">{manifest.description}</p>
-          {manifest.itRequirements.length > 0 && (
+          {!editing && manifest.itRequirements.length > 0 && (
             <Callout tone="brand" icon={ClipboardList} title="What your IT team needs to provide">
               <ul className="mt-1 list-disc space-y-1 pl-4">
                 {manifest.itRequirements.map((r) => (
@@ -155,8 +217,20 @@ function ConnectDrawer({ manifest, onClose }: { manifest: ConnectorManifest | nu
           {manifest.config
             .filter((f) => visible(f, values))
             .map((f) => (
-              <Field key={f.key} label={f.label} required={f.required} hint={f.help ?? (f.secret ? "Stored encrypted; never shown again." : undefined)}>
-                {(id) => <ConfigInput id={id} field={f} value={values[f.key] ?? ""} onChange={(v) => setValues((prev) => ({ ...prev, [f.key]: v }))} />}
+              <Field
+                key={f.key}
+                label={f.label}
+                required={f.required && !stored(f)}
+                hint={stored(f) ? "Stored encrypted: leave empty to keep it." : (f.help ?? (f.secret ? "Stored encrypted; never shown again." : undefined))}
+              >
+                {(id) => (
+                  <ConfigInput
+                    id={id}
+                    field={stored(f) ? { ...f, placeholder: "•••••••• (kept)" } : f}
+                    value={values[f.key] ?? ""}
+                    onChange={(v) => setValues((prev) => ({ ...prev, [f.key]: v }))}
+                  />
+                )}
               </Field>
             ))}
           {values.auth_type === "oauth2_authorization_code" && info.oauthRedirectUrl && (
@@ -175,6 +249,68 @@ function ConnectDrawer({ manifest, onClose }: { manifest: ConnectorManifest | nu
         </form>
       )}
     </Drawer>
+  );
+}
+
+/** Someone confirms the server's host key with its administrator before Enterprise Brain trusts it. */
+function HostKeyDialog({ check, onClose }: { check: HostKeyCheck | null; onClose: () => void }) {
+  const { company, path } = useCompany();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const trust = useMutation({
+    mutationFn: async (c: HostKeyCheck) => {
+      await api.put(path(`/connectors/${encodeURIComponent(c.instance.id)}`), { values: { host_key_fingerprint: c.fingerprint } });
+      return testConnection(path, c.instance.id);
+    },
+    onSuccess: (res) => {
+      void queryClient.invalidateQueries({ queryKey: keys.connectors(company) });
+      if (res.ok) toast.success("Host key confirmed: the connection works", { description: res.message });
+      else toast.error("Host key confirmed, but the connection test failed", { description: res.message });
+      onClose();
+    },
+    onError: (e) => toast.error(e),
+  });
+  return (
+    <Dialog
+      open={Boolean(check)}
+      onClose={onClose}
+      title="Confirm the server's host key"
+      description={
+        check
+          ? `${check.instance.name} presented its ${check.keyType} key. Enterprise Brain talks to the server only once someone confirms the key is really the server's.`
+          : undefined
+      }
+      footer={
+        <>
+          <Button onClick={onClose}>Not now</Button>
+          <Button variant={check?.changed ? "danger" : "primary"} icon={ShieldCheck} loading={trust.isPending} onClick={() => check && trust.mutate(check)}>
+            It matches: trust this key
+          </Button>
+        </>
+      }
+    >
+      {check && (
+        <div className="space-y-4">
+          {check.changed && (
+            <Callout tone="danger" icon={ShieldAlert} title="The server's key changed">
+              This is not the key confirmed before. That happens when the server is replaced or its keys are renewed, and also when something pretends to be the
+              server. Trust the new key only after the server's administrator confirms the change.
+            </Callout>
+          )}
+          <div className="rounded-lg border border-line bg-subtle/60 p-3">
+            <p className="text-xs text-muted">Fingerprint</p>
+            <div className="mt-1 flex items-start justify-between gap-2">
+              <code className="font-mono text-sm break-all text-fg">{check.fingerprint}</code>
+              <CopyButton text={check.fingerprint} size="xs" variant="ghost" />
+            </div>
+          </div>
+          <p className="text-sm text-muted">
+            Ask the server's administrator for its fingerprint (on the server: <code className="font-mono text-xs">ssh-keygen -lf</code> with its host key) and
+            compare every character.
+          </p>
+        </div>
+      )}
+    </Dialog>
   );
 }
 
@@ -398,6 +534,8 @@ export default function Connectors() {
   const [removing, setRemoving] = useState<ConnectorInstance | null>(null);
   const [explore, setExplore] = useState<string | undefined>(undefined);
   const [naming, setNaming] = useState<ConnectorInstance | null>(null);
+  const [editing, setEditing] = useState<ConnectorInstance | null>(null);
+  const [hostKey, setHostKey] = useState<HostKeyCheck | null>(null);
   const [search, setSearch] = useSearchParams();
   // Back from signing a connection in with OAuth 2.0: say how it went.
   useEffect(() => {
@@ -423,10 +561,13 @@ export default function Connectors() {
   }, [search, catalog.data, setSearch]);
 
   const test = useMutation({
-    mutationFn: (id: string) => api.post<{ ok: boolean; message: string }>(path(`/connectors/${encodeURIComponent(id)}/test`)),
-    onSuccess: (res) => {
+    mutationFn: (id: string) => api.post<TestResult>(path(`/connectors/${encodeURIComponent(id)}/test`)),
+    onSuccess: (res, id) => {
       void queryClient.invalidateQueries({ queryKey: keys.connectors(company) });
+      const instance = instances.data?.find((i) => i.id === id);
+      const check = instance ? hostKeyOf(instance, res) : undefined;
       if (res.ok) toast.success("Connection works", { description: res.message });
+      else if (check) setHostKey(check);
       else toast.error("Connection test failed", { description: res.message });
     },
     onError: (e) => toast.error(e),
@@ -457,7 +598,7 @@ export default function Connectors() {
       <PageHeader
         icon={Plug}
         title="Connections"
-        description="Connect the company's systems: ERP, CRM, HR, mail, web services and databases. For web services and databases, name the actions AI employees may use. Until a system is connected, AI employees practise on built-in demo systems."
+        description="Connect the company's systems: ERP, CRM, HR, mail, file servers, web services and databases. For web services and databases, name the actions AI employees may use. Until a system is connected, AI employees practise on built-in demo systems."
       />
 
       <SectionTitle>Connected systems</SectionTitle>
@@ -514,6 +655,11 @@ export default function Connectors() {
                     {(i.type === "rest-api" || i.type === "sql-database" || i.type === "mcp-server") && (
                       <Button size="sm" variant="soft" icon={ListTree} onClick={() => setNaming(i)}>
                         Actions
+                      </Button>
+                    )}
+                    {!i.sandbox && catalog.data?.some((m) => m.type === i.type && m.config.length > 0) && (
+                      <Button size="sm" variant="ghost" icon={Settings2} onClick={() => setEditing(i)}>
+                        Settings
                       </Button>
                     )}
                     <Button size="sm" icon={RefreshCw} loading={test.isPending && test.variables === i.id} onClick={() => test.mutate(i.id)}>
@@ -591,7 +737,14 @@ export default function Connectors() {
         {catalog.data && <SandboxExplorer manifests={catalog.data} initialType={explore} />}
       </div>
 
-      <ConnectDrawer manifest={connecting} onClose={() => setConnecting(null)} />
+      <ConnectDrawer manifest={connecting} onClose={() => setConnecting(null)} onHostKey={setHostKey} />
+      <ConnectDrawer
+        manifest={editing ? (catalog.data?.find((m) => m.type === editing.type) ?? null) : null}
+        editing={editing}
+        onClose={() => setEditing(null)}
+        onHostKey={setHostKey}
+      />
+      <HostKeyDialog check={hostKey} onClose={() => setHostKey(null)} />
       <ConnectionActionsDrawer connection={naming} onClose={() => setNaming(null)} />
       <Dialog
         open={Boolean(removing)}

@@ -13,6 +13,8 @@ import { restApiConnector } from "./connectors/rest-api.ts";
 import { salesforceConnector } from "./connectors/salesforce.ts";
 import { sapS4hanaConnector } from "./connectors/sap-s4hana.ts";
 import { successFactorsConnector } from "./connectors/sap-successfactors.ts";
+import { sftpConnector } from "./connectors/sftp.ts";
+import { sharedFolderConnector } from "./connectors/shared-folder.ts";
 import { sharepointConnector } from "./connectors/sharepoint.ts";
 import { sqlDatabaseConnector } from "./connectors/sql-database.ts";
 import { webhookInboundConnector } from "./connectors/webhook-inbound.ts";
@@ -81,6 +83,8 @@ export const BUILTIN_CONNECTORS: readonly ConnectorImplementation[] = [
   imapSmtpConnector,
   gmailConnector,
   sharepointConnector,
+  sftpConnector,
+  sharedFolderConnector,
   successFactorsConnector,
   workdayConnector,
   restApiConnector,

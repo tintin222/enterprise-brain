@@ -11,7 +11,7 @@ export const CHANNEL_OPTIONS = [
   { value: "email", label: "Email to a mailbox", description: "e.g. a shared mailbox such as careers@ or invoices@" },
   { value: "upload", label: "Someone uploads files in a form", description: "a simple upload screen for your team" },
   { value: "system", label: "From a business system", description: "e.g. HR system, ERP, CRM" },
-  { value: "shared-folder", label: "A shared folder", description: "SharePoint, OneDrive or a network drive" },
+  { value: "shared-folder", label: "A shared folder or SFTP server", description: "files land on a network drive, or a partner drops them on SFTP" },
   { value: "web-form", label: "A form on our website", description: "e.g. the careers page" },
   { value: "chat", label: "People ask questions in a chat", description: "an assistant employees or customers talk to" },
 ];
@@ -452,8 +452,8 @@ export function integrationNodes(): RequirementNode[] {
     node({
       id: "integration.shared_folder",
       section: "integrations",
-      title: "Shared folder access",
-      question: "It needs access to the shared folder (SharePoint/OneDrive). How should we get it?",
+      title: "Folder access",
+      question: "It needs access to the folder the files land in (a network drive or an SFTP server). How should we get it?",
       kind: "fact",
       answerType: "single",
       options: accessOptions,

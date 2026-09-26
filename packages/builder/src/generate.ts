@@ -295,6 +295,9 @@ export function generateDefinition(input: GenerationInput): AgentDefinition {
       ...(input.archetype === "document-processing" ? { filter: { hasAttachment: true } } : {}),
     });
   }
+  // Files that land in a folder: each new one is picked up from the folder connection IT sets up.
+  const fileDrop = channels.includes("shared-folder");
+  if (fileDrop) triggers.push({ type: "connector-event", connector: "files", event: "new_file" });
   if (channels.includes("web-form")) triggers.push({ type: "webhook", description: "Website form submissions" });
   if (channels.includes("chat") || input.archetype === "conversational") triggers.push({ type: "chat" });
   const cron = cronFor(text(valueOf(tree, "excel.schedule")) || text(valueOf(tree, "process.schedule")));
@@ -362,6 +365,10 @@ export function generateDefinition(input: GenerationInput): AgentDefinition {
     archetype: input.archetype,
     instructions,
     inputs,
+    connectors:
+      fileDrop && !(definition.connectors ?? []).some((c) => c.ref === "files")
+        ? [...(definition.connectors ?? []), { ref: "files", category: "storage" as const, purpose: "The folder new files arrive in" }]
+        : definition.connectors,
     // The requester's mailbox replaces the template's placeholder one.
     triggers: dedupeTriggers([
       ...triggers,
@@ -390,7 +397,8 @@ export function generateDefinition(input: GenerationInput): AgentDefinition {
 function dedupeTriggers(triggers: TriggerSpec[]): TriggerSpec[] {
   const seen = new Set<string>();
   return triggers.filter((t) => {
-    const key = t.type === "mailbox" ? `mailbox:${t.mailbox}` : t.type === "schedule" ? `schedule:${t.cron}` : t.type;
+    const key =
+      t.type === "mailbox" ? `mailbox:${t.mailbox}` : t.type === "schedule" ? `schedule:${t.cron}` : t.type === "connector-event" ? `event:${t.connector}:${t.event}` : t.type;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;

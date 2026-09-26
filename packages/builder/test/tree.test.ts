@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { RoundQuestion } from "@enterprise-brain/core";
+import { describeDuties, type RoundQuestion } from "@enterprise-brain/core";
 import { baseNodes, buildInitialNodes, integrationNodes } from "../src/nodes.ts";
-import { durationInDays } from "../src/generate.ts";
+import { durationInDays, generateDefinition } from "../src/generate.ts";
 import { coerceAnswer, parseRoundReply, splitNumbered } from "../src/parse.ts";
 import { renderFollowUp } from "../src/render.ts";
 import { composeStakeholderRequest, stakeholderQuestion } from "../src/stakeholders.ts";
@@ -222,6 +222,19 @@ describe("answer validation", () => {
     expect(text).toContain("a) No personal data");
     expect(text).toContain("Still open: **Q3 — How people use it**");
     expect(text).not.toContain("Still open: **Q2");
+  });
+});
+
+describe("files that land in a folder", () => {
+  it("gives the new AI employee a duty that picks up each new file, from a folder IT connects", () => {
+    const tree = createTree(buildInitialNodes({ archetype: "document-processing" }));
+    answer(tree, "purpose.goal", "Read the delivery notes our carrier drops on its SFTP server");
+    answer(tree, "inputs.channels", ["shared-folder"]);
+    const definition = generateDefinition({ description: "Delivery notes from the carrier's SFTP", archetype: "document-processing", tree, samples: [] });
+    expect(definition.triggers).toContainEqual({ type: "connector-event", connector: "files", event: "new_file" });
+    expect(definition.connectors).toContainEqual(expect.objectContaining({ ref: "files", category: "storage" }));
+    expect(describeDuties(definition.triggers).map((d) => d.text)).toContain("Picks up each new file in files");
+    expect(getNode(tree, "integration.shared_folder")?.question).toMatch(/network drive or an SFTP server/);
   });
 });
 

@@ -3,9 +3,9 @@ import { validateOperationInput } from "./tools.ts";
 import {
   ConnectorError,
   type ConnectorContext,
-  type ConnectorEvent,
   type ConnectorImplementation,
   type ConnectorTestResult,
+  type PollResult,
 } from "./types.ts";
 import { errorMessage, isRecord, type Input } from "./util.ts";
 
@@ -24,7 +24,7 @@ export interface ConnectorDefinition {
   manifest: ConnectorManifest;
   test(ctx: ConnectorContext): Promise<ConnectorTestResult>;
   operations: Record<string, OperationHandler>;
-  poll?(eventId: string, ctx: ConnectorContext, cursor?: string): Promise<{ events: ConnectorEvent[]; cursor?: string }>;
+  poll?(eventId: string, ctx: ConnectorContext, cursor?: string): Promise<PollResult>;
 }
 
 /**

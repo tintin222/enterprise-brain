@@ -7,11 +7,13 @@ import {
   tlsOptionsFrom,
   withNamedActions,
   type ConnectorContext,
+  type ConnectorFiles,
   type ConnectorImplementation,
   type ConnectorRegistry,
   type SandboxStore,
 } from "@enterprise-brain/connectors";
 import { connectorInstances, sandboxRecords, type DatabaseHandle } from "@enterprise-brain/db";
+import type { FileService } from "./files.ts";
 import type { SecretBox } from "./secrets.ts";
 
 /** SandboxStore persisted in the sandbox_records table (company-scoped). */
@@ -98,6 +100,8 @@ export class ConnectorService {
     private readonly handle: DatabaseHandle,
     readonly registry: ConnectorRegistry,
     private readonly secretBox: SecretBox,
+    /** The company's files, for connections that bring files in or send them out (SFTP, shared folders). */
+    private readonly files?: FileService,
   ) {}
 
   catalog(): ConnectorManifest[] {
@@ -140,11 +144,18 @@ export class ConnectorService {
     const existingSecrets = row.secretsCiphertext ? this.secretBox.decrypt<Record<string, string>>(row.secretsCiphertext) : {};
     const { config, secrets } = this.splitConfig(impl.manifest, input.values ?? {});
     const mergedSecrets = { ...existingSecrets, ...secrets };
+    // A setting given empty is cleared; secrets given empty are kept.
+    const cleared = new Set(
+      Object.entries(input.values ?? {})
+        .filter(([key, value]) => (value === "" || value === null) && impl.manifest.config.some((f) => f.key === key && !f.secret))
+        .map(([key]) => key),
+    );
+    const merged = Object.fromEntries(Object.entries({ ...row.config, ...config }).filter(([key]) => !cleared.has(key)));
     const [updated] = await this.handle.db
       .update(connectorInstances)
       .set({
         name: input.name ?? row.name,
-        config: input.values ? { ...row.config, ...config } : row.config,
+        config: input.values ? merged : row.config,
         secretsCiphertext: Object.keys(mergedSecrets).length ? this.secretBox.encrypt(mergedSecrets) : null,
         status: "unverified",
         updatedAt: new Date(),
@@ -253,11 +264,19 @@ export class ConnectorService {
       secrets,
       fetch: tls ? tlsFetch(tls) : globalThis.fetch.bind(globalThis),
       ...(saveSecrets ? { saveSecrets } : {}),
+      ...(this.files ? { files: this.filesOf(companyId, this.files) } : {}),
       logger: {
         info: () => {},
         warn: (message, data) => console.warn(`[connector] ${message}`, data ?? ""),
       },
       sandbox: new DbSandboxStore(this.handle, companyId),
+    };
+  }
+
+  private filesOf(companyId: string, files: FileService): ConnectorFiles {
+    return {
+      get: (fileId) => files.get(companyId, fileId),
+      put: (file) => files.put(companyId, file),
     };
   }
 
