@@ -37,6 +37,19 @@ const FILTERS: Record<string, Filter> = {
     return Math.round(n * 10 ** d) / 10 ** d;
   },
   bullets: (v) => (Array.isArray(v) ? v.map((x) => `- ${stringify(x)}`).join("\n") : stringify(v)),
+  /** The day of a date-time, `receivedAt | date` (UTC) or `receivedAt | date:'Europe/Istanbul'` (that time zone's day): "2026-09-26". */
+  date: (v, arg) => {
+    if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())) return v.trim();
+    const instant = v instanceof Date ? v : typeof v === "string" || typeof v === "number" ? new Date(v) : undefined;
+    if (!instant || Number.isNaN(instant.getTime())) return v;
+    const zone = arg === undefined || arg === null ? "" : stringify(arg).trim();
+    if (!zone) return instant.toISOString().slice(0, 10);
+    try {
+      return new Intl.DateTimeFormat("en-CA", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).format(instant);
+    } catch {
+      return instant.toISOString().slice(0, 10);
+    }
+  },
   /** An amount as people read it: `total | money:'TRY'` → "965,664.00 TRY". */
   money: (v, arg) => {
     const n = typeof v === "number" ? v : typeof v === "string" && v.trim() !== "" ? Number(v) : NaN;

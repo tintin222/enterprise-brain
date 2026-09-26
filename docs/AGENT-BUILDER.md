@@ -101,6 +101,10 @@ The AI employee is hired in **testing** ("on trial") at the agreed level and run
 - reopen any requirement.
 - **put it to work** ("activate"). Its duties start: it follows its mailbox or system on its own, and what needs a person goes to its department's work queue. Its page is `/ai/<slug>`; its form, generated from its inputs, and its results view, generated from its outputs, are at `/ai/<slug>/app`.
 
+## Jobs that need one answer
+
+Some jobs need no interview. The most common one in Phase 4: a table filled from email ("each supplier complaint emailed to quality@ goes into the register"). The table already says what to pick out, so the Studio needs only the mailbox: *Fill it from email* on a table (or the same words in *What do you need?* on Home) shows the job in plain words (its duty, the fields it picks out, what it takes from the email itself, what it leaves to people, what it never does, and its level) and hires it on trial for the table's department, with the manager who asked as its manager. `intakeAgent` (`packages/builder/src/intake.ts`) writes it as a `mail-triage` AI employee: a mailbox duty, an `llm.extract` step with the table's fields, and a `connector` step calling the Tables connection's `add_<table>` action (a date field about arrival takes the day the email came, in the company's time zone; choices with a starting value start there; people and files are left to people). It starts Supervised, so a person approves each record until its manager trusts it. Anything else about it is changed in plain words, as coaching does.
+
 ## Example: the HR manager's CV analyser
 
 This walkthrough is a real run in offline mode, with the demo company's data. It is reproduced by `apps/server/test/builder-e2e.test.ts`, and `apps/server/test/gate1.test.ts` goes on with people signed in: the CV Screener screens an application sent to careers@ on its own, and a recruiter approves the shortlist from his work queue. With Claude configured, the wording is tailored and the scores come from the model, so the details differ.

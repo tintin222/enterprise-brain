@@ -98,6 +98,12 @@ describe("the one box, from the words alone", () => {
     expect(await read("Keep track of visitor badges: visitor, host, date, badge number")).toMatchObject({ kind: "table" });
     expect(await read("File the supplier complaints that come in by email into the register")).toMatchObject({ kind: "ai-employee" });
     expect(await read("An AI employee that answers supplier emails")).toMatchObject({ kind: "ai-employee" });
+    // Filing emails into a table the company has: the table, and the mailbox named.
+    expect(await read("Add each supplier complaint emailed to Quality@acme.com.tr to Supplier complaints")).toMatchObject({
+      kind: "ai-employee",
+      target: { type: "table", key: "supplier_complaints" },
+      mailbox: "quality@acme.com.tr",
+    });
   });
 
   it("changes what the company has", async () => {

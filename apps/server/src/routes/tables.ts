@@ -1,9 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { changeTable, describeTableChanges, proposeTable } from "@enterprise-brain/builder";
-import { buildingRulesOf, TableField, TableSettings, type BuildingRules, type TableDesign } from "@enterprise-brain/core";
+import { changeTable, describeTableChanges, intakeAgent, proposeTable } from "@enterprise-brain/builder";
+import { buildingRulesOf, Probation, TableField, TableSettings, type BuildingRules, type TableDesign } from "@enterprise-brain/core";
 import { readSheets, writeWorkbook } from "@enterprise-brain/documents";
-import type { TableView } from "@enterprise-brain/runtime";
+import { workingHoursOf, type TableView } from "@enterprise-brain/runtime";
 import { canBuildFor, canChangeBuilt, rulesOf } from "../auth/building.ts";
 import { actorOf, canManageDepartment, canSeeDepartment, viewerOf, type Viewer } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
@@ -60,7 +60,12 @@ export async function tableRoutes(app: FastifyInstance, ctx: AppContext) {
   };
   const withRights = (viewer: Viewer, table: TableView, rules?: BuildingRules) => ({
     ...table,
-    can: { edit: canEditRecords(viewer, table), design: canDesignTable(viewer, table, rules) },
+    can: {
+      edit: canEditRecords(viewer, table),
+      design: canDesignTable(viewer, table, rules),
+      /** Hire an AI employee that fills it from email: its department's managers (AI employees are theirs). */
+      hire: Boolean(table.departmentId) && canManageDepartment(viewer, table.departmentId),
+    },
   });
   const editable = async (request: FastifyRequest, companyId: string, ref: string) => {
     const table = await tableFor(request, companyId, ref);
@@ -165,6 +170,45 @@ export async function tableRoutes(app: FastifyInstance, ctx: AppContext) {
       data: { changed: Object.keys(body) },
     });
     return { ...withRights(viewer, changed, rules), reviews: await platform.reviews.list(company.id, { status: "waiting", itemId: table.id }) };
+  });
+
+  /**
+   * An AI employee that fills the table from email: one answer (the mailbox), no interview. It is
+   * hired on trial for the table's department, with whoever asked as its manager; `dryRun` shows its
+   * job in plain words and hires nobody.
+   */
+  app.post("/api/companies/:company/tables/:table/intake", async (request) => {
+    const company = await companyOf(platform, request);
+    const viewer = viewerOf(request);
+    const { table: ref } = request.params as { table: string };
+    const body = z.object({ mailbox: z.string().trim().email(), level: Probation.optional(), dryRun: z.boolean().optional() }).parse(request.body);
+    const table = await tableFor(request, company.id, ref);
+    if (!table.departmentId || !canManageDepartment(viewer, table.departmentId))
+      throw new HttpError(403, `A manager of its department hires AI employees for ${table.name}`);
+    if (table.archivedAt) throw new HttpError(409, `${table.name} is archived; bring it back first`);
+    const department = (await platform.catalog.departments(company.id)).find((d) => d.id === table.departmentId);
+    const plan = intakeAgent(
+      { key: table.key, name: table.name, fields: table.fields, titleField: table.titleField, ...(department ? { department: department.key } : {}) },
+      { mailbox: body.mailbox, timeZone: workingHoursOf(company.settings).timeZone, ...(body.level ? { level: body.level } : {}) },
+    );
+    if (body.dryRun) return { name: plan.definition.name, job: plan.job };
+    const agent = await platform.agents.create(company.id, {
+      definition: plan.definition,
+      status: "testing",
+      source: "builder",
+      departmentId: table.departmentId,
+      createdBy: actorOf(viewer),
+      probation: plan.job.level,
+      managerUserId: viewer.userId,
+    });
+    await platform.activity.record(company.id, {
+      actor: actorOf(viewer),
+      action: "agent.generated",
+      entityType: "agent",
+      entityId: agent.row.id,
+      summary: `Hired ${agent.definition.name} on trial to fill ${table.name} from ${body.mailbox}`,
+    });
+    return { agent: { slug: agent.row.slug, name: agent.definition.name, status: agent.row.status }, job: plan.job };
   });
 
   /** Its versions, newest first, each with what changed from the one before, in plain words. */

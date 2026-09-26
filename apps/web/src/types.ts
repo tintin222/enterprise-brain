@@ -1458,8 +1458,8 @@ export interface TableView {
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;
-  /** What the viewer may do: add and change records, change the table. */
-  can: { edit: boolean; design: boolean };
+  /** What the viewer may do: add and change records, change the table, hire an AI employee that fills it from email. */
+  can: { edit: boolean; design: boolean; hire?: boolean };
   /** Its requests waiting for a decision (a table's detail). */
   reviews?: Review[];
 }
@@ -1750,6 +1750,9 @@ export interface NeedReading {
   description?: string;
   target?: { type: "table" | "app" | "calculation" | "agent"; key: string; name: string };
   change?: string;
+  mailbox?: string;
+  /** A table an AI employee would fill from email (hired with one answer: the mailbox). */
+  intake?: { table: { key: string; name: string }; mailbox: string | null; can: boolean } | null;
   question?: string;
   alternatives: NeedKind[];
   notes: string[];
@@ -1847,4 +1850,16 @@ export interface BuiltInventory {
   rules: { who: Builders; dpo: { id: string; name: string } | null };
   items: BuiltItem[];
   reviews: Review[];
+}
+
+/** The job of an AI employee that fills a table from email, in plain words. */
+export interface IntakeJob {
+  duty: string;
+  picks: string[];
+  takes: string[];
+  startsAs: string[];
+  leaves: string[];
+  never: string[];
+  level: Probation;
+  levelText: string;
 }

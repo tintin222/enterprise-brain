@@ -59,6 +59,11 @@ describe("templates", () => {
     expect(renderTemplate("{{ invoice.total | money:invoice.currency }}", amounts)).toBe("965,664.00 TRY");
     expect(renderTemplate("{{ invoice.net | money }}", amounts)).toBe("804,720.50");
     expect(renderTemplate("{{ invoice.missing | money:'TRY' }}", amounts)).toBe("");
+    // The day of a date-time: UTC, or a time zone's.
+    const received = { at: "2026-09-30T22:30:00.000Z", day: "2026-09-30" };
+    expect(renderTemplate("{{ at | date }}", received)).toBe("2026-09-30");
+    expect(renderTemplate("{{ at | date:'Europe/Istanbul' }}", received)).toBe("2026-10-01");
+    expect(renderTemplate("{{ day | date:'Europe/Istanbul' }}", received)).toBe("2026-09-30");
   });
 
   it("resolves nested objects", () => {

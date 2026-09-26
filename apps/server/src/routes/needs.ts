@@ -13,7 +13,7 @@ import { canSeeTable } from "./tables.ts";
 const TARGET_WORDS = { table: "the table", app: "the app", calculation: "the calculation", agent: "" } as const;
 
 /** What will happen, in one sentence. */
-function summaryOf(need: UnderstoodNeed, agentName: string | undefined): string {
+function summaryOf(need: UnderstoodNeed, agentName: string | undefined, fills?: string): string {
   const who = agentName ?? "An AI employee";
   switch (need.kind) {
     case "task":
@@ -29,7 +29,9 @@ function summaryOf(need: UnderstoodNeed, agentName: string | undefined): string 
     case "app":
       return "A new app with its table: you see its pages before it is made";
     case "ai-employee":
-      return "A new AI employee: the Studio asks you what it needs to know, and it is tried before it works";
+      return fills
+        ? `A new AI employee files each email${need.mailbox ? ` sent to ${need.mailbox}` : ""} into ${fills}: you see its job before it is hired`
+        : "A new AI employee: the Studio asks you what it needs to know, and it is tried before it works";
     case "change":
       return `A change to ${[TARGET_WORDS[need.target!.type], need.target!.name].filter(Boolean).join(" ")}: you see it before it is made`;
     case "unclear":
@@ -80,6 +82,13 @@ export async function needRoutes(app: FastifyInstance, ctx: AppContext) {
     const need = await understandNeed(platform.llm, { text: body.text, ...(body.as ? { as: body.as } : {}), materials });
     const agent = need.agent ? workers.find((a) => a.row.slug === need.agent) : undefined;
     const rules = rulesOf(company);
+    // "File the complaints emailed to quality@ into the register": the table it would fill (an app's first table).
+    const fills =
+      need.kind === "ai-employee" && need.target
+        ? need.target.type === "table"
+          ? found.tables.find((t) => t.key === need.target!.key)
+          : found.tables.find((t) => t.key === found.apps.find((a) => a.key === need.target!.key)?.tables[0])
+        : undefined;
     /** Whether the viewer may change what the request names (AI employees: their managers). */
     const changeable = (target: NonNullable<UnderstoodNeed["target"]>): boolean => {
       if (target.type === "agent") return canManageDepartment(viewer, found.agents.find((a) => a.row.slug === target.key)?.row.departmentId ?? null);
@@ -93,7 +102,15 @@ export async function needRoutes(app: FastifyInstance, ctx: AppContext) {
     };
     return {
       ...need,
-      summary: summaryOf(need, agent?.definition.name),
+      summary: summaryOf(need, agent?.definition.name, fills?.name),
+      /** A table an AI employee would fill from email: hired with one answer, the mailbox. */
+      intake: fills
+        ? {
+            table: { key: fills.key, name: fills.name },
+            mailbox: need.mailbox ?? null,
+            can: Boolean(fills.departmentId) && canManageDepartment(viewer, fills.departmentId),
+          }
+        : null,
       when: need.schedule ? describeRepeat(need.schedule) : null,
       agentName: agent?.definition.name ?? null,
       /** Who can do the work: to choose another. */

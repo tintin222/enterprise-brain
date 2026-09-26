@@ -40,6 +40,7 @@ import { Card } from "./Card.tsx";
 import { NewAppDialog } from "./apps/NewAppDialog.tsx";
 import { SCHEDULES } from "./calculations/NewCalculationDialog.tsx";
 import { ResultView } from "./calculations/ResultView.tsx";
+import { FillFromEmail } from "./FillFromEmail.tsx";
 import { Chip, Field } from "./Form.tsx";
 import { useGiveWork } from "./GiveWork.tsx";
 import { Markdown } from "./Markdown.tsx";
@@ -191,7 +192,7 @@ function ReadingView({
       {reading.kind === "answer" && <AnswerReading question={reading.description ?? text} />}
       {reading.kind === "calculation" && <CalculationReading reading={reading} text={text} onDone={onDone} />}
       {(reading.kind === "table" || reading.kind === "app") && <MakeReading reading={reading} text={text} onDone={onDone} />}
-      {reading.kind === "ai-employee" && <HireReading reading={reading} text={text} />}
+      {reading.kind === "ai-employee" && <HireReading reading={reading} text={text} onDone={onDone} />}
       {reading.kind === "change" && <ChangeReading reading={reading} />}
       {reading.kind === "unclear" && (
         <div className="flex flex-wrap gap-1.5">
@@ -533,14 +534,33 @@ function MakeReading({ reading, text }: { reading: NeedReading; text: string; on
   );
 }
 
-/** A new AI employee: the Studio interviews the manager about it, starting from these words. */
-function HireReading({ reading, text }: { reading: NeedReading; text: string }) {
+/**
+ * A new AI employee. Filing emails into a table needs one answer (the mailbox), so it is hired here;
+ * any other job starts an interview in the Studio, from these words.
+ */
+function HireReading({ reading, text, onDone }: { reading: NeedReading; text: string; onDone: () => void }) {
   const { path } = useCompany();
   const navigate = useNavigate();
   const start = useMutation({
     mutationFn: () => api.post<SessionView>(path("/builder/sessions"), { description: reading.description ?? text }),
     onSuccess: (session) => navigate(`/hire/studio/${session.session.id}`),
   });
+  const intake = reading.intake;
+  if (intake) {
+    if (!intake.can)
+      return <OnlyManagers>A manager of its department hires the AI employee that fills {intake.table.name}: tell them, in these words.</OnlyManagers>;
+    return (
+      <div className="space-y-2">
+        <FillFromEmail table={intake.table} initialMailbox={intake.mailbox} onDone={onDone} />
+        <p className="text-right text-xs text-muted">
+          A different job?{" "}
+          <button type="button" className="font-medium text-brand-700 hover:underline dark:text-brand-300" onClick={() => start.mutate()}>
+            Describe it in the Studio
+          </button>
+        </p>
+      </div>
+    );
+  }
   if (!reading.can.build) return <OnlyManagers>A manager of your department hires AI employees: tell them what you need, in these words.</OnlyManagers>;
   return (
     <>

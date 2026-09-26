@@ -40,9 +40,11 @@ export interface UnderstoodNeed {
   schedule?: RepeatSchedule;
   /** table, app, ai-employee: what to make; calculation: the rule; answer: the question. */
   description?: string;
-  /** change: what changes, and the change in plain words. */
+  /** change: what changes, and the change in plain words; ai-employee: the table (or app) it would fill. */
   target?: NeedTarget;
   change?: string;
+  /** ai-employee: the mailbox it would read, when the request names one. */
+  mailbox?: string;
   /** unclear: one question back. */
   question?: string;
   /** Other readings the person can choose instead. */
@@ -156,6 +158,7 @@ async function modelNeed(llm: LlmClient, text: string, materials: NeedMaterials,
   const target = data.targetType ? targetFrom(materials, data.targetType, data.target.trim()) : undefined;
   const notes: string[] = [];
   if (kind === "change" && !target) kind = "unclear";
+  const mailbox = MAILBOX.exec(text)?.[0]?.toLowerCase();
   if (kind === "recurring" && !schedule) notes.push("When wasn't said: choose it below.");
   const need: UnderstoodNeed = {
     kind,
@@ -167,6 +170,8 @@ async function modelNeed(llm: LlmClient, text: string, materials: NeedMaterials,
     ...(schedule && (kind === "recurring" || kind === "calculation") ? { schedule } : {}),
     ...(["table", "app", "ai-employee", "calculation", "answer"].includes(kind) ? { description: data.description.trim() || text } : {}),
     ...(kind === "change" && target ? { target, change: data.change.trim() || text } : {}),
+    ...(kind === "ai-employee" && target && (target.type === "table" || target.type === "app") ? { target } : {}),
+    ...(kind === "ai-employee" && mailbox ? { mailbox } : {}),
     ...(kind === "unclear"
       ? { question: data.question.trim() || "What should happen: should an AI employee do it, or do you want to keep track of something?" }
       : {}),
@@ -220,6 +225,9 @@ const EVENT = words(
     "(?:in|into|to) (?:the |our )?(?:inbox|mailbox)",
     "gelen (?:her )?(?:e-?postalar?|e-?postaları|mailler|mail)",
     "e-?postayla gelen",
+    "(?:e-?mailed|mailed) (?:to|in)",
+    "(?:sent|coming|comes|arriving|arrives) (?:in )?to [\\w.+-]+@[\\w-]+(?:\\.[\\w-]+)+",
+    "adresine gelen",
   ].join("|"),
 );
 const HIRE = words(
@@ -236,6 +244,7 @@ const TASK = new RegExp(
   "iu",
 );
 const PERIOD = words("last month|this month|this week|this year|last year|geçen ay|bu ay|bu hafta|bu yıl|geçen yıl");
+const MAILBOX = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/;
 
 const WEEKDAYS: [RegExp, number][] = [
   [/sunday|pazar(?!tesi)/iu, 0],
@@ -422,7 +431,12 @@ export function wordsNeed(text: string, materials: NeedMaterials, as?: NeedKind)
   if (!as) {
     if (named && target?.type !== "table" && target?.type !== "app" && target?.type !== "calculation" && !CHANGE.test(core))
       kind = schedule ? "recurring" : "task";
-    else if (target && (CHANGE.test(core) || /\binstead\b/i.test(core) || new RegExp(`^(?:the\\s+)?${escape(target.name)}${E}\\s*:`, "iu").test(core)))
+    // Emails arriving are an AI employee's work, not a change to the table they go into.
+    else if (
+      target &&
+      !EVENT.test(core) &&
+      (CHANGE.test(core) || /\binstead\b/i.test(core) || new RegExp(`^(?:the\\s+)?${escape(target.name)}${E}\\s*:`, "iu").test(core))
+    )
       kind = "change";
     else if (EVENT.test(core) || HIRE.test(core)) kind = "ai-employee";
     else if (schedule) kind = calcLike || CALC_WORDS.test(rest) ? "calculation" : "recurring";
@@ -464,6 +478,14 @@ export function wordsNeed(text: string, materials: NeedMaterials, as?: NeedKind)
       need.question =
         "What should happen: should an AI employee do it, should it be answered from the company's knowledge, or do you want to keep track of something?";
       break;
+    case "ai-employee": {
+      need.description = text;
+      // "File the complaints emailed to quality@ into the register": the table (or app) it would fill, and the mailbox.
+      if (target && (target.type === "table" || target.type === "app")) need.target = target;
+      const mailbox = MAILBOX.exec(text)?.[0];
+      if (mailbox) need.mailbox = mailbox.toLowerCase();
+      break;
+    }
     default:
       need.description = text;
   }

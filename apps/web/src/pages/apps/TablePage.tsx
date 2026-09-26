@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Download, FileUp, Plus, Save, Search, Settings2, Table2 } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Download, FileUp, Inbox, Plus, Save, Search, Settings2, Table2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { api, downloadWithAuth } from "../../api.ts";
@@ -8,8 +8,9 @@ import { Badge } from "../../components/Badge.tsx";
 import { Button } from "../../components/Button.tsx";
 import { VersionsSection, WaitingNotes } from "../../components/Building.tsx";
 import { ChangeBox } from "../../components/ChangeBox.tsx";
+import { FillFromEmail } from "../../components/FillFromEmail.tsx";
 import { Card, PageHeader } from "../../components/Card.tsx";
-import { Drawer } from "../../components/Dialog.tsx";
+import { Dialog, Drawer } from "../../components/Dialog.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Field } from "../../components/Form.tsx";
 import { Page } from "../../components/Layout.tsx";
@@ -47,6 +48,7 @@ export default function TablePage() {
   const [adding, setAdding] = useState(false);
   const [importing, setImporting] = useState(false);
   const [designing, setDesigning] = useState(false);
+  const [filling, setFilling] = useState(false);
   const open = params.get("record");
   // A change said in the one box: the table's design opens with it worked out.
   const asked = params.get("change");
@@ -105,6 +107,11 @@ export default function TablePage() {
         description={view.description || undefined}
         actions={
           <>
+            {view.can.hire && !view.archivedAt && (
+              <Button icon={Inbox} onClick={() => setFilling(true)}>
+                Fill it from email
+              </Button>
+            )}
             {view.can.design && (
               <Button icon={Settings2} onClick={() => setDesigning(true)}>
                 Change the table
@@ -293,6 +300,17 @@ export default function TablePage() {
       <RecordDrawer table={view} recordNumber={open ? Number(open) : null} onClose={() => openRecord(null)} />
       {view.can.edit && <NewRecordDialog table={view} open={adding} onClose={() => setAdding(false)} />}
       {view.can.edit && <ImportDialog table={view} open={importing} onClose={() => setImporting(false)} />}
+      {view.can.hire && (
+        <Dialog
+          open={filling}
+          onClose={() => setFilling(false)}
+          size="lg"
+          title={`Fill ${view.name} from email`}
+          description="An AI employee reads a mailbox and adds each email as a record. Say which mailbox; it starts on trial."
+        >
+          <FillFromEmail table={{ key: view.key, name: view.name }} onDone={() => setFilling(false)} />
+        </Dialog>
+      )}
       {view.can.design && <DesignDrawer table={view} open={designing} onClose={stopDesigning} company={company} initialChange={asked ?? undefined} />}
     </Page>
   );
