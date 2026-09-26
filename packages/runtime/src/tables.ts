@@ -114,6 +114,8 @@ export type NewTable = Omit<TableDesignInput, "key"> & {
 export type TableChanges = Partial<Pick<TableDesignInput, "name" | "description" | "fields" | "titleField">> & {
   departmentId?: string | null;
   settings?: Partial<TableSettings>;
+  /** Choice values renamed in every record: { field key: { old value: new value } }. */
+  renames?: Record<string, Record<string, string>>;
 };
 
 /** What a chart or a number shows: records counted, or a number field added up or averaged, by a field. */
@@ -268,16 +270,18 @@ export class TableService {
   async change(companyId: string, ref: string, changes: TableChanges): Promise<TableView> {
     const row = await this.row(companyId, ref);
     const before = designOf(row);
-    const design = TableDesign.parse({
-      key: row.key,
-      name: changes.name ?? before.name,
-      description: changes.description ?? before.description,
-      fields: changes.fields ?? before.fields,
-      titleField: changes.titleField === undefined ? before.titleField : changes.titleField || undefined,
-    });
+    const design = this.designAfter(row, changes);
     await this.checkLinks(companyId, design);
     const redesigned = !sameData(design.fields, before.fields) || design.titleField !== before.titleField;
-    if (changes.fields) await this.convertValues(companyId, row, before, design);
+    if (changes.fields) {
+      const problems = await this.convertValues(companyId, row, before, design, changes.renames ?? {}, true);
+      if (problems.length) {
+        throw new TableError(
+          `Some records don't fit the change (${problems.slice(0, 5).join("; ")}${problems.length > 5 ? `; and ${problems.length - 5} more` : ""}). Correct them first.`,
+          409,
+        );
+      }
+    }
     const [updated] = await this.handle.db
       .update(dataTables)
       .set({
@@ -294,6 +298,25 @@ export class TableService {
       .returning();
     await this.syncActions(companyId);
     return this.view(updated!, await this.count(row.id));
+  }
+
+  /** The records that wouldn't fit a change, as it would be made (nothing changes): empty when all do. */
+  async checkChange(companyId: string, ref: string, changes: TableChanges): Promise<string[]> {
+    const row = await this.row(companyId, ref);
+    const design = this.designAfter(row, changes);
+    await this.checkLinks(companyId, design);
+    return changes.fields ? this.convertValues(companyId, row, designOf(row), design, changes.renames ?? {}, false) : [];
+  }
+
+  private designAfter(row: TableRow, changes: TableChanges): TableDesign {
+    const before = designOf(row);
+    return TableDesign.parse({
+      key: row.key,
+      name: changes.name ?? before.name,
+      description: changes.description ?? before.description,
+      fields: changes.fields ?? before.fields,
+      titleField: changes.titleField === undefined ? before.titleField : changes.titleField || undefined,
+    });
   }
 
   /** Put a table away (its records are kept; AI employees no longer reach it), or bring it back. */
@@ -382,13 +405,26 @@ export class TableService {
   }
 
   /** Convert the records' values of fields whose kind or choices changed; refuse if some don't fit. */
-  private async convertValues(companyId: string, row: TableRow, before: TableDesign, after: TableDesign): Promise<void> {
+  /**
+   * Convert the records' values of fields whose kind or choices changed (a renamed choice value first
+   * becomes its new name); what doesn't fit is returned, and nothing is written unless all fit and `apply`.
+   */
+  private async convertValues(
+    companyId: string,
+    row: TableRow,
+    before: TableDesign,
+    after: TableDesign,
+    renames: Record<string, Record<string, string>>,
+    apply: boolean,
+  ): Promise<string[]> {
     const old = new Map(before.fields.map((f) => [f.key, f]));
     const changed = after.fields.filter((f) => {
       const was = old.get(f.key);
-      return !was || was.type !== f.type || !sameData(was.choices ?? [], f.choices ?? []) || was.table !== f.table || was.currency !== f.currency;
+      return (
+        !was || was.type !== f.type || !sameData(was.choices ?? [], f.choices ?? []) || was.table !== f.table || was.currency !== f.currency || renames[f.key]
+      );
     });
-    if (!changed.length) return;
+    if (!changed.length) return [];
     const records = await this.handle.db
       .select({ id: dataRecords.id, number: dataRecords.number, data: dataRecords.data })
       .from(dataRecords)
@@ -398,25 +434,26 @@ export class TableService {
     const updates: { id: string; data: Record<string, unknown> }[] = [];
     for (const record of records) {
       const given = Object.fromEntries(
-        changed.filter((f) => record.data[f.key] !== undefined && record.data[f.key] !== null).map((f) => [f.key, record.data[f.key]]),
+        changed
+          .filter((f) => record.data[f.key] !== undefined && record.data[f.key] !== null)
+          .map((f) => {
+            const value = record.data[f.key];
+            return [f.key, typeof value === "string" && renames[f.key]?.[value] !== undefined ? renames[f.key]![value] : value];
+          }),
       );
       if (!Object.keys(given).length) continue;
       try {
         const converted = await checkRecordValues(after, given, resolvers, { partial: true });
-        if (JSON.stringify(converted) !== JSON.stringify(given)) updates.push({ id: record.id, data: { ...record.data, ...converted } });
+        if (!sameData(converted, Object.fromEntries(Object.keys(given).map((k) => [k, record.data[k]]))))
+          updates.push({ id: record.id, data: { ...record.data, ...converted } });
       } catch (error) {
         if (!(error instanceof RecordValueError)) throw error;
         problems.push(...error.problems.map((p) => `#${record.number}: ${p}`));
       }
     }
-    if (problems.length) {
-      const shown = problems.slice(0, 5).join("; ");
-      throw new TableError(
-        `Some records don't fit the change (${shown}${problems.length > 5 ? `; and ${problems.length - 5} more` : ""}). Correct them first.`,
-        409,
-      );
-    }
+    if (problems.length || !apply) return problems;
     for (const update of updates) await this.handle.db.update(dataRecords).set({ data: update.data }).where(eq(dataRecords.id, update.id));
+    return [];
   }
 
   // -------------------------------------------------------------------------

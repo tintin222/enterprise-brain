@@ -6,6 +6,7 @@ import { useParams } from "react-router";
 import { api } from "../../api.ts";
 import { Badge } from "../../components/Badge.tsx";
 import { Button, ButtonLink } from "../../components/Button.tsx";
+import { ChangeBox } from "../../components/ChangeBox.tsx";
 import { Card, CardHeader, PageHeader } from "../../components/Card.tsx";
 import { SCHEDULES } from "../../components/calculations/NewCalculationDialog.tsx";
 import { ResultView } from "../../components/calculations/ResultView.tsx";
@@ -15,7 +16,7 @@ import { useCompany } from "../../lib/company.tsx";
 import { formatDateTime, formatDuration, timeAgo } from "../../lib/format.ts";
 import { keys, useCalculation, useDepartments, useTables } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
-import type { CalculationRun, CalculationSchedule, CalculationView } from "../../types.ts";
+import type { CalculationChangeProposal, CalculationRun, CalculationSchedule, CalculationView } from "../../types.ts";
 
 /** A calculation: the rule, how it works, its latest result and every run; IT also sees the code. */
 export default function CalculationPage() {
@@ -104,6 +105,50 @@ export default function CalculationPage() {
               {current?.status === "succeeded" && <ResultView output={calculation.output} result={current.result} />}
             </div>
           </Card>
+          {calculation.can.design && (
+            <ChangeBox<CalculationChangeProposal>
+              title="Change the rule in plain words"
+              placeholder="This year instead of last month; per 1000 deliveries; or say the whole rule"
+              propose={(request) => api.post<CalculationChangeProposal>(path(`/calculations/${encodeURIComponent(key)}/changes`), { request })}
+              said={(change) => ({
+                summary: change.trial.ok ? [`The rule becomes “${change.rule}”`, change.draft.explanation].filter(Boolean) : [],
+                problems: change.trial.ok ? [] : [change.trial.error ?? "It didn't work on the rows"],
+                notes: change.notes,
+              })}
+              preview={(change) =>
+                change.trial.ok ? (
+                  <div className="grid gap-3 lg:grid-cols-2">
+                    <div>
+                      <p className="label">Now</p>
+                      <div className="rounded-lg border border-line bg-surface p-2">
+                        {change.before?.status === "succeeded" ? (
+                          <ResultView output={calculation.output} result={change.before.result} compact />
+                        ) : (
+                          <p className="text-sm text-muted">No result yet.</p>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <p className="label">After the change, on today's rows</p>
+                      <div className="rounded-lg border border-line bg-surface p-2">
+                        <ResultView output={change.draft.output} result={change.trial.result} compact />
+                      </div>
+                    </div>
+                  </div>
+                ) : null
+              }
+              apply={(change) =>
+                api.patch<CalculationView>(path(`/calculations/${encodeURIComponent(key)}`), {
+                  rule: change.rule,
+                  explanation: change.draft.explanation,
+                  tables: change.draft.tables,
+                  code: change.draft.code,
+                  output: change.draft.output,
+                })
+              }
+              onApplied={() => void run.mutateAsync()}
+            />
+          )}
           {detail.data.code && (
             <details className="rounded-xl border border-line bg-subtle/40 p-4 text-sm">
               <summary className="cursor-pointer font-medium text-muted">The code the Studio wrote (IT)</summary>

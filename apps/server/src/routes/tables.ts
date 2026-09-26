@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { proposeTable } from "@enterprise-brain/builder";
+import { changeTable, proposeTable } from "@enterprise-brain/builder";
 import { TableField, TableSettings } from "@enterprise-brain/core";
 import { readSheets, writeWorkbook } from "@enterprise-brain/documents";
 import type { TableView } from "@enterprise-brain/runtime";
@@ -33,6 +33,8 @@ const Design = z.object({
   titleField: z.string().optional(),
   departmentId: z.string().uuid().nullable().optional(),
   settings: TableSettings.partial().optional(),
+  /** Choice values renamed in every record: { field key: { old value: new value } }. */
+  renames: z.record(z.string(), z.record(z.string(), z.string().min(1).max(80))).optional(),
 });
 
 /**
@@ -129,6 +131,23 @@ export async function tableRoutes(app: FastifyInstance, ctx: AppContext) {
       data: { changed: Object.keys(body) },
     });
     return withRights(viewer, changed);
+  });
+
+  /** A change said in plain words: the table as it would be, what changes, and the records that wouldn't fit (nothing changes yet). */
+  app.post("/api/companies/:company/tables/:table/changes", async (request) => {
+    const company = await companyOf(platform, request);
+    const viewer = viewerOf(request);
+    const { table: ref } = request.params as { table: string };
+    const body = z.object({ request: z.string().trim().min(3).max(2000) }).parse(request.body);
+    const table = await designable(request, company.id, ref);
+    const existing = (await platform.tables.list(company.id)).filter((t) => canSeeTable(viewer, t) && t.key !== table.key);
+    const change = await changeTable(platform.llm, {
+      design: { key: table.key, name: table.name, description: table.description, fields: table.fields, titleField: table.titleField },
+      request: body.request,
+      existing: existing.map((t) => ({ key: t.key, name: t.name })),
+    });
+    const problems = await platform.tables.checkChange(company.id, table.id, { fields: change.design.fields, renames: change.renames });
+    return { ...change, problems };
   });
 
   for (const [path, archived] of [

@@ -6,6 +6,7 @@ import { Navigate, useParams, useSearchParams } from "react-router";
 import { api, isApiError } from "../../api.ts";
 import { blockSpan, BlockView, type BlockContext } from "../../components/apps/Blocks.tsx";
 import { Button, ButtonLink, IconButton } from "../../components/Button.tsx";
+import { ChangeBox } from "../../components/ChangeBox.tsx";
 import { PageHeader } from "../../components/Card.tsx";
 import { Drawer } from "../../components/Dialog.tsx";
 import { Field } from "../../components/Form.tsx";
@@ -16,7 +17,7 @@ import { useCompany } from "../../lib/company.tsx";
 import { namedIcon } from "../../lib/icons.tsx";
 import { keys, useAgent, useAppDetail, useDepartments } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
-import type { AppDetail, AppPageSpec, AppView } from "../../types.ts";
+import type { AppChangeProposal, AppDetail, AppPageSpec, AppView } from "../../types.ts";
 
 /** An app: its pages as tabs, each page's blocks drawn from its tables. */
 export default function AppPage() {
@@ -164,6 +165,31 @@ function AppDesignDrawer({ detail, open, onClose }: { detail: AppDetail; open: b
       }
     >
       <div className="space-y-5">
+        <ChangeBox<AppChangeProposal>
+          placeholder="Add a chart of complaints by month, take away the board, rename Add to Log a complaint"
+          propose={(request) => api.post<AppChangeProposal>(path(`/apps/${encodeURIComponent(app.key)}/changes`), { request })}
+          said={(change) => change}
+          preview={(change) => (
+            <div>
+              <p className="label">The app after the change</p>
+              <ol className="space-y-1.5">
+                {change.outline.map((page) => (
+                  <li key={page.key} className="rounded-lg border border-line bg-surface p-2.5 text-sm">
+                    <p className="font-medium text-fg">{page.title}</p>
+                    <ul className="mt-0.5 list-disc pl-5 text-xs text-muted">
+                      {page.blocks.map((line, i) => (
+                        <li key={i}>{line}</li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          )}
+          apply={(change) => api.patch<AppView>(path(`/apps/${encodeURIComponent(app.key)}`), { pages: change.pages })}
+          onApplied={() => void refresh().then(onClose)}
+        />
+        <p className="text-xs font-semibold tracking-wide text-muted uppercase">Or arrange it yourself</p>
         {save.error && <ErrorState error={save.error} title="Not changed" />}
         <Field label="Name" required>
           {(id) => <input id={id} className="input" value={name} onChange={(e) => setName(e.target.value)} />}

@@ -6,6 +6,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 import { api, downloadWithAuth } from "../../api.ts";
 import { Badge } from "../../components/Badge.tsx";
 import { Button } from "../../components/Button.tsx";
+import { ChangeBox } from "../../components/ChangeBox.tsx";
 import { Card, PageHeader } from "../../components/Card.tsx";
 import { Drawer } from "../../components/Dialog.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
@@ -20,7 +21,7 @@ import { useCompany } from "../../lib/company.tsx";
 import { plural, timeAgo } from "../../lib/format.ts";
 import { keys, useDepartments, useRecords, useTable } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
-import type { TableField, TableSettings, TableView } from "../../types.ts";
+import type { TableChangeProposal, TableField, TableSettings, TableView } from "../../types.ts";
 
 const PAGE = 50;
 /** Fields shown as columns (the rest are in the record). */
@@ -371,6 +372,20 @@ function DesignDrawer({ table, open, onClose, company }: { table: TableView; ope
       }
     >
       <div className="space-y-6">
+        <ChangeBox<TableChangeProposal>
+          placeholder="Add a field for the root cause, make Owner needed, rename Done to Closed"
+          propose={(request) => api.post<TableChangeProposal>(path(`/tables/${encodeURIComponent(table.key)}/changes`), { request })}
+          said={(change) => change}
+          apply={(change) =>
+            api.patch<TableView>(path(`/tables/${encodeURIComponent(table.key)}`), {
+              fields: change.design.fields,
+              titleField: change.design.titleField ?? "",
+              renames: change.renames,
+            })
+          }
+          onApplied={() => void refresh().then(onClose)}
+        />
+        <p className="text-xs font-semibold tracking-wide text-muted uppercase">Or change it yourself</p>
         {save.error && <ErrorState error={save.error} title="Not changed" />}
         <TableDesigner draft={draft} onChange={setDraft} tableKey={table.key} />
         <div className="grid gap-4 sm:grid-cols-2">

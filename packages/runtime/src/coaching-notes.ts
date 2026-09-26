@@ -4,7 +4,7 @@ import { coachingNotes, type DatabaseHandle } from "@enterprise-brain/db";
 import type { ActivityService } from "./activity.ts";
 
 export type CoachingNoteRow = typeof coachingNotes.$inferSelect;
-export type CoachingNoteKind = "task" | "check" | "correction" | "rejection";
+export type CoachingNoteKind = "task" | "check" | "correction" | "rejection" | "change";
 export type CoachingNoteStatus = "open" | "applied" | "kept";
 
 export class CoachingError extends Error {

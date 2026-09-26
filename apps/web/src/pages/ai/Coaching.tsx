@@ -20,6 +20,7 @@ export const NOTE_KIND: Record<CoachingNoteKind, string> = {
   check: "Checked the work: wrong",
   correction: "Corrected it before approving",
   rejection: "Said no, with a reason",
+  change: "Asked for a change",
 };
 
 const coachingKey = (company: string, slug: string) => [...keys.agent(company, slug), "coaching"] as const;
@@ -334,6 +335,46 @@ const DECIDED: Record<string, { label: (p: CoachingProposal) => string; tone: To
   failed: { label: () => "Replay failed", tone: "red" },
 };
 
+/**
+ * Ask for a change in plain words: the Studio turns it into rules and a new version of the job and
+ * replays recent tasks with it, as coaching does; nothing goes live until the manager publishes it.
+ */
+export function ChangeRequest({ slug, name }: { slug: string; name: string }) {
+  const { company, path } = useCompany();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [request, setRequest] = useState("");
+  const ask = useMutation({
+    mutationFn: () => api.post<CoachingProposal>(path(`/agents/${encodeURIComponent(slug)}/changes`), { request: request.trim() }),
+    onSuccess: () => {
+      setRequest("");
+      void queryClient.invalidateQueries({ queryKey: coachingKey(company, slug) });
+      toast.success("The Studio is working the change in", { description: "It replays recent tasks with it; nothing is sent or changed until you publish." });
+    },
+    onError: (error) => toast.error(error),
+  });
+  return (
+    <div className="space-y-2 rounded-xl border border-brand-200 bg-brand-50/40 p-4 dark:border-brand-400/25 dark:bg-brand-400/5">
+      <p className="flex items-center gap-2 text-sm font-semibold text-fg">
+        <Wrench className="size-4 text-brand-600 dark:text-brand-300" /> Change {name}'s job in plain words
+      </p>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <textarea
+          className="input min-h-16 flex-1"
+          placeholder="Reply in Turkish when the customer writes in Turkish; ask me before any refund over 5,000 TRY"
+          value={request}
+          onChange={(e) => setRequest(e.target.value)}
+          aria-label="What should change"
+        />
+        <Button className="sm:self-start" icon={FlaskConical} loading={ask.isPending} disabled={request.trim().length < 3} onClick={() => ask.mutate()}>
+          Propose and test it
+        </Button>
+      </div>
+      <p className="text-xs text-muted">It becomes a new version you can compare on recent tasks, publish or keep as it is; every version can be gone back to.</p>
+    </div>
+  );
+}
+
 export function CoachingTab({ detail }: { detail: AgentDetail }) {
   const slug = detail.agent.slug;
   const name = detail.definition.name;
@@ -355,6 +396,7 @@ export function CoachingTab({ detail }: { detail: AgentDetail }) {
 
   return (
     <div className="space-y-6">
+      {data.canDecide && current?.status !== "replaying" && <ChangeRequest slug={slug} name={name} />}
       {current && <ProposalPanel proposal={current} name={name} canDecide={data.canDecide} slug={slug} />}
       <Card className="overflow-hidden">
         <CardHeader

@@ -38,6 +38,8 @@ export interface CalculationProposal {
   attempts: number;
   drafted: "model" | "words";
   notes: string[];
+  /** For a change written by the model: the rule as it now reads. */
+  rule?: string;
 }
 
 export async function writeCalculation(
@@ -49,6 +51,8 @@ export async function writeCalculation(
     samples?: Record<string, Record<string, unknown>[]>;
     /** Runs code on the real rows (nothing is kept). */
     trial: (draft: CalculationDraft) => Promise<TrialOutcome>;
+    /** A change: the calculation as it is now, and the change asked for in plain words. */
+    current?: { rule: string; code: string; change?: string };
   },
 ): Promise<CalculationProposal> {
   const rule = input.rule.trim();
@@ -79,7 +83,12 @@ Write simple, readable code. Treat missing values as missing (not zero) unless t
 async function modelCalculation(
   llm: LlmClient,
   rule: string,
-  input: { tables: CalculationTable[]; samples?: Record<string, Record<string, unknown>[]>; trial: (draft: CalculationDraft) => Promise<TrialOutcome> },
+  input: {
+    tables: CalculationTable[];
+    samples?: Record<string, Record<string, unknown>[]>;
+    trial: (draft: CalculationDraft) => Promise<TrialOutcome>;
+    current?: { rule: string; code: string; change?: string };
+  },
 ): Promise<CalculationProposal | undefined> {
   const column: JsonSchema = {
     type: "object",
@@ -102,20 +111,27 @@ async function modelCalculation(
       kind: { type: "string", enum: ["rows", "number", "text"] },
       columns: { type: "array", items: column },
       unit: { type: "string", description: "For a number: what it counts; else empty" },
+      ...(input.current
+        ? { rule: { type: "string", description: "The whole rule as it reads after the change, in one sentence, in the person's words" } }
+        : {}),
     },
-    required: ["name", "explanation", "tables", "code", "kind", "columns", "unit"],
+    required: ["name", "explanation", "tables", "code", "kind", "columns", "unit", ...(input.current ? ["rule"] : [])],
     additionalProperties: false,
   };
   const known = new Set(input.tables.map((t) => t.key));
   const context = [
-    `The rule: ${rule}`,
+    input.current
+      ? `The calculation as it is now.\nIts rule: ${input.current.rule}\nIts code:\n${input.current.code}\n\nThe change asked for: ${input.current.change ?? rule}\nWrite the calculation as it should be after the change, and say the whole rule as it now reads.`
+      : `The rule: ${rule}`,
     `The company's tables:\n${input.tables
       .map((t) => {
         const sample = input.samples?.[t.key]?.slice(0, 3);
         return `- ${t.key} (${t.name}): ${t.fields.map((f) => `${f.key} [${f.label}, ${f.type}${f.choices?.length ? `: ${f.choices.join("/")}` : ""}]`).join("; ")}${sample?.length ? `\n  e.g. ${JSON.stringify(sample)}` : ""}`;
       })
       .join("\n")}`,
-  ].join("\n\n");
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const notes: string[] = [];
   let feedback = "";
   for (let attempt = 1; attempt <= 3; attempt++) {
@@ -127,6 +143,7 @@ async function modelCalculation(
       kind: "rows" | "number" | "text";
       columns: (Omit<ResultColumn, "currency"> & { currency: string })[];
       unit: string;
+      rule?: string;
     }>({
       purpose: "studio.calculation",
       system: SYSTEM,
@@ -147,11 +164,12 @@ async function modelCalculation(
       }),
     };
     const trial = await input.trial(draft);
-    if (trial.ok) return { draft, trial, attempts: attempt, drafted: "model", notes };
+    const restated = data.rule?.trim() ? { rule: data.rule.trim() } : {};
+    if (trial.ok) return { draft, trial, attempts: attempt, drafted: "model", notes, ...restated };
     // Tried on the real rows and it didn't work: the model sees what went wrong and writes it again.
     notes.push(`Try ${attempt} didn't work (${trial.error}); written again.`);
     feedback = `The code you wrote failed on the real rows: ${trial.error}\nThe code was:\n${draft.code}\nWrite it again so that it works.`;
-    if (attempt === 3) return { draft, trial, attempts: attempt, drafted: "model", notes };
+    if (attempt === 3) return { draft, trial, attempts: attempt, drafted: "model", notes, ...restated };
   }
   return undefined;
 }
@@ -172,7 +190,7 @@ function singular(word: string): string {
   const w = word.toLowerCase();
   if (/ies$/.test(w)) return `${w.slice(0, -3)}y`;
   if (/(ses|xes|ches|shes)$/.test(w)) return w.slice(0, -2);
-  if (/s$/.test(w) && !/ss$/.test(w)) return w.slice(0, -1);
+  if (/s$/.test(w) && !/(ss|us|is)$/.test(w)) return w.slice(0, -1);
   return w;
 }
 

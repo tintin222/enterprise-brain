@@ -97,13 +97,14 @@ How tasks move:
 
 ## Coaching
 
-Corrections become rules in an AI employee's next version, tested on its recent tasks first. A correction (`kind`): `task` (a finished task marked wrong), `check` (a check marked wrong), `correction` (changed before approving), `rejection` (a no with a reason); `status`: `open`, `applied` (a rule since `appliedVersion`) or `kept`.
+Corrections become rules in an AI employee's next version, tested on its recent tasks first. A correction (`kind`): `task` (a finished task marked wrong), `check` (a check marked wrong), `correction` (changed before approving), `rejection` (a no with a reason), `change` (a change its manager asked for in plain words); `status`: `open`, `applied` (a rule since `appliedVersion`) or `kept`.
 
 | Method | Path | Description |
 |---|---|---|
 | POST | `/api/companies/:company/tasks/:task/correct` | Mark a finished task as wrong: `{ note }` in plain words → `{ note }`. The AI employee's department, whoever asked for the task, admins |
 | GET | `/api/companies/:company/agents/:agent/coaching` | `{ notes[] {id, kind, note, by, status, taskRef, taskTitle, proposalId, appliedVersion, createdAt}, proposals[], llm {available}, canDecide }` (open notes first; proposals newest first) |
 | POST | `/api/companies/:company/agents/:agent/coaching/proposals` | Managers: `{ noteIds?, limit? (1-20, default 8), wait? }` → a proposal. Turns the open notes (or those given) into rules and a new version of the job, then replays recent tasks with it in the background (`status: replaying`, then `ready`) |
+| POST | `/api/companies/:company/agents/:agent/changes` | Managers: a change in plain words, `{ request, limit?, wait? }` → a proposal, as above: it is kept as a note (`kind: change`), turned into rules and a new version, and tried on recent tasks; nothing goes live until it is published |
 | GET | `/api/companies/:company/coaching/proposals/:proposal` | `{ id, baseVersion, currentVersion, stale, status, rules[], explanation, changes[] {path, label, before?, after?, added?, removed?}, replay {items[], summary}, notes[], createdBy, decidedBy, publishedVersion, canDecide }` |
 | POST | `/api/companies/:company/coaching/proposals/:proposal/publish` | Managers: publish it as the next version (409 while replaying, or when the job changed since: `stale`) |
 | POST | `/api/companies/:company/coaching/proposals/:proposal/keep` | Managers: keep the current version; its corrections are closed as kept |
@@ -198,7 +199,8 @@ Business data people describe in plain words (Apps). A table belongs to a depart
 | POST | `/api/companies/:company/tables/propose` | `{ description }` → the Studio's proposal (nothing is made): `{ design: { key, name, description, fields, titleField }, notes[], drafted: model\|words }` |
 | POST | `/api/companies/:company/tables` | A manager of the department (an admin for company tables): `{ name, description?, fields, titleField?, departmentId, settings? }` |
 | GET | `/api/companies/:company/tables/:table` | By key or id |
-| PATCH | `/api/companies/:company/tables/:table` | Its managers: `{ name?, description?, fields?, titleField?, departmentId?, settings? }`. When a field's kind or list changes, records' values are converted; if some don't fit, nothing changes (409, naming the records) |
+| PATCH | `/api/companies/:company/tables/:table` | Its managers: `{ name?, description?, fields?, titleField?, departmentId?, settings?, renames?: { <field key>: { <old value>: <new value> } } }`. When a field's kind or list changes, records' values are converted (a renamed choice value in every record); if some don't fit, nothing changes (409, naming the records) |
+| POST | `/api/companies/:company/tables/:table/changes` | Its managers: a change in plain words, `{ request }` ("rename Done to Closed, add Root cause, make Owner required") → `{ design, renames, summary[] (what changes, in plain words), notes[] (what wasn't understood), problems[] (records that wouldn't fit), drafted }`; nothing changes until the design is sent to PATCH |
 | POST | `/api/companies/:company/tables/:table/archive` · `/restore` | Its managers. An archived table keeps its records; nothing is added, and AI employees no longer reach it |
 | GET | `/api/companies/:company/tables/:table/records?search&sort&direction&limit&offset&archived&filter.<field>=` | `{ table, records: [{ id, number, title, values, display (links and people by name), createdBy, updatedBy, createdAt, updatedAt, archivedAt }], total }`; `search` finds words in any field (or `#12`), `filter.<field>` a value, `sort` a field (a choice in the order of its list), `number`, `created_at` or `updated_at` |
 | POST | `/api/companies/:company/tables/:table/records` | `{ values: { <field key or label>: value } }` → the record, numbered in its table |
@@ -219,6 +221,7 @@ Screens people describe in plain words, drawn by the platform from its own block
 | POST | `/api/companies/:company/apps` | A manager of the department (an admin for company apps): `{ name, description?, icon?, pages, departmentId, settings?, tables?: TableDesign[] }`; the tables are made first, and taken back if the app can't be made → the app with `madeTables[]` |
 | GET | `/api/companies/:company/apps/:app` | `{ app, tables (the viewer's, with can: { edit, design }), agents: [{ slug, name, status }], outline }` |
 | PATCH | `/api/companies/:company/apps/:app` | Its managers: `{ name?, description?, icon?, pages?, departmentId?, settings? }` |
+| POST | `/api/companies/:company/apps/:app/changes` | Its managers: a change in plain words, `{ request }` ("add a chart of complaints by month, remove the board") → `{ pages, summary[], notes[], outline, problems[] (what wouldn't work on its tables), drafted }`; nothing changes until the pages are sent to PATCH |
 | POST | `/api/companies/:company/apps/:app/archive` · `/restore` | Its managers |
 | GET | `/api/companies/:company/tables/:table/summary?groupBy&of=count\|sum\|average&field&limit&filter.<field>=` | For charts and numbers: `{ groups: [{ key, label, value }], total }`, a choice in the order of its list, dates by month (`2026-09`), the rest largest first; with `limit`, the others together as `Other` |
 
@@ -233,6 +236,7 @@ Rules people say in plain words ("rank suppliers by complaints per 100 deliverie
 | POST | `/api/companies/:company/calculations` | A manager: `{ name, rule, explanation?, tables, code, output, schedule?, departmentId }`; it runs once → the calculation |
 | GET | `/api/companies/:company/calculations/:calculation` | `{ calculation, runs: [{ id, version, status: succeeded\|failed, result, error, durationMs, rows, trigger: manual\|schedule, by, createdAt }], code? (admins) }` |
 | PATCH | `/api/companies/:company/calculations/:calculation` | Its managers: `{ name?, schedule?, departmentId?, rule?, explanation?, tables?, code?, output? }` (a new rule or code is a new version) |
+| POST | `/api/companies/:company/calculations/:calculation/changes` | Its managers: a change in plain words, `{ request }` ("this year instead", "per 1000 deliveries", or the whole rule) → as `write`, plus `rule` (as it becomes) and `before` (the latest run), so the result now and after the change can be compared; nothing changes until it is sent to PATCH |
 | POST | `/api/companies/:company/calculations/:calculation/run` | Its department's people: run now → the run |
 | POST | `/api/companies/:company/calculations/:calculation/archive` · `/restore` | Its managers |
 

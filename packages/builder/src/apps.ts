@@ -128,7 +128,7 @@ const SYSTEM = `You design small business apps from a person's description (Engl
 
 Use the company's existing tables when they fit (by key). When none fits, design the table in newTables and use its name as the table of the blocks. Field kinds: ${FIELD_TYPES.join(", ")}; a status is a choice starting as its first value. Put things where people look for them: a page to add, a page to work the open ones, an overview. 2 to 5 pages, few blocks each, plain titles in the person's language. Only name AI employees from the list. notes: 1 to 4 short sentences on what you assumed.`;
 
-interface ModelBlock {
+export interface ModelBlock {
   type: AppBlock["type"];
   title: string;
   table: string;
@@ -144,7 +144,62 @@ interface ModelBlock {
   agent: string;
   ask: string;
   text: string;
+  /** For result: the calculation's key or name. */
+  calculation?: string;
   actions: { label: string; setField: string; setValue: string; agent: string; ask: string }[];
+}
+
+/** The model's flat block: every property there, empty when a block doesn't use it (structured outputs). */
+export function modelBlockSchema(): JsonSchema {
+  const str = { type: "string" };
+  const action: JsonSchema = {
+    type: "object",
+    properties: { label: str, setField: str, setValue: str, agent: str, ask: str },
+    required: ["label", "setField", "setValue", "agent", "ask"],
+    additionalProperties: false,
+  };
+  return {
+    type: "object",
+    properties: {
+      type: { type: "string", enum: ["form", "list", "board", "chart", "number", "button", "result", "text"] },
+      title: str,
+      table: { type: "string", description: "An existing table's key, or a new table's name; empty for button and text" },
+      fields: { type: "array", items: str },
+      filter: { type: "array", items: { type: "object", properties: { field: str, value: str }, required: ["field", "value"], additionalProperties: false } },
+      sortField: str,
+      sortDirection: { type: "string", enum: ["asc", "desc", ""] },
+      groupBy: str,
+      measure: { type: "string", enum: ["count", "sum", "average"] },
+      measureField: str,
+      chartKind: { type: "string", enum: ["bar", "pie", ""] },
+      search: { type: "boolean" },
+      agent: { type: "string", description: "An AI employee's slug, or empty" },
+      ask: str,
+      text: str,
+      calculation: { type: "string", description: "For result: a calculation's key; else empty" },
+      actions: { type: "array", items: action },
+    },
+    required: [
+      "type",
+      "title",
+      "table",
+      "fields",
+      "filter",
+      "sortField",
+      "sortDirection",
+      "groupBy",
+      "measure",
+      "measureField",
+      "chartKind",
+      "search",
+      "agent",
+      "ask",
+      "text",
+      "calculation",
+      "actions",
+    ],
+    additionalProperties: false,
+  };
 }
 
 interface ModelField {
@@ -173,52 +228,7 @@ async function modelApp(llm: LlmClient, description: string, tables: AppTable[],
     required: ["label", "type", "required", "choices", "startsAs", "currency", "linksTo"],
     additionalProperties: false,
   };
-  const action: JsonSchema = {
-    type: "object",
-    properties: { label: str, setField: str, setValue: str, agent: str, ask: str },
-    required: ["label", "setField", "setValue", "agent", "ask"],
-    additionalProperties: false,
-  };
-  const block: JsonSchema = {
-    type: "object",
-    properties: {
-      type: { type: "string", enum: ["form", "list", "board", "chart", "number", "button", "text"] },
-      title: str,
-      table: { type: "string", description: "An existing table's key, or a new table's name; empty for button and text" },
-      fields: { type: "array", items: str },
-      filter: { type: "array", items: { type: "object", properties: { field: str, value: str }, required: ["field", "value"], additionalProperties: false } },
-      sortField: str,
-      sortDirection: { type: "string", enum: ["asc", "desc", ""] },
-      groupBy: str,
-      measure: { type: "string", enum: ["count", "sum", "average"] },
-      measureField: str,
-      chartKind: { type: "string", enum: ["bar", "pie", ""] },
-      search: { type: "boolean" },
-      agent: { type: "string", description: "An AI employee's slug, or empty" },
-      ask: str,
-      text: str,
-      actions: { type: "array", items: action },
-    },
-    required: [
-      "type",
-      "title",
-      "table",
-      "fields",
-      "filter",
-      "sortField",
-      "sortDirection",
-      "groupBy",
-      "measure",
-      "measureField",
-      "chartKind",
-      "search",
-      "agent",
-      "ask",
-      "text",
-      "actions",
-    ],
-    additionalProperties: false,
-  };
+  const block = modelBlockSchema();
   const schema: JsonSchema = {
     type: "object",
     properties: {
@@ -302,15 +312,50 @@ async function modelApp(llm: LlmClient, description: string, tables: AppTable[],
     ...tables,
     ...made.map((t) => ({ key: t.key, name: t.name, fields: t.fields, ...(t.titleField ? { titleField: t.titleField } : {}) })),
   ];
-  const resolve = fieldResolver(all, notes);
+  const pages = pagesFromModel(data.pages, all, agents, notes);
+  if (!pages.length) return undefined;
+  const name = data.name.trim() || nameOf(description);
+  return {
+    design: AppDesign.parse({
+      key: tableKeyOf(name),
+      name,
+      description: data.description.trim(),
+      icon: iconOf(`${name} ${description}`),
+      pages: withKeys(pages).slice(0, 8),
+    }),
+    tables: made,
+    notes,
+    drafted: "model",
+  };
+}
+
+/**
+ * Pages from the model's flat blocks, made valid against the tables, AI employees and calculations:
+ * fields by key or label, filter and action values in their listed spelling; what doesn't fit is left
+ * out and noted.
+ */
+export function pagesFromModel(
+  rawPages: { title: string; blocks: ModelBlock[] }[],
+  tables: AppTable[],
+  agents: AppAgent[],
+  notes: string[],
+  calculations: { key: string; name: string }[] = [],
+): Omit<AppPage, "key">[] {
+  const resolve = fieldResolver(tables, notes);
   const slugs = new Set(agents.map((a) => a.slug));
   const pages: Omit<AppPage, "key">[] = [];
-  for (const page of data.pages) {
+  for (const page of rawPages) {
     const blocks: AppBlock[] = [];
     for (const raw of page.blocks) {
       const title = raw.title.trim() || undefined;
       if (raw.type === "text") {
         if (raw.text.trim()) blocks.push({ type: "text", ...(title ? { title } : {}), text: raw.text.trim() });
+        continue;
+      }
+      if (raw.type === "result") {
+        const calculation = calculations.find((c) => c.key === raw.calculation || c.name.toLowerCase() === (raw.calculation ?? "").trim().toLowerCase());
+        if (calculation) blocks.push({ type: "result", ...(title ? { title } : {}), calculation: calculation.key });
+        else notes.push(`"${raw.title || "Result"}" was left out: there is no calculation "${raw.calculation ?? ""}".`);
         continue;
       }
       if (raw.type === "button") {
@@ -389,20 +434,7 @@ async function modelApp(llm: LlmClient, description: string, tables: AppTable[],
     }
     if (blocks.length && page.title.trim()) pages.push({ title: page.title.trim().slice(0, 60), blocks });
   }
-  if (!pages.length) return undefined;
-  const name = data.name.trim() || nameOf(description);
-  return {
-    design: AppDesign.parse({
-      key: tableKeyOf(name),
-      name,
-      description: data.description.trim(),
-      icon: iconOf(`${name} ${description}`),
-      pages: withKeys(pages).slice(0, 8),
-    }),
-    tables: made,
-    notes,
-    drafted: "model",
-  };
+  return pages;
 }
 
 // ---------------------------------------------------------------------------

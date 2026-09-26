@@ -63,6 +63,34 @@ export async function coachingRoutes(app: FastifyInstance, ctx: AppContext) {
     return coach.propose(company.id, agent.row.id, { ...body, by: viewerOf(request).name });
   });
 
+  /**
+   * A change asked for in plain words ("reply in Turkish when the customer writes in Turkish"): the
+   * Studio turns it into rules and a new version of the job, and replays recent tasks with it, as
+   * coaching does. Nothing goes live until its manager publishes it.
+   */
+  app.post("/api/companies/:company/agents/:agent/changes", async (request) => {
+    const company = await companyOf(platform, request);
+    const { agent: ref } = request.params as { agent: string };
+    const body = z
+      .object({ request: z.string().trim().min(3).max(2000), limit: z.number().int().min(1).max(20).optional(), wait: z.boolean().optional() })
+      .parse(request.body);
+    const agent = await agentFor(request, await platform.agents.get(company.id, ref), true);
+    const by = viewerOf(request).name;
+    const note = await platform.coachingNotes.record(company.id, {
+      agentId: agent.row.id,
+      kind: "change",
+      note: body.request,
+      by,
+      summary: `${by} asked for a change to ${agent.definition.name}: ${body.request}`,
+    });
+    return coach.propose(company.id, agent.row.id, {
+      by,
+      noteIds: [note.id],
+      ...(body.limit ? { limit: body.limit } : {}),
+      ...(body.wait ? { wait: true } : {}),
+    });
+  });
+
   app.get("/api/companies/:company/coaching/proposals/:proposal", async (request) => {
     const company = await companyOf(platform, request);
     const { proposal: id } = request.params as { proposal: string };

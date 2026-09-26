@@ -52,6 +52,7 @@ import { StackedBars } from "../../components/Charts.tsx";
 import { TaskTable } from "../../components/TaskList.tsx";
 import { WorkflowView } from "../../components/WorkflowView.tsx";
 import { WorkItemCard } from "../../components/WorkItemCard.tsx";
+import { useViewer } from "../../lib/auth.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { formatDateTime, formatMoney, percent, plural, timeAgo, workingHoursText } from "../../lib/format.ts";
 import { archetypeIcon, categoryIcon } from "../../lib/icons.tsx";
@@ -60,7 +61,7 @@ import { keys, useAgent, useAgentPerformance, useCollections, useConnectors, use
 import { useDocumentTitle } from "../../lib/title.ts";
 import type { AgentDefinition, AgentDetail, Conversation, RunRow, TaskRow } from "../../types.ts";
 import { useAgentMutations } from "./actions.ts";
-import { CoachingTab, useCoaching } from "./Coaching.tsx";
+import { ChangeRequest, CoachingTab, useCoaching } from "./Coaching.tsx";
 
 type Tab = "overview" | "work" | "duties" | "access" | "knowledge" | "rules" | "coaching" | "versions";
 
@@ -581,6 +582,7 @@ function JobEditor({ detail }: { detail: AgentDetail }) {
 
 function VersionsTab({ detail, editing, setEditing }: { detail: AgentDetail; editing: boolean; setEditing: (open: boolean) => void }) {
   const { rollback } = useAgentMutations();
+  const viewer = useViewer();
   const versions = [...detail.versions].sort((a, b) => b.version - a.version);
   const history = (detail.activity ?? []).filter((a) => !a.action.startsWith("agent.coaching"));
   return (
@@ -597,17 +599,21 @@ function VersionsTab({ detail, editing, setEditing }: { detail: AgentDetail; edi
           ) : undefined
         }
       >
+        {detail.canManage && <ChangeRequest slug={detail.agent.slug} name={detail.definition.name} />}
         {editing ? (
-          <JobEditor detail={detail} />
+          <div className="mt-4">
+            <JobEditor detail={detail} />
+          </div>
         ) : (
-          <div className="flex flex-wrap items-center gap-3">
-            <p className="flex-1 text-sm text-muted">The full job description: steps, rules and connections. Changes apply to new tasks.</p>
-            {detail.canManage && (
-              <Button icon={Code} onClick={() => setEditing(true)}>
+          viewer?.isAdmin &&
+          detail.canManage && (
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <p className="flex-1 text-xs text-muted">For IT: the full job description (steps, rules and connections) as JSON.</p>
+              <Button size="sm" variant="ghost" icon={Code} onClick={() => setEditing(true)}>
                 Edit the job description
               </Button>
-            )}
-          </div>
+            </div>
+          )
         )}
       </Section>
       <Section title="How it works" icon={Workflow} subtitle="The steps it follows for each task.">

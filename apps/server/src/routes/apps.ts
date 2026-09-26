@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { proposeApp, type AppTable } from "@enterprise-brain/builder";
+import { changeApp, proposeApp, type AppTable } from "@enterprise-brain/builder";
 import { AppPage, AppSettings, describeBlock, TableDesign, type AppDesign } from "@enterprise-brain/core";
 import type { AppView, TableView } from "@enterprise-brain/runtime";
 import { actorOf, canManageDepartment, canSeeDepartment, viewerOf, type Viewer } from "../auth/viewer.ts";
@@ -189,6 +189,30 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
       data: { changed: Object.keys(body) },
     });
     return { ...changed, can: { design: true } };
+  });
+
+  /** A change said in plain words: the pages as they would be, what changes, and what wouldn't work (nothing changes yet). */
+  app.post("/api/companies/:company/apps/:app/changes", async (request) => {
+    const company = await companyOf(platform, request);
+    const { app: ref } = request.params as { app: string };
+    const body = z.object({ request: z.string().trim().min(3).max(2000) }).parse(request.body);
+    const found = await designable(request, company.id, ref);
+    const { tables, agents } = await materials(request, company.id);
+    const viewer = viewerOf(request);
+    const calculations = (await platform.calculations.list(company.id)).filter((c) => canSeeDepartment(viewer, c.departmentId));
+    const change = await changeApp(platform.llm, {
+      design: { key: found.key, name: found.name, description: found.description, ...(found.icon ? { icon: found.icon } : {}), pages: found.pages },
+      request: body.request,
+      tables: tables.map((t) => ({ key: t.key, name: t.name, fields: t.fields, titleField: t.titleField })),
+      agents: agents.map((a) => ({ slug: a.row.slug, name: a.definition.name, summary: a.definition.summary })),
+      calculations: calculations.map((c) => ({ key: c.key, name: c.name })),
+    });
+    const people = agents.map((a) => ({ slug: a.row.slug, name: a.definition.name }));
+    return {
+      ...change,
+      outline: outline({ pages: change.pages }, tables, people, calculations),
+      problems: change.pages.length ? await platform.apps.check(company.id, { pages: change.pages }) : ["The app would have no pages"],
+    };
   });
 
   for (const [path, archived] of [

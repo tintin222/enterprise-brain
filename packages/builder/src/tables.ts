@@ -301,7 +301,7 @@ export function splitList(list: string): string[] {
 }
 
 /** "status (open, in progress, closed)" → a choice; "cost in TRY" → money; "owner" → a person. */
-function fieldFromLabel(raw: string, turkish: boolean): Omit<TableField, "key"> {
+export function fieldFromLabel(raw: string, turkish: boolean): Omit<TableField, "key"> {
   const listed = /\(([^)]*)\)/.exec(raw);
   const base = raw
     .replace(/\([^)]*\)/g, "")

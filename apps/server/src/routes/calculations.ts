@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { writeCalculation } from "@enterprise-brain/builder";
+import { changeCalculation, writeCalculation } from "@enterprise-brain/builder";
 import { CALCULATION_SCHEDULES, CalculationOutput } from "@enterprise-brain/core";
 import type { CalculationView } from "@enterprise-brain/runtime";
 import { actorOf, canManageDepartment, canSeeDepartment, viewerOf, type Viewer } from "../auth/viewer.ts";
@@ -145,6 +145,27 @@ export async function calculationRoutes(app: FastifyInstance, ctx: AppContext) {
       data: { changed: Object.keys(body) },
     });
     return withRights(viewer, changed);
+  });
+
+  /** A change said in plain words: the rule as it becomes, worked out again on the real rows (nothing changes yet). */
+  app.post("/api/companies/:company/calculations/:calculation/changes", async (request) => {
+    const company = await companyOf(platform, request);
+    const viewer = viewerOf(request);
+    const { calculation: ref } = request.params as { calculation: string };
+    const body = z.object({ request: z.string().trim().min(3).max(2000) }).parse(request.body);
+    const found = await calculationFor(request, company.id, ref, true);
+    const visible = (await platform.tables.list(company.id)).filter((t) => canSeeTable(viewer, t));
+    const samples = Object.fromEntries(await Promise.all(visible.map(async (t) => [t.key, await platform.tables.rowsFor(company.id, t.key, 3)] as const)));
+    const proposal = await changeCalculation(platform.llm, {
+      calculation: { rule: found.rule, code: await platform.calculations.code(company.id, found.id) },
+      request: body.request,
+      tables: visible.map((t) => ({ key: t.key, name: t.name, fields: t.fields })),
+      samples,
+      trial: (draft) => platform.calculations.trial(company.id, { code: draft.code, tables: draft.tables, output: draft.output }),
+    }).catch((error: unknown) => {
+      throw new HttpError(400, error instanceof Error ? error.message : String(error));
+    });
+    return { ...proposal, before: found.last };
   });
 
   /** Run it now: its department's people. */

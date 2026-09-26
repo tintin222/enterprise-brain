@@ -1239,7 +1239,7 @@ export interface WatcherStatus {
 // Coaching: corrections become rules in an AI employee's next version, tested on past tasks first
 // ---------------------------------------------------------------------------
 
-export type CoachingNoteKind = "task" | "check" | "correction" | "rejection";
+export type CoachingNoteKind = "task" | "check" | "correction" | "rejection" | "change";
 export type CoachingNoteStatus = "open" | "applied" | "kept";
 
 export interface CoachingNote {
@@ -1687,4 +1687,31 @@ export interface CalculationProposal {
   attempts: number;
   drafted: "model" | "words";
   notes: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Changes in plain words
+// ---------------------------------------------------------------------------
+
+export interface TableChangeProposal {
+  design: TableDesign;
+  renames: Record<string, Record<string, string>>;
+  summary: string[];
+  notes: string[];
+  problems: string[];
+  drafted: "model" | "words";
+}
+
+export interface AppChangeProposal {
+  pages: AppPageSpec[];
+  summary: string[];
+  notes: string[];
+  problems: string[];
+  outline: AppOutlinePage[];
+  drafted: "model" | "words";
+}
+
+export interface CalculationChangeProposal extends CalculationProposal {
+  rule: string;
+  before: CalculationRun | null;
 }

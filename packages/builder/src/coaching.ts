@@ -649,9 +649,15 @@ export class StudioCoach {
 
     const corrections = contexts.map((context, i) =>
       [
-        `${i + 1}. ${context.note.kind === "task" || context.note.kind === "check" ? "Marked as wrong" : context.note.kind === "correction" ? "Corrected before approving" : "Rejected"} by ${context.note.by}${
-          context.task ? ` on the task “${context.task.title}” (${context.task.ref})` : ""
-        }: ${context.note.note}`,
+        `${i + 1}. ${
+          context.note.kind === "task" || context.note.kind === "check"
+            ? "Marked as wrong"
+            : context.note.kind === "correction"
+              ? "Corrected before approving"
+              : context.note.kind === "change"
+                ? "A change asked for"
+                : "Rejected"
+        } by ${context.note.by}${context.task ? ` on the task “${context.task.title}” (${context.task.ref})` : ""}: ${context.note.note}`,
         context.note.kind === "correction" && context.note.data.edits ? `   What they changed: ${truncate(stringify(context.note.data.edits), 1200)}` : "",
         context.task ? `   The task as it arrived: ${truncate(stringify(context.task.input), 1500)}` : "",
         context.output ? `   What the AI employee produced: ${truncate(stringify(context.output), 1500)}` : "",
@@ -672,7 +678,7 @@ export class StudioCoach {
         {
           role: "user",
           content: [
-            "People corrected this AI employee's work. Turn their corrections into rules for its next version.",
+            "People corrected this AI employee's work, or asked for a change to it. Turn what they said into rules for its next version.",
             "- Write each lesson as a short, general rule in plain words that its manager can read and agree with; not a note about one task.",
             "- Change the job itself only where following the rule needs it: category descriptions and keywords, evaluation criteria, extraction instructions, conditions (when), the questions it asks people. Keep ids, step types and {{ }} templates valid, and change nothing else.",
             `- Don't write the rules into /instructions yourself: they are added under "${RULES_HEADING.replace(/^#+\s*/, "")}" for you.`,
