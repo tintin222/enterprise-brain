@@ -22,6 +22,7 @@ operation  erp.post_supplier_invoice (write)   waits for human approval (guardra
 | `sandbox-hris` | Sandbox HRIS (employees, leave, positions) | hris | 5 read, 3 write | sandbox |
 | `sandbox-ats` | Sandbox ATS (requisitions, candidates, interviews) | ats | 4 read, 3 write | sandbox |
 | `sandbox-itsm` | Sandbox ITSM (tickets, assets, access requests) | itsm | 3 read, 3 write | sandbox |
+| `sandbox-calendar` | Sandbox Calendar (everyone's usual meetings; meetings booked in it count as busy) | calendar | find free times, list events; book, cancel meetings | sandbox |
 | `sap-s4hana` | SAP S/4HANA (Cloud and on-premise, OData v2) | erp | business partners, purchase orders, supplier invoices, sales orders | preview |
 | `microsoft-dynamics-365` | Microsoft Dynamics 365 / Dataverse (Web API) | crm | query, get, create, update records | preview |
 | `salesforce` | Salesforce (REST API, SOQL) | crm | SOQL query, get/create/update records, contacts by email | preview |
@@ -29,12 +30,18 @@ operation  erp.post_supplier_invoice (write)   waits for human approval (guardra
 | `microsoft-365-mail` | Microsoft 365 mail via Microsoft Graph | mail | list, get, attachments, send, reply, move; `new_message` event | preview |
 | `gmail` | Gmail / Google Workspace (Gmail API) | mail | list, get, attachments, send; `new_message` event | preview |
 | `imap-smtp` | Any IMAP/SMTP mailbox | mail | list, get, attachments, send; `new_message` event | preview |
+| `microsoft-365-calendar` | Outlook calendars via Microsoft Graph (free/busy with `getSchedule`) | calendar | find free times, list events; book meetings with a Teams link, cancel | preview |
+| `google-calendar` | Google Calendar (free/busy; service account with domain-wide delegation) | calendar | find free times, list events; book meetings with a Meet link, cancel | preview |
+| `microsoft-teams` | Microsoft Teams through your Azure Bot | messaging | where people meet AI employees: see Settings → Teams and Chat | preview |
+| `google-chat` | Google Chat through your Chat app | messaging | where people meet AI employees: see Settings → Teams and Chat | preview |
 | `sharepoint` | SharePoint / OneDrive document libraries (Graph) | dms | list, download, search, upload files | preview |
 | `sap-successfactors` | SAP SuccessFactors Employee Central (OData v2) | hris | search/get users, employment | preview |
 | `workday` | Workday HCM (REST) | hris | search/get workers, direct reports | preview |
 | `rest-api` | Any REST API (API key, bearer, basic) | other | GET, POST, PUT, PATCH, DELETE | preview |
 | `sql-database` | PostgreSQL, read-only | database | run query (guarded), list tables, describe table | preview |
 | `webhook-inbound` | Web forms and system webhooks (HMAC-signed) | web | `submission` event | stable |
+
+**Calendars** answer the same way whatever is behind them: `find_free_times` takes the attendees, the length and the days to search, and returns the soonest times everyone is free within working hours (in the connection's time zone, Europe/Istanbul by default), at most two a day so the choice spans days, each with a label such as "Tue 6 Oct, 10:00–11:00". Calendars that couldn't be read are named, so the AI employee asks before booking. `book_meeting` is a write: at Shadow and Supervised a person approves it first.
 
 **Maturity**
 

@@ -1,9 +1,11 @@
 import { ConnectorManifest, type SystemCategory } from "@enterprise-brain/core";
 import { dynamics365Connector } from "./connectors/dynamics-365.ts";
 import { gmailConnector } from "./connectors/gmail.ts";
+import { googleCalendarConnector } from "./connectors/google-calendar.ts";
 import { googleChatConnector } from "./connectors/google-chat.ts";
 import { hubspotConnector } from "./connectors/hubspot.ts";
 import { imapSmtpConnector } from "./connectors/imap-smtp.ts";
+import { microsoft365CalendarConnector } from "./connectors/microsoft-365-calendar.ts";
 import { microsoft365MailConnector } from "./connectors/microsoft-365-mail.ts";
 import { microsoftTeamsConnector } from "./connectors/microsoft-teams.ts";
 import { restApiConnector } from "./connectors/rest-api.ts";
@@ -15,6 +17,7 @@ import { sqlDatabaseConnector } from "./connectors/sql-database.ts";
 import { webhookInboundConnector } from "./connectors/webhook-inbound.ts";
 import { workdayConnector } from "./connectors/workday.ts";
 import { sandboxAtsConnector } from "./sandbox/ats.ts";
+import { sandboxCalendarConnector } from "./sandbox/calendar.ts";
 import { sandboxCrmConnector } from "./sandbox/crm.ts";
 import { sandboxErpConnector } from "./sandbox/erp.ts";
 import { sandboxHrisConnector } from "./sandbox/hris.ts";
@@ -68,6 +71,7 @@ export const BUILTIN_CONNECTORS: readonly ConnectorImplementation[] = [
   sandboxHrisConnector,
   sandboxAtsConnector,
   sandboxItsmConnector,
+  sandboxCalendarConnector,
   sapS4hanaConnector,
   dynamics365Connector,
   salesforceConnector,
@@ -83,6 +87,8 @@ export const BUILTIN_CONNECTORS: readonly ConnectorImplementation[] = [
   webhookInboundConnector,
   microsoftTeamsConnector,
   googleChatConnector,
+  microsoft365CalendarConnector,
+  googleCalendarConnector,
 ];
 
 export function createDefaultRegistry(): ConnectorRegistry {
@@ -99,6 +105,7 @@ const SANDBOX_BY_CATEGORY = new Map<string, string>([
   ["hris", "sandbox-hris"],
   ["ats", "sandbox-ats"],
   ["itsm", "sandbox-itsm"],
+  ["calendar", "sandbox-calendar"],
 ]);
 
 /** The built-in sandbox connector type that stands in for a system category (so templates work without credentials). */

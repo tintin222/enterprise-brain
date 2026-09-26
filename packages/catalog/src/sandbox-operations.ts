@@ -169,6 +169,16 @@ export const SANDBOX_SYSTEMS: Readonly<Record<string, SandboxSystem>> = {
       write("create_access_request", "requester_email, system, role, justification"),
     ],
   },
+  calendar: {
+    system: "sandbox-calendar",
+    name: "Sandbox Calendar",
+    operations: [
+      read("find_free_times", "attendees, duration_minutes, from?, to?, time_zone?, working_hours_start?, working_hours_end?, max_results?"),
+      read("list_events", "from?, to?"),
+      write("book_meeting", "subject, start, attendees, duration_minutes?, optional_attendees?, body?, location?, online_meeting?, time_zone?"),
+      write("cancel_meeting", "event_id, comment?"),
+    ],
+  },
 };
 
 /** System categories that have a built-in sandbox system. */

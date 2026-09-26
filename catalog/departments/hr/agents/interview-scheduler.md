@@ -4,10 +4,10 @@ slug: hr-interview-scheduler
 name: Interview Scheduler
 title: Recruiting Coordinator
 summary: >-
-  Books interviews for shortlisted candidates: reads the candidate and requisition from the ATS, turns
-  the recruiter's preferred slots into a concrete time, drafts a personal invitation and, after
-  approval, schedules the interview in the ATS (which moves the candidate to the interview stage) and
-  sends the invitation.
+  Books interviews for shortlisted candidates: reads the candidate and requisition from the ATS, finds
+  a time the interviewer is free within the recruiter's preferred days, drafts a personal invitation
+  and, after approval, books the meeting (with an online meeting link) in the calendar, schedules the
+  interview in the ATS and sends the invitation.
 department: hr
 process: hr.recruitment
 archetype: process-automation
@@ -17,6 +17,8 @@ capabilities:
   - connector:ats.get_candidate
   - connector:ats.get_job_requisition
   - connector:ats.schedule_interview
+  - connector:calendar.find_free_times
+  - connector:calendar.book_meeting
   - mail.send
 triggers:
   - type: manual
@@ -43,10 +45,10 @@ inputs:
       - {value: panel, label: Panel interview}
       - {value: final, label: Final interview}
   - key: preferred_slots
-    label: Preferred slots
+    label: When
     type: text
     required: true
-    description: "Free text, e.g. 'Tuesday 10:00-12:00 or Thursday after 14:00' (Europe/Istanbul unless stated)."
+    description: "Free text, e.g. 'next week', 'Tuesday or Thursday afternoon' (Europe/Istanbul unless stated). The interviewer's calendar decides the exact time."
   - key: duration_minutes
     label: Duration (minutes)
     type: integer
@@ -74,6 +76,12 @@ outputs:
   - key: invitation_sent
     label: Invitation sent
     type: boolean
+  - key: meeting_link
+    label: Meeting link
+    type: string
+  - key: other_times
+    label: Other free times
+    type: string
   - key: booking_issue
     label: Booking issue
     type: string
@@ -83,6 +91,10 @@ connectors:
     category: ats
     purpose: Read candidates and requisitions and schedule interviews (the ATS moves the candidate to the interview stage).
     operations: [get_candidate, get_job_requisition, schedule_interview]
+  - ref: calendar
+    category: calendar
+    purpose: Find when the interviewer is free, and book the interview with an online meeting link.
+    operations: [find_free_times, book_meeting]
 workflow:
   - id: candidate
     name: Read the candidate
@@ -100,37 +112,55 @@ workflow:
     input:
       requisition_id: "{{ steps.candidate.requisition_id }}"
     onError: continue
-  - id: slot
-    name: Pick the interview time
+  - id: window
+    name: Understand when
     type: llm.extract
     from: |-
-      Preferred slots: {{ input.preferred_slots }}
-      Interview type: {{ input.interview_type }}
-      Duration: {{ input.duration_minutes | default:60 }} minutes
+      Today is {{ run.date }}.
+      When the recruiter wants the interview: {{ input.preferred_slots }}
     instructions: >-
-      Choose the earliest concrete start time inside the preferred slots. Use Europe/Istanbul (+03:00)
-      unless another time zone is stated. Never choose a time outside the stated slots; if the slots
-      are ambiguous, choose the first one and say so in the assumption field.
+      Turn the recruiter's words into the days to search (from and to, as YYYY-MM-DD dates) and, when
+      they limit the time of day ("afternoon", "after 14:00"), the earliest and latest times (HH:MM).
+      Use Europe/Istanbul unless another time zone is stated. Leave a field empty when the words don't
+      say; say what you assumed.
     fields:
-      - key: start
-        label: Start (ISO 8601 date-time)
+      - key: from
+        label: First day (YYYY-MM-DD)
         type: string
-        required: true
-        description: "e.g. 2026-10-06T10:00:00+03:00"
-      - key: duration_minutes
-        label: Duration (minutes)
-        type: integer
+      - key: to
+        label: Last day (YYYY-MM-DD)
+        type: string
+      - key: earliest
+        label: Earliest time (HH:MM)
+        type: string
+      - key: latest
+        label: Latest time (HH:MM)
+        type: string
       - key: assumption
         label: Assumption made
         type: string
+  - id: free
+    name: Find when the interviewer is free
+    type: connector
+    connector: calendar
+    operation: find_free_times
+    input:
+      attendees: ["{{ input.interviewer_email }}"]
+      duration_minutes: "{{ input.duration_minutes || 60 }}"
+      from: "{{ steps.window.from }}"
+      to: "{{ steps.window.to }}"
+      working_hours_start: "{{ steps.window.earliest || '09:00' }}"
+      working_hours_end: "{{ steps.window.latest || '18:00' }}"
+      max_results: 3
+    onError: continue
   - id: invitation
     name: Draft the invitation
     type: llm.generate
     prompt: |-
       Write an interview invitation email to {{ steps.candidate.full_name }} for the position
       {{ steps.requisition.title || steps.candidate.requisition_title || 'applied for' }}.
-      Interview type: {{ input.interview_type }}. Start: {{ steps.slot.start }}. Duration: {{ input.duration_minutes || steps.slot.duration_minutes || 60 }} minutes.
-      Location / link: {{ input.location | default:'to be confirmed' }}. Interviewer: {{ input.interviewer_email }}.
+      Interview type: {{ input.interview_type }}. When: {{ steps.free.slots.0.label }} ({{ steps.free.time_zone }}). Duration: {{ input.duration_minutes || 60 }} minutes.
+      Location: {{ input.location | default:'online: the calendar invitation carries the link' }}. Interviewer: {{ input.interviewer_email }}.
       Write in the candidate's language (Turkish if the name and CV suggest a Turkish-speaking candidate, otherwise English),
       warm and concise: purpose of the interview, practical details, what to prepare, how to reschedule. Sign as the recruitment team.
     fallback: |-
@@ -138,9 +168,9 @@ workflow:
 
       Thank you for your application for the position {{ steps.requisition.title || steps.candidate.requisition_title || '' }}. We would like to invite you to a {{ input.interview_type }} interview:
 
-      - Date and time: {{ steps.slot.start | default:input.preferred_slots }}
-      - Duration: {{ input.duration_minutes || steps.slot.duration_minutes || 60 }} minutes
-      - Location / link: {{ input.location | default:'to be confirmed' }}
+      - Date and time: {{ steps.free.slots.0.label | default:input.preferred_slots }} ({{ steps.free.time_zone | default:'Europe/Istanbul' }})
+      - Duration: {{ input.duration_minutes || 60 }} minutes
+      - Location: {{ input.location | default:'online, the link is in the calendar invitation' }}
 
       Please reply to confirm, or suggest another time if this slot does not suit you.
 
@@ -149,26 +179,46 @@ workflow:
   - id: confirm
     name: Recruiter confirmation
     type: approval
-    title: "Book a {{ input.interview_type }} interview with {{ steps.candidate.full_name | default:input.candidate_id }} on {{ steps.slot.start | default:'(time not resolved)' }}?"
-    details: "{{ steps.invitation.text }}"
+    title: "Book a {{ input.interview_type }} interview with {{ steps.candidate.full_name | default:input.candidate_id }} on {{ steps.free.slots.0.label | default:'(no free time found)' }}?"
+    details: |-
+      {{ steps.invitation.text }}
+
+      Other times {{ input.interviewer_email }} is free: {{ steps.free.slots | pluck:'label' | join:'; ' | default:'none found' }}
     assigneeRole: recruiter
   - id: book
     name: Schedule the interview in the ATS
     type: connector
-    when: steps.confirm.approved && steps.slot.start
+    when: steps.confirm.approved && steps.free.slots.0.start
     connector: ats
     operation: schedule_interview
     requiresApproval: false # confirmed by the recruiter in "confirm"
     input:
       candidate_id: "{{ input.candidate_id }}"
       interviewer_email: "{{ input.interviewer_email }}"
-      start: "{{ steps.slot.start }}"
-      duration_minutes: "{{ input.duration_minutes || steps.slot.duration_minutes || 60 }}"
+      start: "{{ steps.free.slots.0.start }}"
+      duration_minutes: "{{ input.duration_minutes || 60 }}"
+    onError: continue
+  - id: meeting
+    name: Book it in the calendar
+    type: connector
+    when: steps.confirm.approved && steps.free.slots.0.start
+    connector: calendar
+    operation: book_meeting
+    requiresApproval: false # confirmed by the recruiter in "confirm"
+    input:
+      subject: "Interview: {{ steps.candidate.full_name | default:input.candidate_id }} ({{ steps.requisition.title || steps.candidate.requisition_title || input.interview_type }})"
+      start: "{{ steps.free.slots.0.start }}"
+      duration_minutes: "{{ input.duration_minutes || 60 }}"
+      attendees: ["{{ input.interviewer_email }}", "{{ steps.candidate.email }}"]
+      body: "{{ steps.invitation.text }}"
+      location: "{{ input.location }}"
+      online_meeting: true
     onError: continue
   - id: send
-    name: Send the invitation
+    name: Send the invitation by email
     type: mail.send
-    when: steps.confirm.approved && steps.book.interview_id && steps.candidate.email
+    # The calendar invitation carries the text and the link; an email goes when no meeting could be booked.
+    when: steps.confirm.approved && steps.book.interview_id && steps.candidate.email && !steps.meeting.event_id
     requiresApproval: false # the recruiter approved the invitation text in "confirm"
     to: "{{ steps.candidate.email }}"
     subject: "Interview invitation: {{ steps.requisition.title || steps.candidate.requisition_title || 'your application' }}"
@@ -178,11 +228,13 @@ workflow:
     value:
       candidate_name: "{{ steps.candidate.full_name }}"
       position: "{{ steps.requisition.title || steps.candidate.requisition_title }}"
-      interview_start: "{{ steps.slot.start }}"
+      interview_start: "{{ steps.free.slots.0.start }}"
       invitation: "{{ steps.invitation.text }}"
       scheduled: "{{ (steps.book.interview_id && true) || false }}"
-      invitation_sent: "{{ steps.send.sent || false }}"
-      booking_issue: "{{ steps.book.error }}"
+      invitation_sent: "{{ steps.send.sent || (steps.meeting.event_id && true) || false }}"
+      booking_issue: "{{ steps.book.error || steps.meeting.error || steps.free.error || steps.free.note }}"
+      meeting_link: "{{ steps.meeting.join_url }}"
+      other_times: "{{ steps.free.slots | pluck:'label' | join:'; ' }}"
 guardrails:
   approvalRequiredFor: [mail.send, "connector:write"]
   personalData: contains
@@ -213,16 +265,16 @@ builder:
 You are the **Interview Scheduler**, the recruiting coordinator of the talent acquisition team. You take the logistics of interviews off the recruiters' desks while keeping every candidate interaction personal and accurate.
 
 ## Objectives
-- Turn a recruiter's request (candidate, interviewer, preferred slots) into one concrete, correct interview time.
+- Turn a recruiter's request (candidate, interviewer, when) into one concrete time the interviewer is free, from their calendar.
 - Draft an invitation the candidate can act on immediately: date, time zone, duration, place or link, what to prepare and how to reschedule.
-- After the recruiter confirms, book the interview in the ATS (the candidate moves to the interview stage) and send the invitation.
+- After the recruiter confirms, book the meeting in the calendar (with an online meeting link), book the interview in the ATS (the candidate moves to the interview stage) and send the invitation.
 
 ## Method
 1. Read the candidate from the ATS and, when linked, the requisition, so the invitation names the right position.
-2. Pick the earliest start time that lies inside the preferred slots. Assume Europe/Istanbul unless another time zone is given, and state any assumption.
+2. Find the soonest times the interviewer is free on the days the recruiter named, and offer the first; the others go to the recruiter too. Assume Europe/Istanbul unless another time zone is given, and state any assumption.
 3. Draft the invitation in the candidate's language (Turkish or English).
 4. Ask the recruiter to confirm the time and text. Nothing is booked or sent before that.
-5. Book the interview and send the invitation; report exactly what was done.
+5. Book the meeting and the interview, and send the invitation; report exactly what was done.
 
 ## Rules
 - Never pick a time outside the stated slots, and never invent interviewers, rooms or links; write "to be confirmed" instead.

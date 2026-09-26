@@ -25,6 +25,7 @@ export { sandboxCrmConnector } from "./sandbox/crm.ts";
 export { sandboxHrisConnector } from "./sandbox/hris.ts";
 export { sandboxAtsConnector } from "./sandbox/ats.ts";
 export { sandboxItsmConnector } from "./sandbox/itsm.ts";
+export { sandboxCalendarConnector, usualBusy } from "./sandbox/calendar.ts";
 
 // Connectors for real systems
 export { sapS4hanaConnector } from "./connectors/sap-s4hana.ts";
@@ -54,6 +55,19 @@ export {
   type SmtpTransportLike,
 } from "./connectors/imap-smtp.ts";
 export { gmailConnector } from "./connectors/gmail.ts";
+export { CALENDAR_SCOPE, googleCalendarConnector } from "./connectors/google-calendar.ts";
+export { microsoft365CalendarConnector } from "./connectors/microsoft-365-calendar.ts";
+export {
+  CALENDAR_OPERATIONS,
+  DEFAULT_TIME_ZONE,
+  freeSlots,
+  isoInZone,
+  mergeIntervals,
+  slotLabel,
+  zonedInstant,
+  zoneOffsetMinutes,
+  type Interval,
+} from "./connectors/calendar-common.ts";
 export {
   CHAT_API,
   CHAT_BOT_SCOPE,

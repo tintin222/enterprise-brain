@@ -28,6 +28,8 @@ const FILTERS: Record<string, Filter> = {
   },
   length: (v) => (Array.isArray(v) || typeof v === "string" ? v.length : isRecord(v) ? Object.keys(v).length : 0),
   first: (v) => (Array.isArray(v) ? v[0] : v),
+  /** A field of every item of a list: `slots | pluck:'label'`. */
+  pluck: (v, arg) => (Array.isArray(v) ? v.map((x) => getPath(x, String(arg ?? ""))) : v),
   round: (v, arg) => {
     const n = Number(v);
     if (Number.isNaN(n)) return v;
