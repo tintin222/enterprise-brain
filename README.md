@@ -51,12 +51,13 @@ Requirements: **Docker** (Docker Desktop on Mac and Windows).
 docker compose up -d
 ```
 
-Open **http://localhost:3200**. The first start takes a few minutes: it builds Enterprise Brain and downloads PostgreSQL. You get the demo company **Acme Endüstri A.Ş.** with its departments, AI employees and eight demo people; the sign-in page signs you in as any of them with one click, so you can see what an HR manager, a recruiter or IT sees.
+Open **http://localhost:3200**. The first start takes a few minutes: it builds Enterprise Brain and downloads PostgreSQL. You get the demo company **Acme Endüstri A.Ş.** with its departments, AI employees and ten demo people; the sign-in page signs you in as any of them with one click, so you can see what an HR manager, a recruiter, a quality manager or IT sees.
 
 - **Claude:** put `ANTHROPIC_API_KEY=…` in a `.env` file next to `docker-compose.yml` and run `docker compose up -d` again. Without it, everything works in a clearly labelled offline mode.
 - **Your own company:** before the first start, set `EB_SEED_DEMO=false`, `EB_COMPANY_NAME` and `EB_MAIL_DOMAIN` in `.env`. The first person to open the app becomes its admin, and sets up Microsoft 365 or Google sign-in, connections and people in *Settings*.
 - **For colleagues:** the app listens on this computer only. Once your admin account exists, set `EB_BIND=0.0.0.0` and `EB_PUBLIC_URL` to the address they use (or put it behind your reverse proxy with HTTPS).
 - **Coming from the two-app bundle** (Enterprise Brain with Paperclip)? Run `docker compose up -d --build --remove-orphans` once; your data stays.
+- **Updating:** `git pull`, then `docker compose up -d --build`. Your data stays and the database is migrated on start. The demo company is made only on the very first start, so an older demo won't get newer demo people and departments; to start the demo afresh, `docker compose down -v` first (this deletes the data).
 
 ### With Paperclip (optional)
 
@@ -78,11 +79,11 @@ pnpm start          # http://localhost:3200
 
 On first start, Enterprise Brain creates the demo company **Acme Endüstri A.Ş.**:
 
-- four departments (HR, Finance, Customer Service, IT) and the company-wide shared services, with their AI employees at work
+- four departments (HR, Finance, Customer Service, IT) and the company-wide shared services, with their AI employees at work, and Operations, with no AI employees yet: its quality manager builds what they need (Phase 4)
 - a knowledge base of company policies in English and Turkish
 - sandbox mailboxes with job applications (PDF/DOCX CVs), supplier invoices generated from the sandbox ERP's purchase orders, customer emails and IT requests
 
-**Sign-in:** people sign in with their own accounts. On the demo company the sign-in page lists eight demo people (an admin, department managers and workers), one click each, so you can see what each role sees. A new installation without demo data asks the first person for the admin account; the admin then adds colleagues in **Settings → People and roles**, where Microsoft 365 (Entra ID) and Google Workspace sign-in are set up too. `EB_AUTH=open` turns sign-in off for local trials.
+**Sign-in:** people sign in with their own accounts. On the demo company the sign-in page lists ten demo people (an admin, department managers and workers), one click each, so you can see what each role sees. A new installation without demo data asks the first person for the admin account; the admin then adds colleagues in **Settings → People and roles**, where Microsoft 365 (Entra ID) and Google Workspace sign-in are set up too. `EB_AUTH=open` turns sign-in off for local trials.
 
 **Database:** nothing to install. Enterprise Brain runs PostgreSQL (with pgvector) *inside* the application, using [PGlite](https://pglite.dev), and keeps everything in the `.data/` folder: `db/` for the database, `files/` for uploads and `master.key` for encrypting connector secrets. Back it up by copying the folder while the server is stopped; move it with `EB_DATA_DIR`. For production, or when several servers share one database, use a PostgreSQL server (15 or later) instead:
 
