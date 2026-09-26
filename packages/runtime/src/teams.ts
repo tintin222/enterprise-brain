@@ -137,6 +137,10 @@ export class TeamsTransport implements ChatTransport {
     return (await this.connectors.list(companyId)).some((i) => i.type === TEAMS_CONNECTOR);
   }
 
+  addressable(address: Record<string, unknown>): boolean {
+    return typeof address.serviceUrl === "string" && typeof address.conversationId === "string";
+  }
+
   private async context(companyId: string): Promise<ConnectorContext> {
     const connection = await this.connection(companyId);
     if (!connection) throw new Error("Microsoft Teams is not connected (Settings → Teams and Chat)");

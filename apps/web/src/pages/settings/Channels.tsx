@@ -14,6 +14,14 @@ import { Callout, ErrorState, LoadingBlock } from "../../components/Spinner.tsx"
 import { useCompany } from "../../lib/company.tsx";
 import { timeAgo } from "../../lib/format.ts";
 
+interface ChannelAccount {
+  name: string | null;
+  email: string | null;
+  person: string | null;
+  since: string;
+  lastSeenAt: string;
+}
+
 interface ChannelsView {
   publicUrl: string;
   https: boolean;
@@ -23,8 +31,77 @@ interface ChannelsView {
     appId: string | null;
     problem: string | null;
     messagingEndpoint: string;
-    accounts: { name: string | null; email: string | null; person: string | null; since: string; lastSeenAt: string }[];
+    accounts: ChannelAccount[];
   };
+  googleChat: {
+    connected: boolean;
+    connectionId: string | null;
+    serviceAccount: string | null;
+    audience: "endpoint-url" | "project-number" | null;
+    allowedDomains: string[];
+    problem: string | null;
+    endpoint: string;
+    accounts: ChannelAccount[];
+  };
+}
+
+function Endpoint({ url }: { url: string }) {
+  return (
+    <div className="flex max-w-full items-center gap-2 rounded-lg border border-line bg-subtle/60 px-3 py-2">
+      <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{url}</code>
+      <CopyButton text={url} />
+    </div>
+  );
+}
+
+function StatusBadge({ connected, problem }: { connected: boolean; problem: string | null }) {
+  if (problem)
+    return (
+      <Badge tone="red" size="xs">
+        Needs attention
+      </Badge>
+    );
+  if (connected)
+    return (
+      <Badge tone="green" size="xs">
+        Connected
+      </Badge>
+    );
+  return <Badge size="xs">Not connected</Badge>;
+}
+
+/** Who uses a chat app, and whether each is linked to an account here. */
+function People({ accounts, app }: { accounts: ChannelAccount[]; app: string }) {
+  return (
+    <Card className="mb-8 overflow-hidden">
+      {accounts.length === 0 ? (
+        <EmptyState compact className="m-4" icon={Users} title="Nobody yet" description={`People appear here once they write to the app in ${app}.`} />
+      ) : (
+        <ul className="divide-y divide-line">
+          {accounts.map((a, i) => (
+            <li key={i} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-fg">{a.person ?? a.name ?? a.email ?? "Unknown"}</p>
+                <p className="truncate text-xs text-muted">{a.email ?? "no email"}</p>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted">
+                {a.person ? (
+                  <Badge tone="green" size="xs">
+                    Linked
+                  </Badge>
+                ) : (
+                  <Badge tone="amber" size="xs">
+                    No account with this email
+                  </Badge>
+                )}
+                <span>last seen {timeAgo(a.lastSeenAt)}</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
 }
 
 function Step({ n, done, title, children }: { n: number; done?: boolean; title: string; children?: ReactNode }) {
@@ -55,7 +132,9 @@ export default function Channels() {
   const view = useQuery({ queryKey: [company, "channels"], queryFn: () => api.get<ChannelsView>(path("/channels")) });
   const data = view.data;
   const teams = data?.teams;
+  const chat = data?.googleChat;
   const linked = teams?.accounts.filter((a) => a.person).length ?? 0;
+  const chatLinked = chat?.accounts.filter((a) => a.person).length ?? 0;
 
   return (
     <Page>
@@ -66,11 +145,12 @@ export default function Channels() {
       />
       {view.isLoading && <LoadingBlock />}
       {view.error && <ErrorState error={view.error} onRetry={() => void view.refetch()} />}
-      {data && teams && (
+      {data && teams && chat && (
         <>
           {!data.https && (
-            <Callout tone="warning" icon={TriangleAlert} className="mb-6" title="Teams needs an https address">
-              Microsoft calls this installation at its public address, which must start with https://. Set EB_PUBLIC_URL to it (now: {data.publicUrl}).
+            <Callout tone="warning" icon={TriangleAlert} className="mb-6" title="Teams and Google Chat need an https address">
+              Microsoft and Google call this installation at its public address, which must start with https://. Set EB_PUBLIC_URL to it (now: {data.publicUrl}
+              ).
             </Callout>
           )}
           <SectionTitle>Microsoft Teams</SectionTitle>
@@ -78,17 +158,7 @@ export default function Channels() {
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
               <div className="flex items-center gap-2">
                 <span className="text-base font-semibold text-fg">Microsoft Teams</span>
-                {teams.connected && !teams.problem ? (
-                  <Badge tone="green" size="xs">
-                    Connected
-                  </Badge>
-                ) : teams.problem ? (
-                  <Badge tone="red" size="xs">
-                    Needs attention
-                  </Badge>
-                ) : (
-                  <Badge size="xs">Not connected</Badge>
-                )}
+                <StatusBadge connected={teams.connected} problem={teams.problem} />
               </div>
               {teams.connected && (
                 <span className="text-xs text-muted">
@@ -116,10 +186,7 @@ export default function Channels() {
                 </p>
               </Step>
               <Step n={2} title="Set its messaging endpoint to this address">
-                <div className="flex max-w-full items-center gap-2 rounded-lg border border-line bg-subtle/60 px-3 py-2">
-                  <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg">{teams.messagingEndpoint}</code>
-                  <CopyButton text={teams.messagingEndpoint} />
-                </div>
+                <Endpoint url={teams.messagingEndpoint} />
               </Step>
               <Step n={3} done={teams.connected && !teams.problem} title="Connect the bot here">
                 <p>Its Microsoft App ID, a client secret of its app registration, and your tenant ID. Messages from other tenants are refused.</p>
@@ -159,35 +226,68 @@ export default function Channels() {
           </Card>
 
           <SectionTitle>People in Teams</SectionTitle>
-          <Card className="overflow-hidden">
-            {teams.accounts.length === 0 ? (
-              <EmptyState compact className="m-4" icon={Users} title="Nobody yet" description="People appear here once they write to the app in Teams." />
-            ) : (
-              <ul className="divide-y divide-line">
-                {teams.accounts.map((a, i) => (
-                  <li key={i} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-fg">{a.person ?? a.name ?? a.email ?? "Unknown"}</p>
-                      <p className="truncate text-xs text-muted">{a.email ?? "no email"}</p>
-                    </div>
-                    <div className="flex items-center gap-2 text-xs text-muted">
-                      {a.person ? (
-                        <Badge tone="green" size="xs">
-                          Linked
-                        </Badge>
-                      ) : (
-                        <Badge tone="amber" size="xs">
-                          No account with this email
-                        </Badge>
-                      )}
-                      <span>last seen {timeAgo(a.lastSeenAt)}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
+          <People accounts={teams.accounts} app="Teams" />
+
+          <SectionTitle>Google Chat</SectionTitle>
+          <Card className="mb-8 p-5">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-base font-semibold text-fg">Google Chat</span>
+                <StatusBadge connected={chat.connected} problem={chat.problem} />
+              </div>
+              {chat.connected && (
+                <span className="text-xs text-muted">
+                  {chatLinked} {chatLinked === 1 ? "person uses" : "people use"} it
+                </span>
+              )}
+            </div>
+            {chat.problem && (
+              <Callout tone="danger" className="mb-5" title="The Google Chat connection has a problem">
+                {chat.problem}
+              </Callout>
             )}
+            <ol className="space-y-4">
+              <Step n={1} done={chat.connected} title="Turn on the Google Chat API">
+                <p>In a Google Cloud project of your organization, turn on the Google Chat API and create a service account with a JSON key.</p>
+              </Step>
+              <Step n={2} title="Configure the Chat app with this HTTP endpoint">
+                <p>
+                  Google Chat API → Configuration: name and avatar, “HTTP endpoint URL” as connection setting, with “HTTP endpoint URL” as the authentication
+                  audience; make it available to your people.{" "}
+                  <a
+                    href="https://developers.google.com/workspace/chat/configure-chat-api"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-0.5 text-brand-600 hover:underline dark:text-brand-300"
+                  >
+                    How <ExternalLink className="size-3" />
+                  </a>
+                </p>
+                <Endpoint url={chat.endpoint} />
+              </Step>
+              <Step n={3} done={chat.connected && !chat.problem} title="Connect it here">
+                <p>Paste the service account's JSON key and your domains; messages from other domains are refused.</p>
+                {chat.connected ? (
+                  <p className="text-xs">
+                    Writes as <span className="font-mono">{chat.serviceAccount ?? "—"}</span>
+                    {chat.allowedDomains.length ? ` · for ${chat.allowedDomains.join(", ")}` : ""} ·{" "}
+                    <Link to="/settings/connections" className="text-brand-600 hover:underline dark:text-brand-300">
+                      change it in Connections
+                    </Link>
+                  </p>
+                ) : (
+                  <ButtonLink to="/settings/connections?connect=google-chat" variant="primary" size="sm" icon={PlugZap}>
+                    Connect Google Chat
+                  </ButtonLink>
+                )}
+              </Step>
+              <Step n={4} done={chatLinked > 0} title="People message it">
+                <p>People find the app in Chat (New chat → Find apps) and write to it; each is linked by their email.</p>
+              </Step>
+            </ol>
           </Card>
-          <p className="mt-6 text-xs text-muted">Google Chat comes next, set up the same way.</p>
+          <SectionTitle>People in Google Chat</SectionTitle>
+          <People accounts={chat.accounts} app="Google Chat" />
         </>
       )}
     </Page>

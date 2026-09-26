@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, createSign } from "node:crypto";
 import { ConnectorError } from "./types.ts";
 import { errorMessage, isRecord, truncate, type Rec } from "./util.ts";
 
@@ -277,7 +277,8 @@ export function clearTokenCache(): void {
 
 export interface TokenRequestOptions {
   tokenUrl: string;
-  clientId: string;
+  /** Omitted for grants that name no client (a signed assertion). */
+  clientId?: string;
   clientSecret?: string;
   /** "body" (default) sends client_id/client_secret as form fields, "basic" uses HTTP Basic (RFC 6749 §2.3.1). */
   clientAuth?: "body" | "basic";
@@ -291,8 +292,8 @@ export async function requestToken(fetchImpl: typeof fetch, options: TokenReques
   const form: Record<string, string> = { ...options.params };
   const headers: Record<string, string> = {};
   if (options.clientAuth === "basic") {
-    headers.authorization = basicAuth(encodeURIComponent(options.clientId), encodeURIComponent(options.clientSecret ?? ""));
-  } else {
+    headers.authorization = basicAuth(encodeURIComponent(options.clientId ?? ""), encodeURIComponent(options.clientSecret ?? ""));
+  } else if (options.clientId !== undefined) {
     form.client_id = options.clientId;
     if (options.clientSecret !== undefined) form.client_secret = options.clientSecret;
   }
@@ -318,6 +319,80 @@ export async function requestToken(fetchImpl: typeof fetch, options: TokenReques
     expiresAt: Date.now() + Math.max(ttlMs - EXPIRY_SKEW_MS, ttlMs / 2),
     extra,
   };
+}
+
+/** A JWT signed with an RSA private key (PEM), RS256. */
+export function signJwtRs256(payload: Record<string, unknown>, privateKeyPem: string, header: Record<string, unknown> = {}): string {
+  const encode = (value: unknown) => Buffer.from(JSON.stringify(value), "utf8").toString("base64url");
+  const input = `${encode({ alg: "RS256", typ: "JWT", ...header })}.${encode(payload)}`;
+  let signature: string;
+  try {
+    signature = createSign("RSA-SHA256").update(input).sign(privateKeyPem).toString("base64url");
+  } catch {
+    throw new ConnectorError("The private key can't be read: paste the whole key, from -----BEGIN PRIVATE KEY-----", "config");
+  }
+  return `${input}.${signature}`;
+}
+
+/** A Google service account's key (the JSON file Google Cloud gives for it). */
+export interface ServiceAccountKey {
+  clientEmail: string;
+  privateKey: string;
+  tokenUri: string;
+  projectId?: string;
+}
+
+export const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
+
+export function parseServiceAccountKey(json: string): ServiceAccountKey {
+  let data: unknown;
+  try {
+    data = JSON.parse(json);
+  } catch {
+    throw new ConnectorError("The service account key must be the JSON file Google Cloud gave for the key", "config");
+  }
+  if (!isRecord(data) || typeof data.client_email !== "string" || typeof data.private_key !== "string") {
+    throw new ConnectorError("The service account key has no client_email or private_key: use a JSON key of the service account", "config");
+  }
+  const tokenUri = typeof data.token_uri === "string" && data.token_uri ? data.token_uri : GOOGLE_TOKEN_URL;
+  if (!/^https:\/\/[^/]+\.googleapis\.com\//.test(tokenUri)) throw new ConnectorError(`Unexpected token_uri in the service account key: ${tokenUri}`, "config");
+  return { clientEmail: data.client_email, privateKey: data.private_key, tokenUri, projectId: typeof data.project_id === "string" ? data.project_id : undefined };
+}
+
+export interface ServiceAccountTokenOptions {
+  key: ServiceAccountKey;
+  scope: string;
+  /** Domain-wide delegation: act for this user of the Workspace domain. */
+  subject?: string;
+  service?: string;
+}
+
+/** OAuth 2.0 JWT bearer grant (RFC 7523) as a Google service account, cached until shortly before it expires. */
+export function getServiceAccountToken(fetchImpl: typeof fetch, options: ServiceAccountTokenOptions, forceRefresh = false): Promise<OAuthToken> {
+  const { key } = options;
+  const cacheKey = tokenCacheKey({
+    grant: "jwt_bearer",
+    tokenUrl: key.tokenUri,
+    clientId: `${key.clientEmail}${options.subject ? `>${options.subject}` : ""}`,
+    scope: options.scope,
+    credential: key.privateKey,
+  });
+  return cachedToken(
+    cacheKey,
+    () => {
+      const now = Math.floor(Date.now() / 1000);
+      const assertion = signJwtRs256(
+        { iss: key.clientEmail, scope: options.scope, aud: key.tokenUri, iat: now, exp: now + 3600, ...(options.subject ? { sub: options.subject } : {}) },
+        key.privateKey,
+      );
+      return requestToken(fetchImpl, {
+        tokenUrl: key.tokenUri,
+        params: { grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion },
+        service: options.service ?? "Google",
+      });
+    },
+    forceRefresh,
+  );
 }
 
 export interface ClientCredentialsOptions {

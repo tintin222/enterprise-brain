@@ -15,6 +15,8 @@ export interface ChatTransport {
   readonly channel: ChatChannelId;
   /** Is the app connected for the company (a connection set up in Settings)? */
   connected(companyId: string): Promise<boolean>;
+  /** Can the app write to this address (a conversation it may start writing in)? */
+  addressable(address: Record<string, unknown>): boolean;
   /** Write to a conversation; the returned reference finds the message again. */
   send(companyId: string, address: Record<string, unknown>, message: ChatMessage): Promise<DeliveryRef>;
   /** Replace a message sent earlier (a card that was handled). */
@@ -37,7 +39,8 @@ export class ChatChannelSender implements ChannelSender {
 
   async reaches(companyId: string, person: Person): Promise<boolean> {
     if (!(await this.transport.connected(companyId))) return false;
-    return Boolean(await this.accounts.ofPerson(companyId, person.id, this.id));
+    const account = await this.accounts.ofPerson(companyId, person.id, this.id);
+    return Boolean(account && this.transport.addressable(account.address));
   }
 
   private async address(companyId: string, person: Person): Promise<Record<string, unknown>> {

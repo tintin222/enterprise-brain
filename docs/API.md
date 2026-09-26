@@ -143,6 +143,14 @@ People reach their AI employees in Microsoft Teams through the company's Azure B
 
 `EB_BOTFRAMEWORK_OPENID_URL` points at another Bot Framework (government clouds).
 
+Google Chat works the same way through the company's Chat app (a `google-chat` connection: the service account's JSON key, the authentication audience, your domains). Google calls the app's HTTP endpoint with a token it signed: with the endpoint URL as the audience, an ID token for `chat@system.gserviceaccount.com` issued to the endpoint's URL; with the project number, a token Chat signed, issued to the project number. People of other domains get 403. In a direct message people give work, and card buttons come back as `CARD_CLICKED`; the answer updates the card (`actionResponse: UPDATE_MESSAGE`), or posts a message when it can't act (the card stays). The app writes first (notifications, several cards) through the Chat API as its service account (JWT bearer grant, scope `chat.bot`).
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/channels/google-chat/:company/events` | The Chat app's HTTP endpoint (for its configuration): `ADDED_TO_SPACE` (welcome), `MESSAGE`, `CARD_CLICKED`. In spaces other than direct messages the app asks to be messaged directly |
+
+`/api/companies/:company/channels` also returns `googleChat: { connected, connectionId, serviceAccount, audience, allowedDomains, problem, endpoint, accounts[] }`.
+
 ## Files
 
 | Method | Path | Description |

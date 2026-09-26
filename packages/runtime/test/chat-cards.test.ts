@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { adaptiveCard, handledCard, itemCard, outcomeText, pickAgentCard, rankAgents, teamsActivity, type Person, type QueueEntry } from "../src/index.ts";
+import {
+  adaptiveCard,
+  googleCard,
+  googleChatMessage,
+  handledCard,
+  itemCard,
+  outcomeText,
+  pickAgentCard,
+  rankAgents,
+  teamsActivity,
+  type Person,
+  type QueueEntry,
+} from "../src/index.ts";
 
 /** Cards for chat apps: what each item shows and which buttons it has, drawn as Teams Adaptive Cards. */
 
@@ -82,5 +94,42 @@ describe("choosing an AI employee", () => {
     expect(rankAgents(agents, "hello there").map((a) => a.slug)).toEqual(["expense-auditor", "reminder-clerk", "cv-screener"]);
     const card = pickAgentCard(agents, "remind Mavi Tekstil");
     expect(card.blocks.find((b) => b.kind === "choice")).toMatchObject({ id: "agent", value: "reminder-clerk", compact: true });
+  });
+});
+
+describe("Google Chat cards", () => {
+  it("escapes what AI employees wrote, and keeps buttons' parameters", () => {
+    const card = itemCard({
+      companyId: "c1",
+      companyName: "Acme",
+      person,
+      entry: entry({
+        reason: "Amount <b>12,500</b> & more",
+        action: { type: "mail.send", to: "a@b.example", subject: "Hi", body: "Line 1\nLine <script>2</script>" },
+      }),
+      links,
+    });
+    const google = googleCard(card);
+    const text = JSON.stringify(google);
+    expect(text).toContain("Amount &lt;b&gt;12,500&lt;/b&gt; &amp; more");
+    expect(text).toContain("Line 1<br>Line &lt;script&gt;2&lt;/script&gt;");
+    expect(google).toMatchObject({ header: { title: "Send email to ap@kaya.example", subtitle: "Approval · Reminder Clerk · EB-7K2Q9" } });
+    const buttons = (google.sections as { widgets: { buttonList?: { buttons: { text: string; onClick: Record<string, unknown> }[] } }[] }[])[0]!.widgets.at(-1)!
+      .buttonList!.buttons;
+    expect(buttons[0]).toMatchObject({
+      text: "Approve",
+      onClick: {
+        action: {
+          function: "approve",
+          parameters: [
+            { key: "eb", value: "act" },
+            { key: "type", value: "approval" },
+            { key: "id", value: "a1" },
+          ],
+        },
+      },
+    });
+    expect(buttons[3]).toEqual({ text: "Open in the app", onClick: { openLink: { url: links.open } } });
+    expect(googleChatMessage({ card })).toMatchObject({ fallbackText: card.summary, cardsV2: [{ cardId: "eb" }] });
   });
 });

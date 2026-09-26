@@ -54,6 +54,16 @@ export {
   type SmtpTransportLike,
 } from "./connectors/imap-smtp.ts";
 export { gmailConnector } from "./connectors/gmail.ts";
+export {
+  CHAT_API,
+  CHAT_BOT_SCOPE,
+  chatToken,
+  createChatMessage,
+  googleChatConnector,
+  googleChatSettings,
+  updateChatMessage,
+  type GoogleChatSettings,
+} from "./connectors/google-chat.ts";
 export { sharepointConnector } from "./connectors/sharepoint.ts";
 export { successFactorsConnector } from "./connectors/sap-successfactors.ts";
 export { workdayConnector } from "./connectors/workday.ts";

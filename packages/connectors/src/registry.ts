@@ -1,6 +1,7 @@
 import { ConnectorManifest, type SystemCategory } from "@enterprise-brain/core";
 import { dynamics365Connector } from "./connectors/dynamics-365.ts";
 import { gmailConnector } from "./connectors/gmail.ts";
+import { googleChatConnector } from "./connectors/google-chat.ts";
 import { hubspotConnector } from "./connectors/hubspot.ts";
 import { imapSmtpConnector } from "./connectors/imap-smtp.ts";
 import { microsoft365MailConnector } from "./connectors/microsoft-365-mail.ts";
@@ -81,6 +82,7 @@ export const BUILTIN_CONNECTORS: readonly ConnectorImplementation[] = [
   sqlDatabaseConnector,
   webhookInboundConnector,
   microsoftTeamsConnector,
+  googleChatConnector,
 ];
 
 export function createDefaultRegistry(): ConnectorRegistry {

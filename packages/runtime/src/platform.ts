@@ -17,6 +17,7 @@ import { EmploymentService } from "./employment.ts";
 import { RunEngine } from "./engine.ts";
 import { PlatformEvents } from "./events.ts";
 import { FileService } from "./files.ts";
+import { GoogleChatTransport } from "./google-chat.ts";
 import { ActionLinks } from "./links.ts";
 import { MailService } from "./mail.ts";
 import { EmailChannel, NotificationService } from "./notifications.ts";
@@ -73,6 +74,8 @@ export class Platform {
   readonly channelAccounts: ChannelAccounts;
   /** Writes in Teams through the company's bot. */
   readonly teams: TeamsTransport;
+  /** Writes in Google Chat through the company's Chat app. */
+  readonly googleChat: GoogleChatTransport;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -112,6 +115,7 @@ export class Platform {
     this.actionLinks = new ActionLinks(this.secretBox.deriveKey("action-links"));
     this.channelAccounts = new ChannelAccounts(this.handle);
     this.teams = new TeamsTransport(this.connectors);
+    this.googleChat = new GoogleChatTransport(this.connectors);
     this.notifications = new NotificationService({
       handle: this.handle,
       people: this.people,
@@ -124,6 +128,7 @@ export class Platform {
     });
     this.notifications.register(new EmailChannel(this.mail));
     this.notifications.register(new ChatChannelSender("teams", this.channelAccounts, this.teams));
+    this.notifications.register(new ChatChannelSender("google-chat", this.channelAccounts, this.googleChat));
   }
 
   /** Create a platform from the environment: embedded Postgres under dataDir unless DATABASE_URL is set. */
