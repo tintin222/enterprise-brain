@@ -2,12 +2,13 @@ import { and, desc, eq, gte, inArray, max, sql } from "drizzle-orm";
 import {
   evaluateCondition,
   isRecord,
+  possessive,
   stringify,
   truncate,
   AgentDefinition,
   type WorkflowStep,
 } from "@enterprise-brain/core";
-import { activityLog, approvals, runEvents, runs, type DatabaseHandle } from "@enterprise-brain/db";
+import { activityLog, agents, approvals, companies, departments, runEvents, runs, type DatabaseHandle } from "@enterprise-brain/db";
 import type { LlmUsage } from "@enterprise-brain/llm";
 import { describeAction, executeAction } from "./actions.ts";
 import { MailService } from "./mail.ts";
@@ -27,6 +28,7 @@ import type {
 } from "./run-types.ts";
 import { executeStep, mergeUsage } from "./steps/index.ts";
 import { wakeText, type TaskPlan, type TaskRow, type TaskService, type TaskWait, type WakeReason } from "./tasks.ts";
+import { monthStartIn, workingHoursOf } from "./working-hours.ts";
 import type { AskPersonRequest, DeferredApprovalRequest, ToolDeps } from "./tools.ts";
 import { WorkError, type WorkItemRow, type WorkService } from "./work.ts";
 
@@ -96,11 +98,6 @@ export class BudgetError extends RunError {
   }
 }
 
-/** The first moment of the current month (server time): budgets count from here. */
-export function monthStart(now = new Date()): Date {
-  return new Date(now.getFullYear(), now.getMonth(), 1);
-}
-
 /** The default single step for agents without a workflow: an autonomous tool loop over the input. */
 export function defaultAgentStep(definition: AgentDefinition): WorkflowStep {
   return {
@@ -123,6 +120,8 @@ export class RunEngine {
   private readonly textListeners = new Map<string, Set<(delta: string) => void>>();
   private readonly executing = new Map<string, Promise<void>>();
   private readonly seqs = new Map<string, number>();
+  /** Companies' time zones (for "this month"), briefly cached. */
+  private readonly zones = new Map<string, { zone: string; at: number }>();
 
   constructor(private readonly deps: EngineDeps) {
     this.toolDeps = {
@@ -203,9 +202,21 @@ export class RunEngine {
     return this.getRow(companyId, run!.id);
   }
 
+  /** The first moment of this month in the company's time zone: budgets count from here. */
+  async monthStartOf(companyId: string, now = new Date()): Promise<Date> {
+    const cached = this.zones.get(companyId);
+    let zone = cached && Date.now() - cached.at < 60_000 ? cached.zone : undefined;
+    if (!zone) {
+      const [company] = await this.deps.handle.db.select({ settings: companies.settings }).from(companies).where(eq(companies.id, companyId));
+      zone = workingHoursOf(company?.settings ?? {}).timeZone;
+      this.zones.set(companyId, { zone, at: Date.now() });
+    }
+    return monthStartIn(now, zone);
+  }
+
   /** This month's model cost of an AI employee's work (test runs included: they cost the same). */
-  async costThisMonth(agentId: string, now = new Date()): Promise<number> {
-    return this.costSince(agentId, monthStart(now));
+  async costThisMonth(companyId: string, agentId: string, now = new Date()): Promise<number> {
+    return this.costSince(agentId, await this.monthStartOf(companyId, now));
   }
 
   /** Model cost of an AI employee's work since a moment (e.g. midnight for "today"). */
@@ -215,6 +226,32 @@ export class RunEngine {
       .from(runs)
       .where(and(eq(runs.agentId, agentId), gte(runs.createdAt, since)));
     return Number(row?.usd ?? 0);
+  }
+
+  /** This month's model cost of all of a department's AI employees (test runs included). */
+  async departmentCostThisMonth(companyId: string, departmentId: string, now = new Date()): Promise<number> {
+    const [row] = await this.deps.handle.db
+      .select({ usd: sql<number>`coalesce(sum((${runs.usage}->>'costUsd')::numeric), 0)::float` })
+      .from(runs)
+      .innerJoin(agents, eq(agents.id, runs.agentId))
+      .where(and(eq(agents.departmentId, departmentId), gte(runs.createdAt, await this.monthStartOf(companyId, now))));
+    return Number(row?.usd ?? 0);
+  }
+
+  /** Its department's monthly budget and what its AI employees used of it; none without a budget. */
+  async departmentBudget(
+    companyId: string,
+    departmentId: string | null,
+  ): Promise<{ id: string; name: string; budgetUsd: number; spentUsd: number; reached: boolean } | undefined> {
+    if (!departmentId) return undefined;
+    const [department] = await this.deps.handle.db
+      .select()
+      .from(departments)
+      .where(and(eq(departments.companyId, companyId), eq(departments.id, departmentId)));
+    const budget = department?.monthlyBudgetUsd;
+    if (!department || budget === null || budget === undefined) return undefined;
+    const spent = await this.departmentCostThisMonth(companyId, departmentId);
+    return { id: department.id, name: department.name, budgetUsd: budget, spentUsd: spent, reached: spent >= budget };
   }
 
   /** Changes the AI employee made alone (without a person) since midnight, for its daily limit. */
@@ -232,11 +269,63 @@ export class RunEngine {
 
   private async assertWithinBudget(companyId: string, agent: AgentRecord) {
     const budget = agent.row.monthlyBudgetUsd;
-    if (budget === null || budget === undefined) return;
-    const spent = await this.costThisMonth(agent.row.id);
-    if (spent < budget) return;
-    await this.noteBudgetReached(companyId, agent.row.id, agent.definition.name, spent, budget);
-    throw new BudgetError(`${agent.definition.name} reached its monthly budget ($${budget.toFixed(2)}). Its manager can raise it.`);
+    if (budget !== null && budget !== undefined) {
+      const spent = await this.costThisMonth(companyId, agent.row.id);
+      if (spent >= budget) {
+        await this.noteBudgetReached(companyId, agent.row.id, agent.definition.name, spent, budget);
+        throw new BudgetError(`${agent.definition.name} reached its monthly budget ($${budget.toFixed(2)}). Its manager can raise it.`);
+      }
+    }
+    // Its department's budget holds all of the department's AI employees together.
+    const department = await this.departmentBudget(companyId, agent.row.departmentId);
+    if (department?.reached) {
+      await this.noteDepartmentBudgetReached(companyId, department);
+      throw new BudgetError(`${department.name} reached its monthly budget for AI employees ($${department.budgetUsd.toFixed(2)}). A manager of the department can raise it.`);
+    }
+  }
+
+  /**
+   * Tell the managers of a department's AI employees once a month that they stopped at the department's
+   * budget (activity, and a notice in each manager's work queue).
+   */
+  private async noteDepartmentBudgetReached(companyId: string, department: { id: string; name: string; budgetUsd: number; spentUsd: number }) {
+    const [already] = await this.deps.handle.db
+      .select({ id: activityLog.id })
+      .from(activityLog)
+      .where(
+        and(
+          eq(activityLog.companyId, companyId),
+          eq(activityLog.action, "department.budget_reached"),
+          eq(activityLog.entityId, department.id),
+          gte(activityLog.createdAt, await this.monthStartOf(companyId)),
+        ),
+      )
+      .limit(1);
+    if (already) return;
+    const { spentUsd: spent, budgetUsd: budget } = department;
+    await this.deps.activity.record(companyId, {
+      actor: "system",
+      action: "department.budget_reached",
+      entityType: "department",
+      entityId: department.id,
+      summary: `${possessive(department.name)} AI employees stopped: the department reached its monthly budget ($${spent.toFixed(2)} of $${budget.toFixed(2)})`,
+      data: { spentUsd: spent, budgetUsd: budget },
+    });
+    const members = (await this.deps.agents.list(companyId, { departmentId: department.id })).filter((a) => a.row.status === "active");
+    const managers = [...new Set(members.map((a) => a.row.managerUserId))];
+    for (const managerUserId of managers.length ? managers : [null]) {
+      const theirs = members.filter((a) => a.row.managerUserId === managerUserId).map((a) => a.definition.name);
+      await this.deps.work.create(companyId, {
+        kind: "notice",
+        title: `${department.name} reached its monthly budget: its AI employees stopped`,
+        details: `The department's AI employees used $${spent.toFixed(2)} of its $${budget.toFixed(2)} budget this month, so ${
+          theirs.length ? theirs.join(", ") : "they"
+        } start no new work. A manager of the department can raise the budget in Settings → Costs; their emails and tasks wait meanwhile.`,
+        departmentId: department.id,
+        assigneeUserId: managerUserId,
+        data: { spentUsd: spent, budgetUsd: budget, departmentBudget: true },
+      });
+    }
   }
 
   /** Tell the manager once a month that the AI employee stopped at its budget (activity; the work queue shows it). */
@@ -249,7 +338,7 @@ export class RunEngine {
           eq(activityLog.companyId, companyId),
           eq(activityLog.action, "agent.budget_reached"),
           eq(activityLog.entityId, agentId),
-          gte(activityLog.createdAt, monthStart()),
+          gte(activityLog.createdAt, await this.monthStartOf(companyId)),
         ),
       )
       .limit(1);
@@ -274,13 +363,17 @@ export class RunEngine {
     });
   }
 
-  /** After a run: when it used up the rest of the budget, tell the manager now rather than at the next start. */
+  /** After a run: when it used up the rest of a budget, tell the managers now rather than at the next start. */
   private async afterRun(companyId: string, agentId: string) {
     const agent = await this.deps.agents.find(companyId, agentId);
-    const budget = agent?.row.monthlyBudgetUsd;
-    if (!agent || budget === null || budget === undefined) return;
-    const spent = await this.costThisMonth(agentId);
-    if (spent >= budget) await this.noteBudgetReached(companyId, agentId, agent.definition.name, spent, budget);
+    if (!agent) return;
+    const budget = agent.row.monthlyBudgetUsd;
+    if (budget !== null && budget !== undefined) {
+      const spent = await this.costThisMonth(companyId, agentId);
+      if (spent >= budget) await this.noteBudgetReached(companyId, agentId, agent.definition.name, spent, budget);
+    }
+    const department = await this.departmentBudget(companyId, agent.row.departmentId);
+    if (department?.reached) await this.noteDepartmentBudgetReached(companyId, department);
   }
 
   private assertRunnable(agent: AgentRecord, trigger: string, isTest: boolean) {
@@ -596,7 +689,7 @@ export class RunEngine {
       if (agent && employmentOf(agent.row).probation === "shadow") {
         await this.deps.work.create(task.companyId, {
           kind: "review",
-          title: `Check ${agent.definition.name}'s work: ${task.title}`,
+          title: `Check ${possessive(agent.definition.name)} work: ${task.title}`,
           details: outcome,
           taskId: task.id,
           agentId: agent.row.id,

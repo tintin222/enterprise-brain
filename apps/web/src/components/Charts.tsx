@@ -30,12 +30,15 @@ export function StackedBars({
   height = 140,
   className,
   labels = "auto",
+  format = String,
 }: {
   bars: { label: string; parts: BarPart[] }[];
   height?: number;
   className?: string;
   /** "ends": only the first and last period are named (narrow places); "auto": ends on phones. */
   labels?: "all" | "ends" | "auto";
+  /** How a bar's total reads above it (money, say). */
+  format?: (total: number) => string;
 }) {
   const max = Math.max(1, ...bars.map((bar) => bar.parts.reduce((sum, p) => sum + p.value, 0)));
   const legend = bars[0]?.parts ?? [];
@@ -55,7 +58,7 @@ export function StackedBars({
               className="flex h-full min-w-0 flex-1 flex-col justify-end"
               title={`${bar.label}: ${bar.parts.map((p) => `${p.value} ${p.label}`).join(", ")}`}
             >
-              <span className="mb-1 text-center text-[11px] text-muted tabular-nums">{total || ""}</span>
+              <span className="mb-1 truncate text-center text-[11px] text-muted tabular-nums">{total ? format(total) : ""}</span>
               <div className="flex flex-col-reverse overflow-hidden rounded-md" style={{ height: `${(total / max) * 100}%` }}>
                 {bar.parts.map((part) => (
                   <div key={part.label} className={FILL[part.tone]} style={{ height: total ? `${(part.value / total) * 100}%` : 0 }} />

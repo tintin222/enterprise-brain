@@ -12,8 +12,10 @@ export interface EmploymentView {
   limits: TrustLimits;
   monthlyBudgetUsd: number | null;
   costThisMonthUsd: number;
-  /** It reached its budget: it starts no new work this month until its manager raises it. */
+  /** It reached its budget, or its department reached its own: it starts no new work this month until a manager raises it. */
   stoppedByBudget: boolean;
+  /** Its department's monthly budget for all its AI employees together, when it has one. */
+  departmentBudget: { name: string; budgetUsd: number; spentUsd: number; reached: boolean } | null;
   /** Changes it made alone today (its daily limit counts these). */
   changesToday: number;
   duties: Duty[];
@@ -50,7 +52,11 @@ export class EmploymentService {
   async view(companyId: string, agent: AgentRecord): Promise<EmploymentView> {
     const { probation, limits } = employmentOf(agent.row);
     const manager = agent.row.managerUserId ? await this.people.get(companyId, agent.row.managerUserId).catch(() => undefined) : undefined;
-    const [cost, changesToday] = await Promise.all([this.engine.costThisMonth(agent.row.id), this.engine.changesToday(agent.row.id)]);
+    const [cost, changesToday, department] = await Promise.all([
+      this.engine.costThisMonth(companyId, agent.row.id),
+      this.engine.changesToday(agent.row.id),
+      this.engine.departmentBudget(companyId, agent.row.departmentId),
+    ]);
     const budget = agent.row.monthlyBudgetUsd ?? null;
     return {
       manager: manager ? { id: manager.id, name: manager.name, email: manager.email, title: manager.title } : null,
@@ -58,7 +64,10 @@ export class EmploymentService {
       limits,
       monthlyBudgetUsd: budget,
       costThisMonthUsd: Math.round(cost * 100) / 100,
-      stoppedByBudget: budget !== null && cost >= budget,
+      stoppedByBudget: (budget !== null && cost >= budget) || Boolean(department?.reached),
+      departmentBudget: department
+        ? { name: department.name, budgetUsd: department.budgetUsd, spentUsd: Math.round(department.spentUsd * 100) / 100, reached: department.reached }
+        : null,
       changesToday,
       duties: describeDuties(agent.definition.triggers, await this.watchedNames(companyId, agent)),
     };

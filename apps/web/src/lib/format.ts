@@ -97,6 +97,11 @@ export function plural(n: number, singular: string, pluralForm = `${singular}s`)
   return `${n} ${n === 1 ? singular : pluralForm}`;
 }
 
+/** "Finance's", "Human Resources'". */
+export function possessive(name: string): string {
+  return /s$/i.test(name) ? `${name}'` : `${name}'s`;
+}
+
 /** A share as a whole percentage ("75%"), or a dash when there is nothing to share. */
 export function percent(share: number | null): string {
   return share === null ? "—" : `${Math.round(share * 100)}%`;

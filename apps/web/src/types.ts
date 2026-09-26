@@ -238,7 +238,10 @@ export interface Employment {
   limits: TrustLimits;
   monthlyBudgetUsd: number | null;
   costThisMonthUsd: number;
+  /** It reached its budget, or its department reached its own. */
   stoppedByBudget: boolean;
+  /** Its department's budget for all its AI employees together. */
+  departmentBudget: { name: string; budgetUsd: number; spentUsd: number; reached: boolean } | null;
   changesToday: number;
   duties: { kind: string; text: string }[];
 }
@@ -1157,9 +1160,19 @@ export interface HomeData {
 export interface CostOverview {
   month: string;
   totalUsd: number;
+  departments: {
+    id: string;
+    key: string;
+    name: string;
+    aiEmployees: number;
+    costThisMonthUsd: number;
+    monthlyBudgetUsd: number | null;
+    stoppedByBudget: boolean;
+  }[];
   aiEmployees: {
     slug: string;
     name: string;
+    departmentId: string | null;
     department: string | null;
     manager: string | null;
     status: AgentStatus;
@@ -1167,7 +1180,10 @@ export interface CostOverview {
     costThisMonthUsd: number;
     monthlyBudgetUsd: number | null;
     stoppedByBudget: boolean;
+    stoppedBy: "own" | "department" | null;
   }[];
+  /** The last six months, oldest first: the total and each department's (by id; "company" for company-wide ones). */
+  months: { month: string; totalUsd: number; byDepartment: Record<string, number> }[];
 }
 
 export interface ActionParam {

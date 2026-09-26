@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNotNull, or, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
 import { activityLog, approvals, builderSessions, coachingNotes, runs, tasks, workItems, type DatabaseHandle } from "@enterprise-brain/db";
 import { employmentOf, type AgentRecord } from "./agents.ts";
 import { median, weekStart, workingHoursBetween, localDate, type WorkingHours } from "./working-hours.ts";
@@ -169,6 +169,17 @@ export class ReportService {
         .map((h) => ({ agentId: h.agentId, createdAt: h.createdAt, resolvedAt: h.resolvedAt })),
       costs: costs.map((c) => ({ agentId: c.agentId, createdAt: c.createdAt.getTime(), costUsd: Number(c.costUsd) || 0, isTest: c.isTest })),
     };
+  }
+
+  /** Model cost of each AI employee's work between two moments (tests included). */
+  async costsByAgent(companyId: string, agentIds: string[], from: Date, to: Date): Promise<Map<string, number>> {
+    if (!agentIds.length) return new Map();
+    const rows = await this.handle.db
+      .select({ agentId: runs.agentId, usd: sql<number>`coalesce(sum((${runs.usage}->>'costUsd')::numeric), 0)::float` })
+      .from(runs)
+      .where(and(eq(runs.companyId, companyId), inArray(runs.agentId, agentIds), gte(runs.createdAt, from), lt(runs.createdAt, to)))
+      .groupBy(runs.agentId);
+    return new Map(rows.map((r) => [r.agentId, Number(r.usd) || 0]));
   }
 
   /** When AI employees were hired, and when they were put to work. */

@@ -108,6 +108,33 @@ describe("performance reports over the API", () => {
     expect((await get(await as("burak.sahin@acme.com.tr"), "/reports/performance?period=next-year")).statusCode).toBe(400);
   });
 
+  it("shows managers what their departments cost against their budgets, which they set", async () => {
+    const burak = await as("burak.sahin@acme.com.tr");
+    const put = async (cookie: string, department: string, monthlyBudgetUsd: number | null) =>
+      t.app.inject({ method: "PUT", url: `/api/companies/acme/departments/${department}/budget`, headers: { cookie }, payload: { monthlyBudgetUsd } });
+    expect((await put(burak, "finance", 25)).json()).toMatchObject({ key: "finance", monthlyBudgetUsd: 25 });
+    expect((await put(burak, "hr", 25)).statusCode).toBe(404);
+    expect((await put(await as("elif.arslan@acme.com.tr"), "finance", 1000)).statusCode).toBe(403);
+    expect((await put(await as("mehmet.oz@acme.com.tr"), "hr", 10)).statusCode).toBe(200);
+    expect((await put(burak, "finance", -1)).statusCode).toBe(400);
+
+    const costs = (await get(burak, "/costs")).json();
+    const thisMonth = closed() >= monthStartIn(new Date(), "Europe/Istanbul");
+    expect(costs.departments).toEqual([
+      expect.objectContaining({
+        key: "finance",
+        name: "Finance & Accounting",
+        monthlyBudgetUsd: 25,
+        costThisMonthUsd: thisMonth ? 0.04 : 0,
+        stoppedByBudget: false,
+      }),
+    ]);
+    expect(costs.months).toHaveLength(6);
+    expect(costs.months.at(-1)).toMatchObject({ totalUsd: thisMonth ? 0.04 : 0 });
+    expect(costs.aiEmployees.every((a: { departmentId: string | null }) => a.departmentId === costs.departments[0].id)).toBe(true);
+    expect((await get(await as("can.demir@acme.com.tr"), "/costs")).statusCode).toBe(403);
+  });
+
   it("shows an AI employee's own measures to everyone who sees it", async () => {
     const elif = await as("elif.arslan@acme.com.tr");
     const own = await get(elif, `/agents/${financeSlug}/performance`);

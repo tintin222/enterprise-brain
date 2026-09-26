@@ -52,6 +52,8 @@ export const departments = pgTable(
     icon: text("icon"),
     /** Snapshot of the department template (mission, KPIs, roles, systems). */
     data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    /** Its AI employees stop starting work when their model cost this month reaches it, together. */
+    monthlyBudgetUsd: doublePrecision("monthly_budget_usd"),
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("departments_company_key").on(t.companyId, t.key)],

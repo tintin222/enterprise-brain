@@ -4,7 +4,7 @@ import { BriefcaseBusiness, CalendarClock, Inbox, Save, UserRound, Wallet, type 
 import { useEffect, useState, type FormEvent } from "react";
 import { api } from "../api.ts";
 import { useCompany } from "../lib/company.tsx";
-import { formatMoney } from "../lib/format.ts";
+import { formatMoney, possessive } from "../lib/format.ts";
 import { keys } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
 import type { AgentDetail, Employment, Probation, TrustLimits } from "../types.ts";
@@ -155,7 +155,19 @@ export function EmploymentPanel({ detail }: { detail: AgentDetail }) {
                 />
               </div>
             )}
-            {employment.stoppedByBudget && <p className="mt-2 text-sm font-medium text-red-600 dark:text-red-400">Stopped: it reached this month's budget.</p>}
+            {employment.departmentBudget && (
+              <p className="mt-2 text-xs text-muted">
+                {possessive(employment.departmentBudget.name)} budget for all its AI employees: {formatMoney(employment.departmentBudget.spentUsd)} of{" "}
+                {formatMoney(employment.departmentBudget.budgetUsd)} used this month.
+              </p>
+            )}
+            {employment.stoppedByBudget && (
+              <p className="mt-2 text-sm font-medium text-red-600 dark:text-red-400">
+                {employment.departmentBudget?.reached && !(budget !== null && employment.costThisMonthUsd >= budget)
+                  ? `Stopped: ${employment.departmentBudget.name} reached this month's budget. A manager of the department can raise it in Settings → Costs.`
+                  : "Stopped: it reached this month's budget."}
+              </p>
+            )}
           </div>
         </div>
 

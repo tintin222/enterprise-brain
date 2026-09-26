@@ -97,7 +97,7 @@ export async function coreRoutes(app: FastifyInstance, ctx: AppContext) {
     const company = await companyOf(platform, request);
     const db = platform.handle.db;
     const since = new Date(Date.now() - 24 * 3600 * 1000);
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const monthStart = await platform.engine.monthStartOf(company.id);
     const [agentCounts] = await db
       .select({ total: count(), active: sql<number>`count(*) filter (where ${agents.status} = 'active')::int` })
       .from(agents)

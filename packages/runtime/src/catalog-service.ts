@@ -168,6 +168,26 @@ export class CatalogService {
     return this.handle.db.select().from(departments).where(eq(departments.companyId, companyId));
   }
 
+  /** A department's monthly budget for its AI employees together (null: none). */
+  async setDepartmentBudget(companyId: string, departmentId: string, monthlyBudgetUsd: number | null, actor: string): Promise<DepartmentRow> {
+    if (monthlyBudgetUsd !== null && !(monthlyBudgetUsd >= 0)) throw new Error("The monthly budget must be zero or more");
+    const [row] = await this.handle.db
+      .update(departments)
+      .set({ monthlyBudgetUsd })
+      .where(and(eq(departments.companyId, companyId), eq(departments.id, departmentId)))
+      .returning();
+    if (!row) throw new Error(`Department ${departmentId} not found`);
+    await this.activity.record(companyId, {
+      actor,
+      action: "department.budget_set",
+      entityType: "department",
+      entityId: row.id,
+      summary: monthlyBudgetUsd === null ? `${row.name}: no monthly budget` : `${row.name}: monthly budget $${monthlyBudgetUsd.toFixed(2)}`,
+      data: { monthlyBudgetUsd },
+    });
+    return row;
+  }
+
   async processes(companyId: string): Promise<ProcessRow[]> {
     return this.handle.db.select().from(processes).where(eq(processes.companyId, companyId));
   }

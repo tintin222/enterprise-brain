@@ -115,7 +115,8 @@ A replay item: `{ taskId, ref, title, corrected, notes[], originalRunId, runId, 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/companies/:company/home` | `{ person {name, departments[], isManager}, aiEmployees[] {id, slug, name, title, department, departmentId, status, probation, today {started, done, open, needsPerson, failed}, costTodayUsd}, aiMailbox }`: the AI employees of the viewer's departments (and those they manage), most in need of a person first |
-| GET | `/api/companies/:company/costs` | Managers and admins: `{ month (YYYY-MM), totalUsd, aiEmployees[] {slug, name, department, manager, status, probation, costThisMonthUsd, monthlyBudgetUsd, stoppedByBudget} }` for the AI employees they manage |
+| GET | `/api/companies/:company/costs` | Managers and admins: `{ month (YYYY-MM), totalUsd, departments[] {id, key, name, aiEmployees, costThisMonthUsd, monthlyBudgetUsd, stoppedByBudget}, aiEmployees[] {slug, name, departmentId, department, manager, status, probation, costThisMonthUsd, monthlyBudgetUsd, stoppedByBudget, stoppedBy: own \| department \| null}, months[] {month, totalUsd, byDepartment {departmentId or "company": usd}} }` for the departments and AI employees they manage; `months` are the last six, in the company's time zone |
+| PUT | `/api/companies/:company/departments/:department/budget` | Managers of the department and admins: `{ monthlyBudgetUsd: number \| null }`. When its AI employees' cost this month reaches it, all of them stop starting work and their managers get a notice (once a month) |
 
 ## Performance reports
 
