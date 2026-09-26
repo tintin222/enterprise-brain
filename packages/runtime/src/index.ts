@@ -32,3 +32,4 @@ export * from "./working-hours.ts";
 export * from "./chat-channels.ts";
 export * from "./teams.ts";
 export * from "./google-chat.ts";
+export * from "./tables.ts";

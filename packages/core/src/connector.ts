@@ -78,6 +78,8 @@ export const NamedAction = z
     // Old systems through their screens: what to do there in plain words, with {params}, and the values to bring back.
     goal: z.string().optional(),
     returns: z.array(ActionReturn).optional(),
+    // The company's own tables: which table, and what the action does with its records.
+    table: z.object({ key: z.string().min(1), operation: z.enum(["find", "get", "add", "update"]) }).optional(),
     /**
      * Watch it for new rows or items (by cursorField, e.g. created_at or id): each new one starts the
      * duties that listen for "new:<id>". The action receives the last value seen as `since`.
@@ -92,7 +94,7 @@ export const NamedAction = z
       .optional(),
   })
   .superRefine((action, ctx) => {
-    if (!action.sql && !(action.method && action.path) && !action.tool && !action.goal?.trim()) {
+    if (!action.sql && !(action.method && action.path) && !action.tool && !action.goal?.trim() && !action.table) {
       ctx.addIssue({
         code: "custom",
         message: `${action.id}: give a method and a path (web service), a SQL statement (database), a tool (MCP server) or what to do (screens)`,
@@ -122,5 +124,7 @@ export const ConnectorManifest = z.object({
   maturity: z.enum(["stable", "preview", "sandbox"]).default("preview"),
   /** What the customer's IT typically needs to provide, used by the Agent Builder when drafting IT requests. */
   itRequirements: z.array(z.string()).default([]),
+  /** The platform sets it up and keeps it in step (the company's tables): nobody adds or changes it. */
+  managed: z.boolean().optional(),
 });
 export type ConnectorManifest = z.infer<typeof ConnectorManifest>;

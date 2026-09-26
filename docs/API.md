@@ -188,6 +188,26 @@ Google Chat works the same way through the company's Chat app (a `google-chat` c
 | GET | `/api/companies/:company/files/:file?inline=1` | Download |
 | GET | `/api/companies/:company/files/:file/meta` | Metadata |
 
+## Tables
+
+Business data people describe in plain words (Apps). A table belongs to a department (its people see it and change its records; its managers change the table) or to the whole company (admins); a department's table can be shared with everyone, and its records kept to its managers. `TableField`: `{ key, label, type: text|long_text|number|money|date|yes_no|choice|person|email|url|file|link, description?, required?, choices? (choice), currency? (money, ISO), table? (link: another table's key), personal?, default? }`. Values are checked and stored in their form: numbers and money as numbers ("1.250,50" and "1.200" TL read as Turkish writes them), dates as `YYYY-MM-DD` (also from `02.10.2026`), yes/no as booleans ("evet"), a choice as its listed value, a person as their email (by email or name), a link as the record's id (by `#12`, its id or its name); an empty value clears a field. A value that doesn't fit answers 400 with every problem at once: `{ error, problems[] }`.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/companies/:company/tables?archived=true` | The tables the viewer sees: `{ id, key, name, description, departmentId, fields, titleField, settings: { visibility: department\|company, editors: members\|managers }, version, records, createdBy, createdAt, updatedAt, archivedAt, can: { edit, design } }[]` |
+| POST | `/api/companies/:company/tables/propose` | `{ description }` → the Studio's proposal (nothing is made): `{ design: { key, name, description, fields, titleField }, notes[], drafted: model\|words }` |
+| POST | `/api/companies/:company/tables` | A manager of the department (an admin for company tables): `{ name, description?, fields, titleField?, departmentId, settings? }` |
+| GET | `/api/companies/:company/tables/:table` | By key or id |
+| PATCH | `/api/companies/:company/tables/:table` | Its managers: `{ name?, description?, fields?, titleField?, departmentId?, settings? }`. When a field's kind or list changes, records' values are converted; if some don't fit, nothing changes (409, naming the records) |
+| POST | `/api/companies/:company/tables/:table/archive` · `/restore` | Its managers. An archived table keeps its records; nothing is added, and AI employees no longer reach it |
+| GET | `/api/companies/:company/tables/:table/records?search&sort&direction&limit&offset&archived&filter.<field>=` | `{ table, records: [{ id, number, title, values, display (links and people by name), createdBy, updatedBy, createdAt, updatedAt, archivedAt }], total }`; `search` finds words in any field (or `#12`), `filter.<field>` a value, `sort` a field (a choice in the order of its list), `number`, `created_at` or `updated_at` |
+| POST | `/api/companies/:company/tables/:table/records` | `{ values: { <field key or label>: value } }` → the record, numbered in its table |
+| GET | `/api/companies/:company/tables/:table/records/:record` | By number (`12`, `#12`) or id: `{ record, history: [{ action: created\|updated\|archived\|restored\|imported, changes: [{ key, label, from, to }], by, ai, runId, createdAt }] }` |
+| PATCH | `/api/companies/:company/tables/:table/records/:record` | `{ values }`: only the fields given change |
+| POST | `/api/companies/:company/tables/:table/records/:record/archive` · `/restore` | |
+| POST | `/api/companies/:company/tables/:table/import` | Multipart with an Excel or CSV file: checks it and adds nothing → `{ fileId, fileName, sheet, rows, columns: { <column>: <field key> }, ignored[], ready, added: 0, problems: [{ row, problems[] }] }` (rows as the sheet numbers them); then JSON `{ fileId }` adds its rows that fit |
+| GET | `/api/companies/:company/tables/:table/export` | The records as an Excel file, links and people by name |
+
 ## Knowledge base & search
 
 | Method | Path | Description |

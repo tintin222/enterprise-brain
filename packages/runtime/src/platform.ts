@@ -27,6 +27,7 @@ import { EmailChannel, NotificationService } from "./notifications.ts";
 import { PeopleService } from "./people.ts";
 import { QueueService } from "./queue.ts";
 import { SecretBox } from "./secrets.ts";
+import { TableService } from "./tables.ts";
 import { TeamsTransport } from "./teams.ts";
 import { TaskService } from "./tasks.ts";
 import { TriggerService } from "./triggers.ts";
@@ -87,6 +88,8 @@ export class Platform {
   readonly googleChat: GoogleChatTransport;
   /** Works old systems through their screens, for screen connections. */
   readonly screens?: ScreenOperator & { close?(): Promise<void> };
+  /** The tables people make (business data), which AI employees reach through the Tables connection. */
+  readonly tables: TableService;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -100,6 +103,8 @@ export class Platform {
     this.files = new FileService(this.handle, join(options.dataDir, "files"));
     this.screens = options.screens;
     this.connectors = new ConnectorService(this.handle, options.registry ?? createDefaultRegistry(), this.secretBox, this.files, this.screens);
+    this.tables = new TableService(this.handle, this.connectors, this.files);
+    this.connectors.useTables((companyId) => this.tables.storeFor(companyId));
     this.knowledge = new KnowledgeService(this.handle, this.embedder);
     this.mail = new MailService(this.handle, this.files, this.connectors);
     this.agents = new AgentService(this.handle);

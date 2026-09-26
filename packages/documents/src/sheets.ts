@@ -1,4 +1,7 @@
 import ExcelJS from "exceljs";
+import { parseCsv } from "./csv.ts";
+import { MIME, resolveMimeType } from "./mime.ts";
+import { decodeText } from "./text.ts";
 import type { SheetData } from "./types.ts";
 import { assertSafeZip } from "./zip.ts";
 
@@ -57,24 +60,35 @@ function headerNames(header: unknown[] | undefined, width: number): string[] {
  * become null and blank rows are skipped.
  */
 export function tableToSheet(name: string, matrix: unknown[][]): SheetData {
+  const { rowNumbers: _rowNumbers, ...sheet } = numberedSheet(name, matrix);
+  return sheet;
+}
+
+/** A sheet whose rows keep the number each has in the file (1-based, as a spreadsheet shows it). */
+export interface NumberedSheet extends SheetData {
+  rowNumbers: number[];
+}
+
+function numberedSheet(name: string, matrix: unknown[][]): NumberedSheet {
   const rows = matrix
-    .map((row) => {
+    .map((row, index) => {
       const cells = row.map((cell) => (typeof cell === "string" ? cell.trim() : cell));
       let end = cells.length;
       while (end > 0 && isBlank(cells[end - 1])) end--;
-      return cells.slice(0, end);
+      return { number: index + 1, cells: cells.slice(0, end) };
     })
-    .filter((row) => row.length > 0);
-  const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
-  if (width === 0) return { name, columns: [], rows: [] };
+    .filter((row) => row.cells.length > 0);
+  const width = rows.reduce((max, row) => Math.max(max, row.cells.length), 0);
+  if (width === 0) return { name, columns: [], rows: [], rowNumbers: [] };
 
-  const headerIndex = rows.slice(0, HEADER_SEARCH_ROWS).findIndex((row) => isHeaderRow(row, width));
-  const columns = headerNames(headerIndex >= 0 ? rows[headerIndex] : undefined, width);
+  const headerIndex = rows.slice(0, HEADER_SEARCH_ROWS).findIndex((row) => isHeaderRow(row.cells, width));
+  const columns = headerNames(headerIndex >= 0 ? rows[headerIndex]!.cells : undefined, width);
   const body = headerIndex >= 0 ? rows.slice(headerIndex + 1) : rows;
   return {
     name,
     columns,
-    rows: body.map((row) => Object.fromEntries(columns.map((column, i) => [column, isBlank(row[i]) ? null : row[i]]))),
+    rows: body.map((row) => Object.fromEntries(columns.map((column, i) => [column, isBlank(row.cells[i]) ? null : row.cells[i]]))),
+    rowNumbers: body.map((row) => row.number),
   };
 }
 
@@ -103,11 +117,16 @@ function normalizeCellValue(value: ExcelJS.CellValue): unknown {
 
 /** Read every worksheet of an .xlsx file into SheetData (see `tableToSheet` for header detection). */
 export async function readWorkbook(data: Buffer): Promise<SheetData[]> {
+  return (await workbookMatrices(data)).map(({ name, matrix }) => tableToSheet(name, matrix));
+}
+
+/** Each worksheet's cells, row by row, with blank rows where the sheet has them. */
+async function workbookMatrices(data: Buffer): Promise<{ name: string; matrix: unknown[][] }[]> {
   assertSafeZip(data, "XLSX");
   const workbook = new ExcelJS.Workbook();
   // exceljs types its input as an ArrayBuffer-like "Buffer"; it accepts Node buffers at runtime.
   await workbook.xlsx.load(data as unknown as ArrayBuffer);
-  const sheets: SheetData[] = [];
+  const sheets: { name: string; matrix: unknown[][] }[] = [];
   workbook.eachSheet((worksheet) => {
     const matrix: unknown[][] = [];
     worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
@@ -117,9 +136,23 @@ export async function readWorkbook(data: Buffer): Promise<SheetData[]> {
       });
       matrix[rowNumber - 1] = Array.from(cells, (cell) => cell ?? null);
     });
-    sheets.push(tableToSheet(worksheet.name, Array.from(matrix, (row) => row ?? [])));
+    sheets.push({ name: worksheet.name, matrix: Array.from(matrix, (row) => row ?? []) });
   });
   return sheets;
+}
+
+/**
+ * The sheets of an Excel (.xlsx) or CSV file, each row with its number in the file, to say where a
+ * problem is ("row 14"). Throws for any other kind of file.
+ */
+export async function readSheets(input: { data: Buffer; fileName: string; mimeType?: string }): Promise<NumberedSheet[]> {
+  const mimeType = resolveMimeType(input.data, input.fileName, input.mimeType);
+  if (mimeType === MIME.xlsx) return (await workbookMatrices(input.data)).map(({ name, matrix }) => numberedSheet(name, matrix));
+  if (mimeType === MIME.csv || mimeType === MIME.tsv) {
+    const name = (input.fileName.split(/[\\/]/).pop() ?? input.fileName).replace(/\.[^.]+$/, "") || "Sheet1";
+    return [numberedSheet(name, parseCsv(decodeText(input.data), mimeType === MIME.tsv ? "\t" : undefined, { keepBlankLines: true }))];
+  }
+  throw new Error(`${input.fileName} is not a sheet: choose an Excel (.xlsx) or CSV file`);
 }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;

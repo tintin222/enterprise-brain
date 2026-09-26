@@ -19,6 +19,8 @@ export const SystemCategory = z.enum([
   "scm",
   "messaging",
   "database",
+  /** The company's own tables, kept by the platform. */
+  "tables",
   "web",
   "esign",
   "other",

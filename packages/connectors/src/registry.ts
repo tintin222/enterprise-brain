@@ -12,6 +12,7 @@ import { microsoftTeamsConnector } from "./connectors/microsoft-teams.ts";
 import { restApiConnector } from "./connectors/rest-api.ts";
 import { salesforceConnector } from "./connectors/salesforce.ts";
 import { screenConnector } from "./connectors/screen.ts";
+import { tablesConnector } from "./connectors/tables.ts";
 import { sapS4hanaConnector } from "./connectors/sap-s4hana.ts";
 import { successFactorsConnector } from "./connectors/sap-successfactors.ts";
 import { sftpConnector } from "./connectors/sftp.ts";
@@ -92,6 +93,7 @@ export const BUILTIN_CONNECTORS: readonly ConnectorImplementation[] = [
   sqlDatabaseConnector,
   mcpServerConnector,
   screenConnector,
+  tablesConnector,
   webhookInboundConnector,
   microsoftTeamsConnector,
   googleChatConnector,

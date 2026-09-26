@@ -111,6 +111,8 @@ export async function runConnector(step: Step<"connector">, scope: ExecutionScop
       onUsage: (used) => {
         usage = mergeUsage(usage, used);
       },
+      actor: `agent:${scope.agentId}`,
+      runId: scope.runId,
     })
     .catch((error: unknown) => {
       throw carryUsage(error, usage);

@@ -21,7 +21,7 @@ import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router";
 import { api } from "../api.ts";
 import { Badge, StatusPill } from "../components/Badge.tsx";
-import { Button, ButtonAnchor } from "../components/Button.tsx";
+import { Button, ButtonAnchor, ButtonLink } from "../components/Button.tsx";
 import { Card, CardHeader, PageHeader, SectionTitle } from "../components/Card.tsx";
 import { ConnectionActionsDrawer } from "../components/ConnectionActions.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
@@ -620,7 +620,7 @@ export default function Connectors() {
 
   const grouped = useMemo(() => {
     const map = new Map<string, ConnectorManifest[]>();
-    for (const m of catalog.data ?? []) map.set(m.category, [...(map.get(m.category) ?? []), m]);
+    for (const m of (catalog.data ?? []).filter((m) => !m.managed)) map.set(m.category, [...(map.get(m.category) ?? []), m]);
     const known = CONNECTOR_CATEGORY_ORDER.filter((c) => c !== "other" && map.has(c));
     const extra = [...map.keys()].filter((c) => !CONNECTOR_CATEGORY_ORDER.includes(c)).sort((a, b) => categoryLabel(a).localeCompare(categoryLabel(b)));
     const order = [...known, ...extra, ...(map.has("other") ? ["other"] : [])];
@@ -664,6 +664,8 @@ export default function Connectors() {
           <ul className="divide-y divide-line">
             {instances.data.map((i) => {
               const Icon = categoryIcon(i.category);
+              // The company's tables: kept in step by the platform, changed through the tables themselves.
+              const managed = catalog.data?.some((m) => m.type === i.type && m.managed);
               return (
                 <li key={i.id} className="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center">
                   <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -679,6 +681,11 @@ export default function Connectors() {
                             Demo data
                           </Badge>
                         )}
+                        {managed && (
+                          <Badge size="xs" tone="blue">
+                            Kept by Enterprise Brain
+                          </Badge>
+                        )}
                       </p>
                       <p className="truncate text-xs text-muted">
                         {i.type} · {categoryLabel(i.category)} · {i.lastCheckedAt ? `checked ${timeAgo(i.lastCheckedAt)}` : "never tested"}
@@ -691,35 +698,43 @@ export default function Connectors() {
                         ))}
                     </div>
                   </div>
-                  <div className="flex shrink-0 gap-2">
-                    {i.config.auth_type === "oauth2_authorization_code" && (
-                      <ButtonAnchor
-                        size="sm"
-                        variant={i.secretFields.includes("refresh_token") ? "ghost" : "primary"}
-                        icon={LogIn}
-                        href={path(`/connectors/${encodeURIComponent(i.id)}/oauth/start`)}
-                        title={i.secretFields.includes("refresh_token") ? "Signed in: sign in again to renew" : "Sign in once so it may call the system"}
-                      >
-                        {i.secretFields.includes("refresh_token") ? "Sign in again" : "Sign in"}
-                      </ButtonAnchor>
-                    )}
-                    {(i.type === "rest-api" || i.type === "sql-database" || i.type === "mcp-server" || i.type === "screen") && (
-                      <Button size="sm" variant="soft" icon={ListTree} onClick={() => setNaming(i)}>
-                        Actions
+                  {managed ? (
+                    <div className="flex shrink-0 gap-2">
+                      <ButtonLink size="sm" variant="soft" icon={ListTree} to="/apps">
+                        The tables
+                      </ButtonLink>
+                    </div>
+                  ) : (
+                    <div className="flex shrink-0 gap-2">
+                      {i.config.auth_type === "oauth2_authorization_code" && (
+                        <ButtonAnchor
+                          size="sm"
+                          variant={i.secretFields.includes("refresh_token") ? "ghost" : "primary"}
+                          icon={LogIn}
+                          href={path(`/connectors/${encodeURIComponent(i.id)}/oauth/start`)}
+                          title={i.secretFields.includes("refresh_token") ? "Signed in: sign in again to renew" : "Sign in once so it may call the system"}
+                        >
+                          {i.secretFields.includes("refresh_token") ? "Sign in again" : "Sign in"}
+                        </ButtonAnchor>
+                      )}
+                      {(i.type === "rest-api" || i.type === "sql-database" || i.type === "mcp-server" || i.type === "screen") && (
+                        <Button size="sm" variant="soft" icon={ListTree} onClick={() => setNaming(i)}>
+                          Actions
+                        </Button>
+                      )}
+                      {!i.sandbox && catalog.data?.some((m) => m.type === i.type && m.config.length > 0) && (
+                        <Button size="sm" variant="ghost" icon={Settings2} onClick={() => setEditing(i)}>
+                          Settings
+                        </Button>
+                      )}
+                      <Button size="sm" icon={RefreshCw} loading={test.isPending && test.variables === i.id} onClick={() => test.mutate(i.id)}>
+                        Test
                       </Button>
-                    )}
-                    {!i.sandbox && catalog.data?.some((m) => m.type === i.type && m.config.length > 0) && (
-                      <Button size="sm" variant="ghost" icon={Settings2} onClick={() => setEditing(i)}>
-                        Settings
+                      <Button size="sm" variant="ghost" icon={Trash} onClick={() => setRemoving(i)}>
+                        Remove
                       </Button>
-                    )}
-                    <Button size="sm" icon={RefreshCw} loading={test.isPending && test.variables === i.id} onClick={() => test.mutate(i.id)}>
-                      Test
-                    </Button>
-                    <Button size="sm" variant="ghost" icon={Trash} onClick={() => setRemoving(i)}>
-                      Remove
-                    </Button>
-                  </div>
+                    </div>
+                  )}
                 </li>
               );
             })}

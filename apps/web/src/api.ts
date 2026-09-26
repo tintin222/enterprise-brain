@@ -120,6 +120,7 @@ export const api = {
   get: <T>(path: string, signal?: AbortSignal) => send<T>("GET", path, undefined, signal),
   post: <T>(path: string, body: unknown = {}, signal?: AbortSignal) => send<T>("POST", path, body, signal),
   put: <T>(path: string, body: unknown = {}) => send<T>("PUT", path, body),
+  patch: <T>(path: string, body: unknown = {}) => send<T>("PATCH", path, body),
   del: <T>(path: string) => send<T>("DELETE", path),
   /** multipart/form-data POST (the browser sets the boundary). */
   async upload<T>(path: string, form: FormData, signal?: AbortSignal): Promise<T> {

@@ -16,6 +16,8 @@ import type {
   Mailbox,
   PerformanceReport,
   Person,
+  RecordPage,
+  TableView,
   ReportPeriodKey,
   RunRow,
   SessionView,
@@ -49,6 +51,8 @@ export const keys = {
   tasks: (company: string) => [company, "tasks"] as const,
   work: (company: string) => [company, "work"] as const,
   home: (company: string) => [company, "home"] as const,
+  tables: (company: string) => [company, "tables"] as const,
+  table: (company: string, key: string) => [company, "tables", key] as const,
 };
 
 export function useCatalog() {
@@ -237,5 +241,50 @@ export function useAgentPerformance(slug: string, period: ReportPeriodKey = "las
     queryKey: [...keys.agent(company, slug), "performance", period],
     queryFn: () => api.get<AgentPerformance>(path(`/agents/${encodeURIComponent(slug)}/performance${qs({ period })}`)),
     enabled: Boolean(slug),
+  });
+}
+
+/** The tables the viewer sees (or the archived ones). */
+export function useTables(archived = false) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.tables(company), { archived }],
+    queryFn: () => api.get<TableView[]>(path(`/tables${qs({ archived: archived || undefined })}`)),
+  });
+}
+
+export function useTable(key: string | undefined) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: keys.table(company, key ?? ""),
+    queryFn: () => api.get<TableView>(path(`/tables/${encodeURIComponent(key ?? "")}`)),
+    enabled: Boolean(key),
+  });
+}
+
+export interface RecordQuery {
+  search?: string;
+  sort?: string;
+  direction?: "asc" | "desc";
+  limit?: number;
+  archived?: boolean;
+  /** Field values the records must have. */
+  filters?: Record<string, string>;
+}
+
+/** A table's records: found by words, filtered by field, in an order. */
+export function useRecords(key: string | undefined, query: RecordQuery = {}, options: { enabled?: boolean } = {}) {
+  const { company, path } = useCompany();
+  const { filters = {}, ...rest } = query;
+  const params = {
+    ...rest,
+    archived: rest.archived || undefined,
+    ...Object.fromEntries(Object.entries(filters).map(([field, value]) => [`filter.${field}`, value])),
+  };
+  return useQuery({
+    queryKey: [...keys.table(company, key ?? ""), "records", params],
+    queryFn: () => api.get<RecordPage>(path(`/tables/${encodeURIComponent(key ?? "")}/records${qs(params)}`)),
+    enabled: Boolean(key) && (options.enabled ?? true),
+    placeholderData: (previous) => previous,
   });
 }

@@ -86,6 +86,7 @@ export const CONNECTOR_CATEGORY_LABELS: Record<string, string> = {
   scm: "Supply chain",
   messaging: "Messaging",
   database: "Database",
+  tables: "Tables",
   web: "Web",
   esign: "E-signature",
   other: "Other",

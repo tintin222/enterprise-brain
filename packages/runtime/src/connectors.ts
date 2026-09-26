@@ -14,6 +14,7 @@ import {
   type ConnectorUsage,
   type SandboxStore,
   type ScreenOperator,
+  type TableStore,
 } from "@enterprise-brain/connectors";
 import { connectorInstances, sandboxRecords, type DatabaseHandle } from "@enterprise-brain/db";
 import type { FileService } from "./files.ts";
@@ -89,10 +90,14 @@ export interface ConnectorInstanceView {
   sandbox: boolean;
 }
 
-/** What a call may report back besides its result. */
+/** What a call may report back besides its result, and who it is made for. */
 export interface ExecuteOptions {
   /** Model use the call had (working an old system's screens), for the cost of the work it was made for. */
   onUsage?: (usage: ConnectorUsage) => void;
+  /** Who makes the call ("agent:<id>" for an AI employee), kept with the changes it makes in the company's tables. */
+  actor?: string;
+  /** The run it is made in. */
+  runId?: string;
 }
 
 export interface ResolvedConnector {
@@ -114,6 +119,13 @@ export class ConnectorService {
     /** Works old systems' screens, for screen connections (absent where no browser can run). */
     private readonly screens?: ScreenOperator,
   ) {}
+
+  /** The company's tables, for its Tables connection (set once the table service exists). */
+  private tablesOf?: (companyId: string) => TableStore;
+
+  useTables(tablesOf: (companyId: string) => TableStore): void {
+    this.tablesOf = tablesOf;
+  }
 
   catalog(): ConnectorManifest[] {
     return this.registry.list();
@@ -208,13 +220,14 @@ export class ConnectorService {
       ids.add(action.id);
       if (impl.manifest.type === "sql-database" && !action.sql) throw new ConnectorError(`${action.name}: a database action needs its SQL`, "validation");
       if (impl.manifest.type === "mcp-server" && !action.tool) throw new ConnectorError(`${action.name}: an MCP action needs the tool it calls`, "validation");
+      if (impl.manifest.type === "tables" && !action.table) throw new ConnectorError(`${action.name}: a table action names its table`, "validation");
       if (impl.manifest.type === "screen") {
         if (!action.goal?.trim()) throw new ConnectorError(`${action.name}: say what to do on the screens`, "validation");
         if (action.watch) throw new ConnectorError(`${action.name}: actions on screens can't be watched for new items`, "validation");
         const reserved = (action.returns ?? []).find((r) => (SCREEN_RESERVED_KEYS as readonly string[]).includes(r.key));
         if (reserved) throw new ConnectorError(`${action.name}: "${reserved.key}" is taken; name the value something else`, "validation");
       }
-      if (!["sql-database", "mcp-server", "screen"].includes(impl.manifest.type) && !(action.method && action.path)) {
+      if (!["sql-database", "mcp-server", "screen", "tables"].includes(impl.manifest.type) && !(action.method && action.path)) {
         throw new ConnectorError(`${action.name}: a web service action needs a method and a path`, "validation");
       }
     }
@@ -285,6 +298,9 @@ export class ConnectorService {
       ...(this.files ? { files: this.filesOf(companyId, this.files) } : {}),
       ...(this.screens ? { screens: this.screens } : {}),
       ...(options.onUsage ? { recordUsage: options.onUsage } : {}),
+      ...(this.tablesOf ? { tables: this.tablesOf(companyId) } : {}),
+      ...(options.actor ? { actor: options.actor } : {}),
+      ...(options.runId ? { runId: options.runId } : {}),
       logger: {
         info: () => {},
         warn: (message, data) => console.warn(`[connector] ${message}`, data ?? ""),

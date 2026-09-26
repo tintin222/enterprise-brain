@@ -368,7 +368,7 @@ export async function buildTools(
                   check.reason,
                 );
               }
-              const result = await deps.connectors.execute(companyId, target, op.id, input, { onUsage: scope.onUsage });
+              const result = await deps.connectors.execute(companyId, target, op.id, input, { onUsage: scope.onUsage, actor: `agent:${scope.agentId}`, runId: scope.runId });
               if (check) {
                 await scope.emit?.({
                   type: "action.executed",

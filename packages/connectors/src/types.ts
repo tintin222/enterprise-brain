@@ -44,6 +44,23 @@ export interface ConnectorContext {
   screens?: ScreenOperator;
   /** Counts the model use a call had (working screens) in the cost of the work it was made for. */
   recordUsage?: (usage: ConnectorUsage) => void;
+  /** The company's own tables, for the Tables connection. */
+  tables?: TableStore;
+  /** Who the call is made for, as people read it in a record's history ("Complaint Clerk"). */
+  actor?: string;
+  /** The run the call is made in, for the history. */
+  runId?: string;
+}
+
+/** The company's tables as the Tables connection sees them: records found, read, added and changed by table key. */
+export interface TableStore {
+  find(
+    table: string,
+    query: { search?: string; where?: Record<string, unknown>; limit?: number },
+  ): Promise<{ records: Record<string, unknown>[]; total: number }>;
+  get(table: string, record: string): Promise<Record<string, unknown>>;
+  add(table: string, values: Record<string, unknown>, by: { actor: string; runId?: string }): Promise<Record<string, unknown>>;
+  update(table: string, record: string, values: Record<string, unknown>, by: { actor: string; runId?: string }): Promise<Record<string, unknown>>;
 }
 
 /** Model use, as the LLM layer counts it. */

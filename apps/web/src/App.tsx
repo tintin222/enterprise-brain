@@ -38,6 +38,8 @@ const Search = lazy(() => import("./pages/Search.tsx"));
 const Assistant = lazy(() => import("./pages/Assistant.tsx"));
 const UseCaseApp = lazy(() => import("./pages/UseCaseApp.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+const Apps = lazy(() => import("./pages/apps/Apps.tsx"));
+const TablePage = lazy(() => import("./pages/apps/TablePage.tsx"));
 const SignIn = lazy(() => import("./pages/SignIn.tsx"));
 
 const queryClient = new QueryClient({
@@ -148,6 +150,8 @@ const router = createBrowserRouter([
           { path: "hire/ready-made/:id", element: <DepartmentDetail /> },
           { path: "work", element: <Work /> },
           { path: "work/:ref", element: <TaskPage /> },
+          { path: "apps", element: <Apps /> },
+          { path: "tables/:key", element: <TablePage /> },
           {
             path: "settings",
             element: <SettingsLayout />,

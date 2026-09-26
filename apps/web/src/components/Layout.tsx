@@ -5,6 +5,7 @@ import {
   Building,
   Building2,
   House,
+  LayoutGrid,
   ListChecks,
   LogOut,
   Menu,
@@ -40,12 +41,13 @@ interface Place {
   for?: "managers";
 }
 
-/** The five places: everything else lives inside one of them. */
+/** The places: everything else lives inside one of them. */
 const PLACES: Place[] = [
   { to: "/", label: "Home", icon: House, end: true, hint: "What needs you, and what your AI employees did today" },
   { to: "/company", label: "Company", icon: Building2, hint: "Departments, their people and AI employees" },
   { to: "/hire", label: "Hire", icon: UserPlus, for: "managers", hint: "The Studio and ready-made AI employees" },
   { to: "/work", label: "Work", icon: ListChecks, hint: "Every task, and what needs a person" },
+  { to: "/apps", label: "Apps", icon: LayoutGrid, hint: "The tables your departments keep, and the apps on them" },
   { to: "/settings", label: "Settings", icon: Settings, for: "managers", hint: "Connections, knowledge, people, costs" },
 ];
 

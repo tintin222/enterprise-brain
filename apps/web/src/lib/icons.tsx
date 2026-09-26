@@ -172,6 +172,7 @@ export const CATEGORY_ICONS: Record<string, LucideIcon> = {
   scm: Truck,
   messaging: MessagesSquare,
   database: Database,
+  tables: Table,
   web: Globe,
   esign: PenLine,
   other: LayoutGrid,
@@ -194,5 +195,6 @@ export function activityIcon(action: string): LucideIcon {
   if (entity === "paperclip") return Workflow;
   if (entity === "mail") return Inbox;
   if (entity === "builder") return Sparkles;
+  if (entity === "table") return Table;
   return Activity;
 }

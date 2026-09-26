@@ -1158,6 +1158,8 @@ export class RunEngine {
               onUsage: (spent) => {
                 used = mergeUsage(used, spent);
               },
+              actor: `agent:${approval.agentId}`,
+              runId: run.id,
             });
             await this.addRunUsage(run.id, used);
             result = isRecord(executed) ? { ...executed, approvedBy: decidedBy } : { result: executed, approvedBy: decidedBy };
@@ -1211,7 +1213,11 @@ export class RunEngine {
         used = mergeUsage(used, spent);
       };
       try {
-        const result = await executeAction(this.deps, companyId, action, { onUsage: spend }).finally(() => (approval.runId ? this.addRunUsage(approval.runId, used) : undefined));
+        const result = await executeAction(this.deps, companyId, action, {
+          onUsage: spend,
+          actor: `agent:${approval.agentId}`,
+          ...(approval.runId ? { runId: approval.runId } : {}),
+        }).finally(() => (approval.runId ? this.addRunUsage(approval.runId, used) : undefined));
         await this.deps.handle.db
           .update(approvals)
           .set({ action: { ...(action as unknown as Record<string, unknown>), result } as Record<string, unknown> })

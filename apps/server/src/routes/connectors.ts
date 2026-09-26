@@ -9,6 +9,11 @@ import { HttpError, companyOf } from "../http.ts";
 export async function connectorRoutes(app: FastifyInstance, ctx: AppContext) {
   const { platform } = ctx;
 
+  /** Connections the platform keeps (the company's tables) are not added, changed or removed by hand. */
+  const assertNotManaged = (type: string) => {
+    if (platform.connectors.registry.get(type)?.manifest.managed) throw new HttpError(400, "Enterprise Brain keeps this connection in step by itself");
+  };
+
   app.get("/api/connectors/catalog", async () => platform.connectors.catalog());
 
   app.get("/api/companies/:company/connectors", async (request) => {
@@ -20,6 +25,7 @@ export async function connectorRoutes(app: FastifyInstance, ctx: AppContext) {
     const company = await companyOf(platform, request);
     const viewer = requireAdmin(request);
     const body = z.object({ type: z.string(), name: z.string().optional(), values: z.record(z.string(), z.unknown()).default({}) }).parse(request.body);
+    assertNotManaged(body.type);
     const instance = await platform.connectors.create(company.id, body);
     await platform.activity.record(company.id, { actor: actorOf(viewer), action: "connector.created", entityType: "connector", entityId: instance.id, summary: `Connected ${instance.name}` });
     return instance;
@@ -30,6 +36,7 @@ export async function connectorRoutes(app: FastifyInstance, ctx: AppContext) {
     const viewer = requireAdmin(request);
     const { id } = request.params as { id: string };
     const body = z.object({ name: z.string().optional(), values: z.record(z.string(), z.unknown()).optional() }).parse(request.body);
+    assertNotManaged((await platform.connectors.get(company.id, id)).type);
     const instance = await platform.connectors.update(company.id, id, body);
     const changed = Object.keys(body.values ?? {});
     await platform.activity.record(company.id, {
@@ -47,6 +54,7 @@ export async function connectorRoutes(app: FastifyInstance, ctx: AppContext) {
     const company = await companyOf(platform, request);
     const viewer = requireAdmin(request);
     const { id } = request.params as { id: string };
+    assertNotManaged((await platform.connectors.get(company.id, id)).type);
     await platform.connectors.remove(company.id, id);
     await platform.activity.record(company.id, { actor: actorOf(viewer), action: "connector.removed", entityType: "connector", entityId: id, summary: "Removed a connector" });
     return { ok: true };
@@ -119,6 +127,7 @@ export async function connectorRoutes(app: FastifyInstance, ctx: AppContext) {
     const viewer = requireAdmin(request);
     const { id } = request.params as { id: string };
     const body = z.object({ actions: z.array(z.unknown()) }).parse(request.body);
+    assertNotManaged((await platform.connectors.get(company.id, id)).type);
     const saved = await platform.connectors.setActions(company.id, id, body.actions);
     await platform.activity.record(company.id, {
       actor: actorOf(viewer),
@@ -173,7 +182,7 @@ export async function connectorRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!named) throw new HttpError(404, `${instance.name} has no action "${action}"`);
     if (named.kind === "write" && !body.confirm) throw new HttpError(400, `${named.name} changes data in ${instance.name}: confirm to run it`);
     const started = Date.now();
-    const result = await platform.connectors.executeInstance(company.id, id, action, body.input);
+    const result = await platform.connectors.executeInstance(company.id, id, action, body.input, { actor: actorOf(viewer) });
     await platform.activity.record(company.id, { actor: actorOf(viewer), action: "connector.action_tested", entityType: "connector", entityId: id, summary: `Tried ${named.name} on ${instance.name}` });
     return { ok: true, durationMs: Date.now() - started, result };
   });

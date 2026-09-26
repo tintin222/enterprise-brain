@@ -11,3 +11,4 @@ export { describeSystem } from "./systems.ts";
 export * from "./blueprints.ts";
 export * from "./render.ts";
 export * from "./stakeholders.ts";
+export * from "./tables.ts";

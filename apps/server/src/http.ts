@@ -2,7 +2,18 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { ZodError } from "zod";
 import { BuilderError } from "@enterprise-brain/builder";
 import { ConnectorError } from "@enterprise-brain/connectors";
-import { AgentNotFoundError, CoachingError, PeopleError, RunError, TaskError, WorkError, type CompanyRow, type Platform } from "@enterprise-brain/runtime";
+import { RecordValueError } from "@enterprise-brain/core";
+import {
+  AgentNotFoundError,
+  CoachingError,
+  PeopleError,
+  RunError,
+  TableError,
+  TaskError,
+  WorkError,
+  type CompanyRow,
+  type Platform,
+} from "@enterprise-brain/runtime";
 import { KnowledgeError } from "@enterprise-brain/knowledge";
 import { HermesRequestError } from "@enterprise-brain/paperclip";
 
@@ -20,7 +31,9 @@ export function statusFor(error: unknown): number {
   if (error instanceof HttpError) return error.statusCode;
   if (error instanceof RunError || error instanceof BuilderError || error instanceof HermesRequestError) return error.status;
   if (error instanceof AgentNotFoundError) return 404;
-  if (error instanceof PeopleError || error instanceof TaskError || error instanceof WorkError || error instanceof CoachingError) return error.status;
+  if (error instanceof PeopleError || error instanceof TaskError || error instanceof WorkError || error instanceof CoachingError || error instanceof TableError)
+    return error.status;
+  if (error instanceof RecordValueError) return 400;
   if (error instanceof KnowledgeError) return error.code === "not_found" ? 404 : 400;
   if (error instanceof ZodError) return 400;
   if (error instanceof ConnectorError) {
@@ -36,6 +49,8 @@ export function errorBody(error: unknown) {
   if (error instanceof ZodError) {
     return { error: "Invalid request", issues: error.issues.map((i) => ({ path: i.path.join("."), message: i.message })) };
   }
+  // Every value that doesn't fit its field, at once.
+  if (error instanceof RecordValueError) return { error: error.message, problems: error.problems };
   return { error: error instanceof Error ? error.message : String(error) };
 }
 

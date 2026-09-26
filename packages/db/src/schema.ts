@@ -774,3 +774,77 @@ export const coachingProposals = pgTable(
   },
   (t) => [index("coaching_proposals_agent").on(t.agentId, t.createdAt)],
 );
+
+/**
+ * Tables people make: business data described in plain words (supplier complaints, a training log).
+ * The design (fields, who sees and edits it) is here; the records are in data_records.
+ */
+export const dataTables = pgTable(
+  "data_tables",
+  {
+    id: id(),
+    companyId: companyId(),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    /** The department it belongs to; null = company-wide. */
+    departmentId: uuid("department_id").references(() => departments.id, { onDelete: "set null" }),
+    /** TableField[]: what each record holds. */
+    fields: jsonb("fields").$type<Record<string, unknown>[]>().notNull(),
+    titleField: text("title_field"),
+    /** TableSettings: who sees it and who edits its records. */
+    settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+    /** Changes to the design, counted from 1. */
+    version: integer("version").notNull().default(1),
+    /** The number the next record gets (records are numbered per table: #1, #2…). */
+    nextNumber: integer("next_number").notNull().default(1),
+    createdBy: text("created_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("data_tables_company_key").on(t.companyId, t.key)],
+);
+
+export const dataRecords = pgTable(
+  "data_records",
+  {
+    id: id(),
+    companyId: companyId(),
+    tableId: uuid("table_id")
+      .notNull()
+      .references(() => dataTables.id, { onDelete: "cascade" }),
+    number: integer("number").notNull(),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("data_records_table_number").on(t.tableId, t.number), index("data_records_table_created").on(t.tableId, t.createdAt)],
+);
+
+/** Every change to a record: who, when, and each field's value before and after. */
+export const dataRecordChanges = pgTable(
+  "data_record_changes",
+  {
+    id: id(),
+    companyId: companyId(),
+    tableId: uuid("table_id")
+      .notNull()
+      .references(() => dataTables.id, { onDelete: "cascade" }),
+    recordId: uuid("record_id")
+      .notNull()
+      .references(() => dataRecords.id, { onDelete: "cascade" }),
+    /** created | updated | archived | restored | imported */
+    action: text("action").notNull(),
+    /** { field: { from, to } } */
+    changes: jsonb("changes").$type<Record<string, unknown>>().notNull().default({}),
+    by: text("by").notNull(),
+    /** The AI employee's run that made it, when one did. */
+    runId: uuid("run_id"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("data_record_changes_record").on(t.recordId, t.createdAt)],
+);

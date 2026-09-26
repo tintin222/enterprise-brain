@@ -8,9 +8,10 @@ const CANDIDATE_DELIMITERS = ["\t", ";", ",", "|"] as const;
  * escaped quotes (""), delimiters and line breaks inside quotes, CRLF/LF/CR line
  * endings (normalized to LF), and skips blank lines. Malformed input never throws: a stray quote
  * inside an unquoted field is literal and an unterminated quote runs to the end.
- * The delimiter is sniffed when omitted.
+ * The delimiter is sniffed when omitted. With `keepBlankLines`, blank lines stay (as [""]), so each
+ * row's index is its line in the file.
  */
-export function parseCsv(input: string, delimiter: string = sniffCsvDelimiter(input)): string[][] {
+export function parseCsv(input: string, delimiter: string = sniffCsvDelimiter(input), options: { keepBlankLines?: boolean } = {}): string[][] {
   // Line breaks inside quoted values are normalized too.
   const text = input.replace(/\r\n?/g, "\n");
   const rows: string[][] = [];
@@ -26,7 +27,7 @@ export function parseCsv(input: string, delimiter: string = sniffCsvDelimiter(in
   };
   const endRow = () => {
     endField();
-    if (row.length > 1 || row[0] !== "") rows.push(row);
+    if (row.length > 1 || row[0] !== "" || options.keepBlankLines) rows.push(row);
     row = [];
   };
 

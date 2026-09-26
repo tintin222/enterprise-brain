@@ -603,6 +603,8 @@ export interface ConnectorManifest {
   docsUrl?: string;
   maturity: "stable" | "preview" | "sandbox";
   itRequirements: string[];
+  /** Kept by the platform (the company's tables): nobody adds or changes it. */
+  managed?: boolean;
 }
 
 export interface ConnectorInstance {
@@ -1398,4 +1400,108 @@ export interface AgentPerformance {
   probation: Probation;
   measures: PerformanceMeasures;
   weeks: { start: string; measures: PerformanceMeasures }[];
+}
+
+// ---------------------------------------------------------------------------
+// Tables: business data people describe in plain words
+// ---------------------------------------------------------------------------
+
+export type TableFieldType = "text" | "long_text" | "number" | "money" | "date" | "yes_no" | "choice" | "person" | "email" | "url" | "file" | "link";
+
+export interface TableField {
+  key: string;
+  label: string;
+  type: TableFieldType;
+  description?: string;
+  required?: boolean;
+  /** choice: the values people pick from. */
+  choices?: string[];
+  /** money: its currency (TRY). */
+  currency?: string;
+  /** link: the key of the table its records point at. */
+  table?: string;
+  /** Personal data (KVKK/GDPR). */
+  personal?: boolean;
+  /** The value a new record starts with. */
+  default?: string | number | boolean;
+}
+
+export interface TableSettings {
+  visibility: "department" | "company";
+  editors: "members" | "managers";
+}
+
+export interface TableDesign {
+  key: string;
+  name: string;
+  description: string;
+  fields: TableField[];
+  titleField?: string;
+}
+
+export interface TableView {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  departmentId: string | null;
+  fields: TableField[];
+  titleField: string;
+  settings: TableSettings;
+  version: number;
+  records: number;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+  /** What the viewer may do: add and change records, change the table. */
+  can: { edit: boolean; design: boolean };
+}
+
+export interface RecordView {
+  id: string;
+  number: number;
+  title: string;
+  values: Record<string, unknown>;
+  /** How links and people read: "#3 Akın Metal", "Zeynep Kaya". */
+  display: Record<string, string>;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+}
+
+export interface RecordChange {
+  id: string;
+  action: "created" | "updated" | "archived" | "restored" | "imported";
+  changes: { key: string; label: string; from: unknown; to: unknown }[];
+  by: string;
+  ai: boolean;
+  runId: string | null;
+  createdAt: string;
+}
+
+export interface RecordPage {
+  table: TableView;
+  records: RecordView[];
+  total: number;
+}
+
+export interface TableProposal {
+  design: TableDesign;
+  notes: string[];
+  drafted: "model" | "words";
+}
+
+export interface TableImport {
+  columns: Record<string, string>;
+  ignored: string[];
+  ready: number;
+  added: number;
+  problems: { row: number; problems: string[] }[];
+  fileId: string;
+  fileName: string;
+  sheet: string;
+  rows: number;
 }
