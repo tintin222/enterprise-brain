@@ -342,7 +342,23 @@ Managers and IT read every shared mailbox; the people of a department read the o
 | POST | `/api/companies/:company/chat/conversations/:id/messages` | `{ text }` → assistant message |
 | POST | `/api/companies/:company/chat/conversations/:id/messages/stream` | *SSE* `{ text }` → `delta` events, then `message` |
 
-## The Studio (Agent Builder)
+## The Studio agent
+
+With Claude (409 without: use the guided interview below). Managers and admins start and continue conversations; a conversation is its owner's (IT sees all). A message starts a turn in the background: follow it with `GET …/:id` (the page polls while `status` is `working`).
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/companies/:company/studio/threads` | `{ text, departmentId?, fileIds? }`: start with what the person needs → ThreadView |
+| GET | `/api/companies/:company/studio/threads` | The viewer's conversations `{ id, title, status, owner, parts, builtAt, updatedAt }` |
+| GET | `/api/companies/:company/studio/threads/:id?after=` | ThreadView, with the events after `after` |
+| POST | `/api/companies/:company/studio/threads/:id/messages` | `{ text, fileIds? }`: the person's message, or their answer to the Studio's questions (409 while it works, or once it is at work) |
+| POST | `/api/companies/:company/studio/threads/:id/stop` | Stop the turn at its next tool |
+| POST | `/api/companies/:company/studio/threads/:id/put-to-work` | Make it live: tables and apps join their department, AI employees start their duties → ThreadView |
+| DELETE | `/api/companies/:company/studio/threads/:id` | Throw it away, with the drafts it made (tables only while empty) |
+
+**ThreadView**: `{ id, title, status (idle: its reply is in, working, asking: it waits for answers, failed, interrupted: a restart cut its turn short), error, owner, departmentId, questions[] {question, why?, options?, recommended?}, solution { employees[] {key, status (draft/active), name, role, department, duties[], abilities[], approvals[], level, levelText, form[], notes[], tries, lastTry {runId, status, example, outcome}}, tables[] {key, name, department, fields[] {label, type, personal?}, records, draft}, apps[] {key, name, description, pages[], made}, requests[] {id, system, needed, status, answer} }, built? {employees[], tables[], apps[], at}, usage {costUsd…}, events[] {seq, kind (user, answer, note, step, question, part, trying, try, request, removed, said, stopped, built, error), data, at} }`.
+
+## The guided interview (Studio without Claude)
 
 Managers and admins. An interview belongs to the manager who started it: they, the other managers of its department and admins see it (404 for others).
 

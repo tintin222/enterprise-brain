@@ -385,7 +385,37 @@ export async function buildTools(
     }
   }
   if (scope.task && deps.tasks) tools.push(...taskTools(deps, deps.tasks, scope, scope.task));
+  else if (scope.dryRun) tools.push(...practiceTaskTools());
   return { tools, serverTools, warnings };
+}
+
+/**
+ * The task tools in a test run, which has no task: each says what would happen in real work, so a
+ * try shows when the AI employee would ask someone, wait for a reply or follow up.
+ */
+function practiceTaskTools(): RuntimeTool[] {
+  const said = (text: string): ToolExecution => ({ content: `Test run: ${text}` });
+  return taskToolDefinitions("the task").map((definition) => ({
+    capability: "task",
+    kind: "read",
+    definition,
+    async execute(input) {
+      switch (definition.name) {
+        case "task_note":
+          return said(`noted in the task's history: ${String(input.text ?? "")}`);
+        case "task_wait_for_reply":
+          return said(`the task would now wait up to ${Math.min(60, Math.max(0.01, Number(input.days) || 3))} day(s) for a reply. End your turn now.`);
+        case "task_follow_up":
+          return said(`the task would be looked at again ${typeof input.date === "string" ? `on ${input.date}` : `in ${Number(input.days) || 1} day(s)`}. End your turn now.`);
+        case "task_ask_person":
+          return said(
+            `this question would go to ${input.to_manager === true ? "your manager" : "the people of your department"}, and the task would wait for the answer: “${String(input.question ?? "")}”. End your turn now.`,
+          );
+        default:
+          return said(`the task would close as done: ${String(input.outcome ?? "")}`);
+      }
+    },
+  }));
 }
 
 /** Tools for working on a task over days: notes in its history, waiting for replies, follow-ups, closing it. */
@@ -394,47 +424,69 @@ function taskTools(deps: ToolDeps, tasks: TaskService, scope: ToolScope, task: {
     await tasks.update(task.id, { plan: next as unknown as Record<string, unknown> });
     return { content: text };
   };
-  const tool = (name: string, description: string, properties: Record<string, JsonSchema>, required: string[], execute: RuntimeTool["execute"]): RuntimeTool => ({
-    capability: "task",
-    kind: "read",
-    definition: { name, description, inputSchema: { type: "object", properties, required } },
-    execute,
+  const execute: Record<string, RuntimeTool["execute"]> = {
+    task_note: async (input) => {
+      await tasks.record(scope.companyId, task.id, { type: "note", message: String(input.text), actor: `agent:${scope.agentId}`, runId: scope.runId });
+      return { content: "Noted in the task's history." };
+    },
+    task_wait_for_reply: async (input) => {
+      const days = Math.min(60, Math.max(0.01, Number(input.days) || 3));
+      return plan({ next: "wait_reply", days, note: input.note ? String(input.note) : undefined }, `Task ${task.ref} will wait for a reply for up to ${days} day(s). End your turn now.`);
+    },
+    task_follow_up: async (input) => {
+      const date = typeof input.date === "string" && !Number.isNaN(Date.parse(input.date)) ? new Date(input.date) : undefined;
+      const at = date ?? new Date(Date.now() + Math.min(365, Math.max(0.01, Number(input.days) || 1)) * 86_400_000);
+      return plan({ next: "follow_up", at: at.toISOString(), note: input.note ? String(input.note) : undefined }, `Task ${task.ref} will be looked at again on ${at.toISOString().slice(0, 10)}. End your turn now.`);
+    },
+    task_ask_person: async (input) => {
+      if (!deps.askPerson) return { content: "Asking people is not available here.", isError: true };
+      await deps.askPerson({
+        companyId: scope.companyId,
+        agentId: scope.agentId,
+        taskId: task.id,
+        runId: scope.runId,
+        question: String(input.question),
+        context: input.context ? String(input.context) : undefined,
+        suggestion: input.suggestion ? String(input.suggestion) : undefined,
+        options: Array.isArray(input.options) ? input.options.map(String).slice(0, 8) : undefined,
+        toManager: input.to_manager === true,
+      });
+      return { content: `Asked. Task ${task.ref} waits for the answer; you will be woken with it. End your turn now.` };
+    },
+    task_complete: async (input) => plan({ next: "complete", outcome: String(input.outcome) }, `Task ${task.ref} will close as done. End your turn now.`),
+  };
+  return taskToolDefinitions(`task ${task.ref}`).map((definition) => ({ capability: "task", kind: "read", definition, execute: execute[definition.name]! }));
+}
+
+/** The task tools as Claude sees them; `task` names the task ("task T-12"). */
+function taskToolDefinitions(task: string): ToolDefinition[] {
+  const tool = (name: string, description: string, properties: Record<string, JsonSchema>, required: string[]): ToolDefinition => ({
+    name,
+    description,
+    inputSchema: { type: "object", properties, required },
   });
   return [
     tool(
       "task_note",
-      `Write a note in the history of task ${task.ref}: a finding, a decision and why, or what you are waiting for. People read it on the task page.`,
+      `Write a note in the history of ${task}: a finding, a decision and why, or what you are waiting for. People read it on the task page.`,
       { text: { type: "string" } },
       ["text"],
-      async (input) => {
-        await tasks.record(scope.companyId, task.id, { type: "note", message: String(input.text), actor: `agent:${scope.agentId}`, runId: scope.runId });
-        return { content: "Noted in the task's history." };
-      },
     ),
     tool(
       "task_wait_for_reply",
-      `Wait for a reply to the emails you sent in task ${task.ref} (their subject carries the reference). You are woken when a reply arrives, or after the given days if nobody answers, to remind them or decide. Call it last, then end your turn.`,
+      `Wait for a reply to the emails you sent in ${task} (their subject carries the reference). You are woken when a reply arrives, or after the given days if nobody answers, to remind them or decide. Call it last, then end your turn.`,
       { days: { type: "number", description: "At most this many days (1–60)" }, note: { type: "string", description: "What you expect, for when you wake up" } },
       ["days"],
-      async (input) => {
-        const days = Math.min(60, Math.max(0.01, Number(input.days) || 3));
-        return plan({ next: "wait_reply", days, note: input.note ? String(input.note) : undefined }, `Task ${task.ref} will wait for a reply for up to ${days} day(s). End your turn now.`);
-      },
     ),
     tool(
       "task_follow_up",
-      `Look at task ${task.ref} again later, e.g. to check that a payment arrived or a delivery was made. Give days, or a date. Call it last, then end your turn.`,
+      `Look at ${task} again later, e.g. to check that a payment arrived or a delivery was made. Give days, or a date. Call it last, then end your turn.`,
       { days: { type: "number" }, date: { type: "string", description: "YYYY-MM-DD" }, note: { type: "string", description: "What to check then" } },
       [],
-      async (input) => {
-        const date = typeof input.date === "string" && !Number.isNaN(Date.parse(input.date)) ? new Date(input.date) : undefined;
-        const at = date ?? new Date(Date.now() + Math.min(365, Math.max(0.01, Number(input.days) || 1)) * 86_400_000);
-        return plan({ next: "follow_up", at: at.toISOString(), note: input.note ? String(input.note) : undefined }, `Task ${task.ref} will be looked at again on ${at.toISOString().slice(0, 10)}. End your turn now.`);
-      },
     ),
     tool(
       "task_ask_person",
-      `Ask a person when you are unsure or something is missing that your tools and knowledge can't settle (a decision, a missing fact, an exception). Task ${task.ref} waits for the answer and you are woken with it. Give your suggestion when you have one: they can just agree. Call it last, then end your turn.`,
+      `Ask a person when you are unsure or something is missing that your tools and knowledge can't settle (a decision, a missing fact, an exception). ${capitalized(task)} waits for the answer and you are woken with it. Give your suggestion when you have one: they can just agree. Call it last, then end your turn.`,
       {
         question: { type: "string", description: "One clear question" },
         context: { type: "string", description: "What you found and why you ask" },
@@ -443,30 +495,18 @@ function taskTools(deps: ToolDeps, tasks: TaskService, scope: ToolScope, task: {
         to_manager: { type: "boolean", description: "Ask your manager (decisions above your level) rather than anyone in your department" },
       },
       ["question"],
-      async (input) => {
-        if (!deps.askPerson) return { content: "Asking people is not available here.", isError: true };
-        await deps.askPerson({
-          companyId: scope.companyId,
-          agentId: scope.agentId,
-          taskId: task.id,
-          runId: scope.runId,
-          question: String(input.question),
-          context: input.context ? String(input.context) : undefined,
-          suggestion: input.suggestion ? String(input.suggestion) : undefined,
-          options: Array.isArray(input.options) ? input.options.map(String).slice(0, 8) : undefined,
-          toManager: input.to_manager === true,
-        });
-        return { content: `Asked. Task ${task.ref} waits for the answer; you will be woken with it. End your turn now.` };
-      },
     ),
     tool(
       "task_complete",
-      `Close task ${task.ref}: the work is finished. Give the outcome in one or two sentences for the people who read the task.`,
+      `Close ${task}: the work is finished. Give the outcome in one or two sentences for the people who read the task.`,
       { outcome: { type: "string" } },
       ["outcome"],
-      async (input) => plan({ next: "complete", outcome: String(input.outcome) }, `Task ${task.ref} will close as done. End your turn now.`),
     ),
   ];
+}
+
+function capitalized(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 export { buildContext };

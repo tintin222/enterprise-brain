@@ -87,6 +87,38 @@ describe("AnthropicLlm", () => {
     expect(older.usage.costUsd).toBeCloseTo(0.055, 6);
   });
 
+  it("stops a tool loop at a call that waits for a person, keeping the turn's other results", async () => {
+    const { client, requests } = fakeClient([
+      message({
+        stop_reason: "tool_use",
+        content: [
+          { type: "tool_use", id: "t1", name: "lookup", input: { q: "a" } },
+          { type: "tool_use", id: "t2", name: "ask", input: { question: "Who confirms?" } },
+          { type: "tool_use", id: "t3", name: "ask", input: { question: "When to escalate?" } },
+        ] as BetaMessage["content"],
+      }),
+    ]);
+    const llm = new AnthropicLlm({ client });
+    const result = await llm.runTools({
+      purpose: "studio",
+      messages: [{ role: "user", content: "build it" }],
+      tools: [
+        { name: "lookup", description: "Look up", inputSchema: { type: "object", properties: { q: { type: "string" } } } },
+        { name: "ask", description: "Ask the person", inputSchema: { type: "object", properties: { question: { type: "string" } } } },
+      ],
+      executeTool: async (call) => (call.name === "ask" ? { content: "Waiting for the answer", stop: true } : { content: "A" }),
+    });
+    expect(requests).toHaveLength(1);
+    expect(result.stopReason).toBe("tool");
+    expect(result.stopped?.call).toMatchObject({ id: "t2", name: "ask" });
+    expect(result.stopped?.results.map((r) => [r.tool_use_id, r.content])).toEqual([
+      ["t1", "A"],
+      ["t3", "Asked together with the other question of this turn: the answer is in its result."],
+    ]);
+    // The conversation ends with the assistant's turn: the answers come with the next request.
+    expect(result.messages.at(-1)?.role).toBe("assistant");
+  });
+
   it("asks tool loops for the notes between tool calls, on the models that write them as thinking", async () => {
     const note = { type: "thinking", thinking: "The order exists; checking the supplier next.", signature: "sig" };
     const { client, requests } = fakeClient([

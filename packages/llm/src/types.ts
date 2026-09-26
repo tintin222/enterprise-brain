@@ -64,7 +64,15 @@ export interface ToolCall {
 export interface ToolExecution {
   content: string;
   isError?: boolean;
+  /**
+   * Tool loops: this call waits for a person (a question): the loop stops after the turn's tools
+   * have run, and the caller carries on later with the person's answer as this call's result.
+   */
+  stop?: boolean;
 }
+
+/** A tool's result as the API takes it, e.g. to carry on a stopped loop. */
+export type ToolResultParam = Anthropic.Beta.Messages.BetaToolResultBlockParam;
 
 export type ToolLoopEvent =
   | { type: "assistant"; turn: number; text: string; toolCalls: ToolCall[] }
@@ -152,11 +160,18 @@ export interface StructuredResult<T> {
 
 export interface ToolLoopResult {
   text: string;
+  /** "tool" when a call stopped it (see `stopped`), "end_turn", "max_turns", … */
   stopReason: string;
   turns: number;
+  /** The conversation so far; after a stop it ends with the assistant turn that made the call. */
   messages: MessageParam[];
   usage: LlmUsage;
   model: string;
+  /**
+   * The call that stopped the loop, waiting for its result, and the results of the turn's other
+   * calls: the next request adds one user message with those results and the waiting call's.
+   */
+  stopped?: { call: ToolCall; results: ToolResultParam[] };
 }
 
 /**

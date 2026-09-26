@@ -74,7 +74,8 @@ Every table is **company-scoped**, the same rule Paperclip follows. One deployme
 | `knowledge_collections`, `knowledge_documents`, `knowledge_chunks` | Knowledge base. Chunks carry a `vector(1024)` embedding and a generated `tsvector`. |
 | `mail_messages` | Inbound and outbound mail (sandbox mailboxes, drafts, sent) |
 | `chat_conversations`, `chat_messages` | Conversational AI with citations |
-| `builder_sessions`, `builder_messages`, `stakeholder_requests` | Agent Builder state, transcript and requests to other teams |
+| `builder_sessions`, `builder_messages`, `stakeholder_requests` | The guided interview: state, transcript and requests to other teams |
+| `studio_threads`, `studio_events` | The Studio agent's conversations (the model's conversation, only added to; its instructions and tools; what it built) and what the page shows of them |
 | `activity_log` | Audit trail of every mutating action |
 
 ## 3. Agents
@@ -154,7 +155,15 @@ Every CV score or invoice decision can therefore be traced to evidence.
 
 ## 6. The Studio (Agent Builder)
 
-See [AGENT-BUILDER.md](AGENT-BUILDER.md). In short, it implements the *grilling* technique for non-technical users:
+With Claude, the Studio is **an agent that builds** (`packages/builder/src/studio-agent.ts`, `apps/server/src/studio/service.ts`), the way Claude Code builds software. The person says what they need in their own words (*Hire*, or the one box); each of their messages starts a **turn**: Claude, at medium effort, in a tool loop over the Studio's tools, run in the background while the page follows its events.
+
+- **Its tools** are the platform's own services: look at the company (departments, people, AI employees, tables, apps, systems and their actions, mailboxes, knowledge), read a mailbox, an email with its attachments, a file the person added, look at one thing in detail, search the knowledge; **ask the person** (at most three questions, each with a recommended answer: the loop stops there, and their answer comes back as that tool's result); ask IT (a work item for IT, for a system or an action it needs); make or change a **table**, an **AI employee** or an **app**; **try** an AI employee; remove a draft.
+- **An AI employee it writes** is its job in plain words (the briefing it works from), when it works (each email to a mailbox, a schedule, its form), what it may use (attachments, knowledge, drafting or sending emails, the web, finding, adding and changing records in named tables, named actions of connected or demo systems) and what a person approves first. It becomes a job with no fixed steps (`compileEmployee`): the runtime runs each piece of work as an agent with exactly those tools, plus the task tools (notes, asking a person, waiting for replies, following up, closing), within its probation level, budget and audit log. What the words don't settle (a table, a system or an action the company doesn't have) is sent back to Claude to fix, never guessed.
+- **Tries** are test runs on real examples (an email from the mailbox, a made-up one, a file, a form, a request): nothing is sent or changed, and the task tools only say what would happen. Claude reads each result and fixes the job when it falls short.
+- **Nothing is at work until the person puts it to work.** Until then AI employees are drafts, tables are kept with the conversation (out of the department's list, `settings.studio`) and apps are plans. Putting it to work makes the tables and apps the department's (personal data still waits for the data protection officer), and starts the AI employees' duties at their probation level with a manager.
+- **The conversation is only ever added to** (`studio_threads.messages`, kept as written, and its instructions and tools as they were when it started, `setup`), so Claude keeps its reasoning between turns and the cached context stays valid. `studio_events` is what the page shows: the person's messages, its progress, questions, what it made, tries and its replies.
+
+Without Claude, the Studio is the **guided interview** below (*Hire → A guided interview*). See [AGENT-BUILDER.md](AGENT-BUILDER.md). In short, it implements the *grilling* technique for non-technical users:
 
 - The requirements form a **design tree**.
 - Each **round** asks the current **frontier**, the questions whose prerequisites are settled, each with a recommended answer.

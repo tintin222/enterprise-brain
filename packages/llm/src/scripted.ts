@@ -12,10 +12,11 @@ import {
   type ToolCall,
   type ToolLoopRequest,
   type ToolLoopResult,
+  type ToolResultParam,
   type ToolsetCall,
   type ToolsetResult,
 } from "./types.ts";
-import { HALT_TEXT } from "./anthropic.ts";
+import { HALT_TEXT, stoppedAt } from "./anthropic.ts";
 
 /** Used when no model is configured: `available` is false and every call throws. */
 export class UnavailableLlm implements LlmClient {
@@ -111,11 +112,26 @@ export class ScriptedLlm implements LlmClient {
       }
       const calls = step.calls.map((c, i) => ({ id: `call_${turn}_${i}`, name: c.name, input: c.input }));
       await request.onEvent?.({ type: "assistant", turn, text: "", toolCalls: calls });
+      const waiting: ToolCall[] = [];
+      const answered: ToolResultParam[] = [];
       for (const call of calls) {
         const started = Date.now();
         const result = await request.executeTool(call);
         results.push(result.content);
+        if (result.stop && !result.isError) waiting.push(call);
+        answered.push({ type: "tool_result", tool_use_id: call.id, content: result.content, is_error: result.isError ?? false });
         await request.onEvent?.({ type: "tool_result", turn, call, result, durationMs: Date.now() - started });
+      }
+      if (waiting.length) {
+        return {
+          text: "",
+          stopReason: "tool",
+          turns: turn,
+          messages: request.messages,
+          usage: { ...emptyUsage(), calls: turn },
+          model: this.model,
+          stopped: stoppedAt(waiting[0]!, waiting, answered),
+        };
       }
     }
     return { text: "", stopReason: "max_turns", turns: maxTurns, messages: request.messages, usage: emptyUsage(), model: this.model };

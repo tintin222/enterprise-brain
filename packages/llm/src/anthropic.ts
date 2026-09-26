@@ -16,8 +16,10 @@ import {
   type StructuredRequest,
   type StructuredResult,
   type ToolCall,
+  type ToolExecution,
   type ToolLoopRequest,
   type ToolLoopResult,
+  type ToolResultParam,
   type ToolsetName,
   type ToolsetResult,
 } from "./types.ts";
@@ -51,6 +53,23 @@ export function toolsetResultBlock(id: string, toolset: ToolsetName, result: Too
   }
   if (!content.length) content.push({ type: "text", text: "OK" });
   return { type: "tool_result", tool_use_id: id, toolset_name: toolset, content };
+}
+
+/**
+ * A loop stopped by a call waiting for a person: that call, and the results the turn's other calls
+ * got (a second waiting call is told its answer comes with the first's).
+ */
+export function stoppedAt(call: ToolCall, waiting: ToolCall[], results: ToolResultParam[]): { call: ToolCall; results: ToolResultParam[] } {
+  return {
+    call,
+    results: results
+      .filter((r) => r.tool_use_id !== call.id)
+      .map((r) =>
+        waiting.some((w) => w.id === r.tool_use_id)
+          ? { type: "tool_result", tool_use_id: r.tool_use_id, content: "Asked together with the other question of this turn: the answer is in its result." }
+          : r,
+      ),
+  };
 }
 
 export const DEFAULT_MODEL = "claude-opus-5-5";
@@ -270,19 +289,23 @@ export class AnthropicLlm implements LlmClient {
       }
 
       // Parallel tool calls: run concurrently, return all results in ONE user message.
+      const waiting: ToolCall[] = [];
       const results = await Promise.all(
         calls.map(async (call): Promise<BetaToolResultBlockParam> => {
           const started = Date.now();
-          let result;
+          let result: ToolExecution;
           try {
             result = await request.executeTool(call);
           } catch (error) {
             result = { content: error instanceof Error ? error.message : String(error), isError: true };
           }
+          if (result.stop && !result.isError) waiting.push(call);
           await request.onEvent?.({ type: "tool_result", turn, call, result, durationMs: Date.now() - started });
           return { type: "tool_result", tool_use_id: call.id, content: result.content, is_error: result.isError ?? false };
         }),
       );
+      const stopper = calls.find((c) => waiting.includes(c));
+      if (stopper) return { text: lastText, stopReason: "tool", turns: turn, messages, usage, model, stopped: stoppedAt(stopper, waiting, results) };
       messages.push({ role: "user", content: results });
     }
     return { text: lastText, stopReason: "max_turns", turns: maxTurns, messages, usage, model };

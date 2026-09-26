@@ -40,13 +40,15 @@ interface Place {
   end?: boolean;
   /** Who sees the place: everyone unless it says otherwise. */
   for?: "managers";
+  /** Other addresses that belong to it. */
+  also?: string[];
 }
 
 /** The places: everything else lives inside one of them. */
 const PLACES: Place[] = [
   { to: "/", label: "Home", icon: House, end: true, hint: "What needs you, and what your AI employees did today" },
   { to: "/company", label: "Company", icon: Building2, hint: "Departments, their people and AI employees" },
-  { to: "/hire", label: "Hire", icon: UserPlus, for: "managers", hint: "The Studio and ready-made AI employees" },
+  { to: "/hire", label: "Hire", icon: UserPlus, for: "managers", hint: "The Studio and ready-made AI employees", also: ["/studio"] },
   { to: "/work", label: "Work", icon: ListChecks, hint: "Every task, and what needs a person" },
   { to: "/mail", label: "Mail", icon: Mail, hint: "The shared mailboxes, and what AI employees did with each email" },
   { to: "/apps", label: "Apps", icon: LayoutGrid, hint: "The tables your departments keep, and the apps on them" },
@@ -61,6 +63,7 @@ function useNeedsYou(): number {
 
 function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const viewer = useViewer();
+  const { pathname } = useLocation();
   const needsYou = useNeedsYou();
   const [giving, setGiving] = useState(false);
   const isManager = !viewer || viewer.isAdmin || viewer.departments.some((d) => d.role === "manager");
@@ -85,24 +88,29 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 className={({ isActive }) =>
                   clsx(
                     "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] font-medium transition-colors",
-                    isActive ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200" : "text-muted hover:bg-subtle hover:text-fg",
+                    isActive || place.also?.some((a) => pathname.startsWith(a))
+                      ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200"
+                      : "text-muted hover:bg-subtle hover:text-fg",
                   )
                 }
               >
-                {({ isActive }) => (
-                  <>
-                    <Icon className={clsx("size-5 shrink-0", isActive ? "text-brand-600 dark:text-brand-300" : "text-faint group-hover:text-muted")} />
-                    <span className="flex-1 truncate">{place.label}</span>
-                    {count > 0 && (
-                      <span
-                        className="rounded-full bg-amber-500 px-1.5 text-[11px] leading-[18px] font-semibold text-white tabular-nums"
-                        title={`${count} waiting for you`}
-                      >
-                        {count}
-                      </span>
-                    )}
-                  </>
-                )}
+                {({ isActive: exact }) => {
+                  const isActive = exact || Boolean(place.also?.some((a) => pathname.startsWith(a)));
+                  return (
+                    <>
+                      <Icon className={clsx("size-5 shrink-0", isActive ? "text-brand-600 dark:text-brand-300" : "text-faint group-hover:text-muted")} />
+                      <span className="flex-1 truncate">{place.label}</span>
+                      {count > 0 && (
+                        <span
+                          className="rounded-full bg-amber-500 px-1.5 text-[11px] leading-[18px] font-semibold text-white tabular-nums"
+                          title={`${count} waiting for you`}
+                        >
+                          {count}
+                        </span>
+                      )}
+                    </>
+                  );
+                }}
               </NavLink>
             </li>
           );

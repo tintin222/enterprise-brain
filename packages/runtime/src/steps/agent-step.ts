@@ -25,6 +25,13 @@ export function taskGuidance(ref: string): string {
   ].join("\n");
 }
 
+/** A try of an AI employee: no task, and the tools only say what would happen. */
+export const PRACTICE_GUIDANCE = [
+  "This is a test run of your work: work exactly as you would for real.",
+  "- Nothing is sent or changed: each tool says what would have happened.",
+  "- Use the task tools as you would in real work: notes, asking a person, waiting for a reply, following up, closing the task.",
+].join("\n");
+
 /** Autonomous tool-use loop (Claude) for open-ended steps. */
 export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps: ToolDeps): Promise<StepOutcome> {
   const task = renderTemplate(step.task, scope.context);
@@ -75,7 +82,7 @@ export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps:
   const byName = new Map(tools.map((t) => [t.definition.name, t]));
   const result = await deps.llm.runTools({
     purpose: `runtime.agent:${scope.definition.slug}.${step.id}`,
-    system: `${scope.definition.instructions}\n\n${TOOL_GUIDANCE}${scope.task ? `\n\n${taskGuidance(scope.task.ref)}` : ""}`,
+    system: `${scope.definition.instructions}\n\n${TOOL_GUIDANCE}${scope.task ? `\n\n${taskGuidance(scope.task.ref)}` : scope.context.run.isTest ? `\n\n${PRACTICE_GUIDANCE}` : ""}`,
     messages: [{ role: "user", content: task }],
     tools: tools.map((t) => t.definition),
     serverTools,

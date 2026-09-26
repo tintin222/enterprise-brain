@@ -1431,6 +1431,8 @@ export interface TableField {
 export interface TableSettings {
   visibility: "department" | "company";
   editors: "members" | "managers";
+  /** Made in a Studio conversation (its id) not yet put to work. */
+  studio?: string;
 }
 
 export interface TableDesign {
@@ -1862,4 +1864,106 @@ export interface IntakeJob {
   never: string[];
   level: Probation;
   levelText: string;
+}
+
+// ---------------------------------------------------------------------------
+// The Studio agent
+// ---------------------------------------------------------------------------
+
+export interface StudioQuestion {
+  question: string;
+  why?: string;
+  options?: string[];
+  recommended?: string;
+}
+
+export type StudioEventKind =
+  | "user"
+  | "answer"
+  | "note"
+  | "step"
+  | "question"
+  | "part"
+  | "trying"
+  | "try"
+  | "request"
+  | "removed"
+  | "said"
+  | "stopped"
+  | "built"
+  | "error";
+
+export interface StudioEvent {
+  seq: number;
+  kind: StudioEventKind;
+  data: Record<string, unknown>;
+  at: string;
+}
+
+export interface StudioTry {
+  key: string;
+  runId: string;
+  status: string;
+  example: string;
+  outcome: string;
+  at: string;
+}
+
+export interface StudioEmployee {
+  key: string;
+  status: string;
+  department: string | null;
+  name: string;
+  role: string;
+  duties: string[];
+  abilities: string[];
+  approvals: string[];
+  level: "shadow" | "supervised" | "trusted";
+  levelText: string;
+  form: string[];
+  notes: string[];
+  tries: number;
+  lastTry: StudioTry | null;
+}
+
+export interface StudioSolution {
+  employees: StudioEmployee[];
+  tables: {
+    key: string;
+    name: string;
+    department: string | null;
+    fields: { label: string; type: string; personal?: boolean }[];
+    records: number;
+    draft: boolean;
+  }[];
+  apps: { key: string; name: string; description: string; pages: string[]; made: boolean }[];
+  requests: { id: string; system: string; needed: string; status: string; answer: string | null }[];
+}
+
+export type StudioStatus = "idle" | "working" | "asking" | "failed" | "interrupted";
+
+export interface StudioThreadView {
+  id: string;
+  title: string;
+  status: StudioStatus;
+  error: string | null;
+  owner: string;
+  departmentId: string | null;
+  questions: StudioQuestion[];
+  solution: StudioSolution;
+  built: { employees: string[]; tables: string[]; apps: string[]; at: string } | null;
+  usage: { costUsd?: number };
+  createdAt: string;
+  updatedAt: string;
+  events: StudioEvent[];
+}
+
+export interface StudioThreadSummary {
+  id: string;
+  title: string;
+  status: StudioStatus;
+  owner: string;
+  parts: number;
+  builtAt: string | null;
+  updatedAt: string;
 }

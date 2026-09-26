@@ -5,6 +5,7 @@ import {
   doublePrecision,
   index,
   integer,
+  json,
   jsonb,
   pgTable,
   text,
@@ -1009,4 +1010,55 @@ export const buildReviews = pgTable(
     createdAt: createdAt(),
   },
   (t) => [index("build_reviews_company").on(t.companyId, t.status)],
+);
+
+/**
+ * A conversation with the Studio agent: Claude builds a solution (AI employees, tables, apps) with a
+ * person, using the platform's own tools. `messages` is the model's conversation, only ever added to
+ * (kept as written, key order and all, so earlier reasoning stays valid); `events` are what people see.
+ */
+export const studioThreads = pgTable(
+  "studio_threads",
+  {
+    id: id(),
+    companyId: companyId(),
+    title: text("title").notNull(),
+    /** The person it builds with: { userId, name, email, isAdmin, departments, openDepartmentIds }. */
+    owner: jsonb("owner").$type<Record<string, unknown>>().notNull(),
+    ownerId: text("owner_id"),
+    /** The department it builds for, when said. */
+    departmentId: uuid("department_id").references(() => departments.id, { onDelete: "set null" }),
+    /** idle (the Studio said its piece) | working | asking (waits for the person's answer) | failed */
+    status: text("status").notNull().default("idle"),
+    /** Its instructions and tools, as written when it started: { system, tools }. */
+    setup: json("setup").$type<{ system: string; tools: unknown[] }>().notNull(),
+    messages: json("messages").$type<unknown[]>().notNull().default([]),
+    /** A question the Studio waits on: { call, results, questions }. */
+    pending: json("pending").$type<Record<string, unknown> | null>(),
+    /** What it built so far: AI employees, tables, apps, requests to IT, tries. */
+    solution: jsonb("solution").$type<Record<string, unknown>>().notNull().default({}),
+    usage: jsonb("usage").$type<Record<string, unknown>>().notNull().default({}),
+    error: text("error"),
+    /** When the person put the solution to work. */
+    builtAt: timestamp("built_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [index("studio_threads_company").on(t.companyId, t.updatedAt)],
+);
+
+export const studioEvents = pgTable(
+  "studio_events",
+  {
+    id: id(),
+    threadId: uuid("thread_id")
+      .notNull()
+      .references(() => studioThreads.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    /** user | said | step | question | answer | part | try | request | built | error */
+    kind: text("kind").notNull(),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("studio_events_thread_seq").on(t.threadId, t.seq)],
 );

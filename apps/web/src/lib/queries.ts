@@ -30,6 +30,8 @@ import type {
   RunRow,
   SessionView,
   StoredFile,
+  StudioThreadSummary,
+  StudioThreadView,
   TaskDetail,
   TaskRow,
   WorkEntry,
@@ -66,6 +68,7 @@ export const keys = {
   recurring: (company: string) => [company, "recurring"] as const,
   building: (company: string) => [company, "building"] as const,
   reviews: (company: string) => [company, "reviews"] as const,
+  studio: (company: string) => [company, "studio"] as const,
 };
 
 export function useCatalog() {
@@ -133,6 +136,22 @@ export function useBuilderSession(id: string | undefined) {
       if (status === "awaiting-stakeholders") return 10_000;
       return false;
     },
+  });
+}
+
+export function useStudioThreads() {
+  const { company, path } = useCompany();
+  return useQuery({ queryKey: [...keys.studio(company), "list"], queryFn: () => api.get<StudioThreadSummary[]>(path("/studio/threads")) });
+}
+
+/** A Studio conversation, followed closely while the Studio works. */
+export function useStudioThread(id: string | undefined) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.studio(company), id ?? ""],
+    queryFn: () => api.get<StudioThreadView>(path(`/studio/threads/${encodeURIComponent(id ?? "")}`)),
+    enabled: Boolean(id),
+    refetchInterval: (query) => (query.state.data?.status === "working" ? 1200 : false),
   });
 }
 

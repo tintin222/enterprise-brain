@@ -127,7 +127,9 @@ function byDepartment<T extends { departmentId: string | null }>(items: T[], nam
 export default function Apps() {
   const [archived, setArchived] = useState(false);
   const apps = useApps(archived);
-  const tables = useTables(archived);
+  const all = useTables(archived);
+  // Tables still being built in a Studio conversation show there, until it is put to work.
+  const tables = { ...all, data: all.data?.filter((t) => !t.settings.studio) };
   const calculations = useCalculations(archived);
   const departments = useDepartments();
   const { departments: mine, companyWide } = useTableDepartments();

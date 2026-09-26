@@ -34,6 +34,7 @@ import type {
   RecurringWork,
   RepeatSchedule,
   SessionView,
+  StudioThreadView,
 } from "../types.ts";
 import { Button } from "./Button.tsx";
 import { Card } from "./Card.tsx";
@@ -539,11 +540,15 @@ function MakeReading({ reading, text }: { reading: NeedReading; text: string; on
  * any other job starts an interview in the Studio, from these words.
  */
 function HireReading({ reading, text, onDone }: { reading: NeedReading; text: string; onDone: () => void }) {
-  const { path } = useCompany();
+  const { path, info } = useCompany();
   const navigate = useNavigate();
+  // With Claude, the Studio agent takes it from these words; without, the guided interview.
   const start = useMutation({
-    mutationFn: () => api.post<SessionView>(path("/builder/sessions"), { description: reading.description ?? text }),
-    onSuccess: (session) => navigate(`/hire/studio/${session.session.id}`),
+    mutationFn: async () =>
+      info.llm.available
+        ? `/studio/${(await api.post<StudioThreadView>(path("/studio/threads"), { text })).id}`
+        : `/hire/studio/${(await api.post<SessionView>(path("/builder/sessions"), { description: reading.description ?? text })).session.id}`,
+    onSuccess: (to) => navigate(to),
   });
   const intake = reading.intake;
   if (intake) {

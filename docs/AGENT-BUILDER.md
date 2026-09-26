@@ -1,6 +1,14 @@
 # The Studio (Agent Builder)
 
-The Studio is where a **department manager hires an AI employee** by talking to an experienced **requirements analyst** (*Hire → Describe the job in the Studio*). It asks every question an analyst would ask. It collects sample documents and analyses them itself. It notices when a question belongs to someone else (IT, the data protection officer, Legal), prepares the email to that person and feeds their answer back into the design. While the manager answers, the right side of the screen shows the **job description** building up. Only after the manager confirms does it hire the AI employee, on trial, and try it on the samples.
+## The Studio as an agent (with Claude)
+
+The manager says what they need in their own words (*Hire → Tell the Studio what you need*, or the one box on Home). Claude then works the way Claude Code works with a developer: it looks at the company with its tools (the mailbox the work comes to, the tables, the connected systems and their actions, the AI employees the company has), asks only what the person alone can say (at most three questions at a time, each with a recommended answer), builds the parts of the solution, tries each AI employee on real examples and fixes what falls short, and asks IT for a system or an action that isn't connected. The conversation shows its work as it goes; the solution beside it (AI employees, tables, apps, requests to IT) is what will go to work. Nothing is at work, sent or changed until the manager puts it to work.
+
+Emails and requests vary too much for templates, so there are none: the manager says how each kind of case is handled, and that becomes the AI employee's job, in plain words. The AI employee works from that job as an agent, with only the abilities the Studio gave it, asking a person first for what its probation level says. The tools, the step from plain words to a job, and how conversations are kept are in [ARCHITECTURE.md § 6](ARCHITECTURE.md#6-the-studio-agent-builder).
+
+## The guided interview
+
+Without Claude (and on *Hire → A guided interview*), the Studio is where a **department manager hires an AI employee** by talking to an experienced **requirements analyst**. It asks every question an analyst would ask. It collects sample documents and analyses them itself. It notices when a question belongs to someone else (IT, the data protection officer, Legal), prepares the email to that person and feeds their answer back into the design. While the manager answers, the right side of the screen shows the **job description** building up. Only after the manager confirms does it hire the AI employee, on trial, and try it on the samples.
 
 ![Hire: the Studio interview on the left, the job description on the right](screenshots/hire-studio.png)
 

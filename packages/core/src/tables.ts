@@ -66,6 +66,8 @@ export const TableSettings = z.object({
   visibility: z.enum(["department", "company"]).default("department"),
   /** Who adds and changes records: its department's people, or only its managers. */
   editors: z.enum(["members", "managers"]).default("members"),
+  /** Made in a Studio conversation (its id) not yet put to work: shown there, not with the department's tables. */
+  studio: z.string().optional(),
 });
 export type TableSettings = z.infer<typeof TableSettings>;
 

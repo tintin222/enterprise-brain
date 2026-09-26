@@ -200,6 +200,11 @@ export class ConnectorService {
     return parsed.success ? parsed.data : [];
   }
 
+  /** A connection's actions as AI employees get them: its named actions, when it has any. */
+  async operationsOf(companyId: string, id: string): Promise<OperationManifest[]> {
+    return this.implFor(await this.row(companyId, id))?.manifest.operations ?? [];
+  }
+
   /** The implementation serving a connection: its named actions (and only those) when it has any. */
   private implFor(row: typeof connectorInstances.$inferSelect): ConnectorImplementation | undefined {
     const impl = this.registry.get(row.type);

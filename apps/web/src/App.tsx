@@ -16,6 +16,7 @@ const AiEmployee = lazy(() => import("./pages/ai/AiEmployee.tsx"));
 const Hire = lazy(() => import("./pages/hire/Hire.tsx"));
 const BuilderNew = lazy(() => import("./pages/builder/BuilderNew.tsx"));
 const BuilderSession = lazy(() => import("./pages/builder/BuilderSession.tsx"));
+const StudioThread = lazy(() => import("./pages/studio/StudioThread.tsx"));
 const Catalog = lazy(() => import("./pages/catalog/Catalog.tsx"));
 const DepartmentDetail = lazy(() => import("./pages/catalog/DepartmentDetail.tsx"));
 const Work = lazy(() => import("./pages/work/Work.tsx"));
@@ -150,6 +151,7 @@ const router = createBrowserRouter([
           { path: "hire", element: <Hire /> },
           { path: "hire/studio/new", element: <BuilderNew /> },
           { path: "hire/studio/:id", element: <BuilderSession /> },
+          { path: "studio/:id", element: <StudioThread /> },
           { path: "hire/ready-made", element: <Catalog /> },
           { path: "hire/ready-made/:id", element: <DepartmentDetail /> },
           { path: "work", element: <Work /> },
