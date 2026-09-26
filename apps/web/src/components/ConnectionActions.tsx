@@ -17,6 +17,7 @@ import { Segmented } from "./Tabs.tsx";
 
 /** "GET /customers/{id}" or the first line of the query. */
 function technical(action: NamedAction): string {
+  if (action.tool) return `tool ${action.tool}`;
   if (action.sql) return action.sql.trim().split("\n")[0]!.slice(0, 120);
   return `${action.method ?? "GET"} ${action.path ?? ""}`;
 }
@@ -238,6 +239,31 @@ function Importer({ connection, onProposed }: { connection: ConnectorInstance; o
   );
 }
 
+/** An MCP server's tools, proposed as actions (read when the tool says it only reads). */
+function McpImporter({ connection, onProposed }: { connection: ConnectorInstance; onProposed: (actions: NamedAction[]) => void }) {
+  const { path } = useCompany();
+  const toast = useToast();
+  const load = useMutation({
+    mutationFn: () =>
+      api.post<{ actions: NamedAction[]; warnings: string[] }>(path(`/connectors/${encodeURIComponent(connection.id)}/actions/import`), { mcp: true }),
+    onSuccess: (res) => {
+      if (!res.actions.length) toast.error("The server offers no tools");
+      else onProposed(res.actions);
+    },
+    onError: (error) => toast.error(error),
+  });
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted">
+        Each of the server's tools becomes an action. Tools that say they only read are marked so; check the others before adding them.
+      </p>
+      <Button size="sm" icon={Wand} loading={load.isPending} onClick={() => load.mutate()}>
+        Import the server's tools
+      </Button>
+    </div>
+  );
+}
+
 /**
  * The named actions of a web service or database connection: what AI employees may do there. IT imports
  * them from an OpenAPI description or example calls, names them in plain words, tries them and saves.
@@ -436,6 +462,14 @@ export function ConnectionActionsDrawer({ connection, onClose }: { connection: C
                   </Button>
                 </div>
               </div>
+            ) : connection.type === "mcp-server" ? (
+              <McpImporter
+                connection={connection}
+                onProposed={(actions) => {
+                  setProposed(actions);
+                  setPicked(new Set(actions.filter((a) => a.kind === "read").map((a) => a.id)));
+                }}
+              />
             ) : connection.type === "rest-api" ? (
               <Importer
                 connection={connection}

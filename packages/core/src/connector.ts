@@ -63,6 +63,9 @@ export const NamedAction = z
     body: z.unknown().optional(),
     // Databases
     sql: z.string().optional(),
+    // MCP servers: the tool the action calls, and its input as the server describes it.
+    tool: z.string().optional(),
+    inputSchema: z.record(z.string(), z.unknown()).optional(),
     /**
      * Watch it for new rows or items (by cursorField, e.g. created_at or id): each new one starts the
      * duties that listen for "new:<id>". The action receives the last value seen as `since`.
@@ -77,8 +80,8 @@ export const NamedAction = z
       .optional(),
   })
   .superRefine((action, ctx) => {
-    if (!action.sql && !(action.method && action.path)) {
-      ctx.addIssue({ code: "custom", message: `${action.id}: give a method and a path (web service) or a SQL statement (database)` });
+    if (!action.sql && !(action.method && action.path) && !action.tool) {
+      ctx.addIssue({ code: "custom", message: `${action.id}: give a method and a path (web service), a SQL statement (database) or a tool (MCP server)` });
     }
     const keys = new Set(action.params.map((p) => p.key));
     if (keys.size !== action.params.length) ctx.addIssue({ code: "custom", message: `${action.id}: parameter names must be unique` });

@@ -6,6 +6,7 @@ import { googleChatConnector } from "./connectors/google-chat.ts";
 import { hubspotConnector } from "./connectors/hubspot.ts";
 import { imapSmtpConnector } from "./connectors/imap-smtp.ts";
 import { microsoft365CalendarConnector } from "./connectors/microsoft-365-calendar.ts";
+import { mcpServerConnector } from "./connectors/mcp-server.ts";
 import { microsoft365MailConnector } from "./connectors/microsoft-365-mail.ts";
 import { microsoftTeamsConnector } from "./connectors/microsoft-teams.ts";
 import { restApiConnector } from "./connectors/rest-api.ts";
@@ -84,6 +85,7 @@ export const BUILTIN_CONNECTORS: readonly ConnectorImplementation[] = [
   workdayConnector,
   restApiConnector,
   sqlDatabaseConnector,
+  mcpServerConnector,
   webhookInboundConnector,
   microsoftTeamsConnector,
   googleChatConnector,

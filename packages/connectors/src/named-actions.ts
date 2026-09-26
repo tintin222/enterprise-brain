@@ -35,6 +35,18 @@ export function withNamedActions(base: ConnectorImplementation, actions: NamedAc
 
 /** A named action as an operation (a tool for AI employees): its parameters as a JSON Schema. */
 export function toOperation(action: NamedAction): OperationManifest {
+  if (action.inputSchema) {
+    // An MCP tool: its input as the server describes it.
+    const schema = action.inputSchema as JsonSchema;
+    return {
+      id: action.id,
+      name: action.name,
+      description: action.description || action.name,
+      kind: action.kind,
+      input: { type: "object", properties: {}, ...schema },
+      ...(action.requiresApproval ? { requiresApproval: true } : {}),
+    };
+  }
   const properties: Record<string, JsonSchema> = {};
   for (const param of action.params) {
     const type = param.type === "integer" ? "integer" : param.type === "number" ? "number" : param.type === "boolean" ? "boolean" : "string";
@@ -52,6 +64,13 @@ export function toOperation(action: NamedAction): OperationManifest {
 
 /** The values for an action's parameters: required ones present, each converted to its type. */
 export function checkParams(action: NamedAction, input: Rec): Rec {
+  if (action.inputSchema) {
+    // The server checks its own tools' input; what the schema requires must be there.
+    const required = Array.isArray(action.inputSchema.required) ? action.inputSchema.required.map(String) : [];
+    const missing = required.filter((key) => input[key] === undefined || input[key] === null || input[key] === "");
+    if (missing.length) throw new ConnectorError(`${action.name}: ${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} required`, "validation");
+    return input;
+  }
   const values: Rec = {};
   for (const param of action.params) {
     const raw = input[param.key];

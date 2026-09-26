@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { parse as parseYaml } from "yaml";
-import { actionsFromExamples, actionsFromOpenApi } from "@enterprise-brain/connectors";
+import { actionsFromExamples, actionsFromMcpTools, actionsFromOpenApi, mcpTools } from "@enterprise-brain/connectors";
 import { actorOf, requireAdmin } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf } from "../http.ts";
@@ -120,7 +120,14 @@ export async function connectorRoutes(app: FastifyInstance, ctx: AppContext) {
     requireAdmin(request);
     const { id } = request.params as { id: string };
     await platform.connectors.get(company.id, id);
-    const body = z.object({ openapi: z.unknown().optional(), url: z.string().url().optional(), examples: z.string().optional() }).parse(request.body);
+    const body = z
+      .object({ openapi: z.unknown().optional(), url: z.string().url().optional(), examples: z.string().optional(), mcp: z.boolean().optional() })
+      .parse(request.body);
+    if (body.mcp) {
+      // An MCP server's own tools, one action each.
+      const { tools } = await mcpTools(await platform.connectors.contextFor(company.id, id));
+      return actionsFromMcpTools(tools);
+    }
     if (body.examples) return actionsFromExamples(body.examples);
     let doc = body.openapi;
     if (body.url) {

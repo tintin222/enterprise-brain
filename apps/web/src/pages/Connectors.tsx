@@ -511,7 +511,7 @@ export default function Connectors() {
                         {i.secretFields.includes("refresh_token") ? "Sign in again" : "Sign in"}
                       </ButtonAnchor>
                     )}
-                    {(i.type === "rest-api" || i.type === "sql-database") && (
+                    {(i.type === "rest-api" || i.type === "sql-database" || i.type === "mcp-server") && (
                       <Button size="sm" variant="soft" icon={ListTree} onClick={() => setNaming(i)}>
                         Actions
                       </Button>

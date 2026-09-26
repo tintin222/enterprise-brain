@@ -185,7 +185,10 @@ export class ConnectorService {
       if (ids.has(action.id)) throw new ConnectorError(`Two actions are called ${action.id}`, "validation");
       ids.add(action.id);
       if (impl.manifest.type === "sql-database" && !action.sql) throw new ConnectorError(`${action.name}: a database action needs its SQL`, "validation");
-      if (impl.manifest.type !== "sql-database" && !(action.method && action.path)) throw new ConnectorError(`${action.name}: a web service action needs a method and a path`, "validation");
+      if (impl.manifest.type === "mcp-server" && !action.tool) throw new ConnectorError(`${action.name}: an MCP action needs the tool it calls`, "validation");
+      if (impl.manifest.type !== "sql-database" && impl.manifest.type !== "mcp-server" && !(action.method && action.path)) {
+        throw new ConnectorError(`${action.name}: a web service action needs a method and a path`, "validation");
+      }
     }
     const [updated] = await this.handle.db
       .update(connectorInstances)

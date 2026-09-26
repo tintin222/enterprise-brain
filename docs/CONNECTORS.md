@@ -39,7 +39,10 @@ operation  erp.post_supplier_invoice (write)   waits for human approval (guardra
 | `workday` | Workday HCM (REST) | hris | search/get workers, direct reports | preview |
 | `rest-api` | Any REST API (API key, bearer, basic, OAuth 2.0, client certificates) | other | GET, POST, PUT, PATCH, DELETE | preview |
 | `sql-database` | PostgreSQL, read-only | database | run query (guarded), list tables, describe table | preview |
+| `mcp-server` | Any MCP server over Streamable HTTP (bearer, API key header, OAuth 2.0 client credentials, client certificates) | other | its tools, imported as named actions | preview |
 | `webhook-inbound` | Web forms and system webhooks (HMAC-signed) | web | `submission` event | stable |
+
+**MCP servers** are connected by their URL (the Streamable HTTP transport, protocol 2025-06-18 or 2025-03-26). *Actions → Import the server's tools* proposes one action per tool: read when the tool says it only reads (`readOnlyHint`), otherwise write, and asking a person every time when the tool says it is destructive. Each action keeps the tool's own input schema, so AI employees fill it in as the server describes it; IT renames them, marks them, tries them and saves, as for web services. The client initializes once per call, keeps the session id the server gives, starts again when the server forgets it, reads answers sent as JSON or as an event stream, and ends the session afterwards.
 
 **Calendars** answer the same way whatever is behind them: `find_free_times` takes the attendees, the length and the days to search, and returns the soonest times everyone is free within working hours (in the connection's time zone, Europe/Istanbul by default), at most two a day so the choice spans days, each with a label such as "Tue 6 Oct, 10:00–11:00". Calendars that couldn't be read are named, so the AI employee asks before booking. `book_meeting` is a write: at Shadow and Supervised a person approves it first.
 

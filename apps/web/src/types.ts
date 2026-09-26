@@ -1185,6 +1185,9 @@ export interface NamedAction {
   query?: Record<string, string>;
   body?: unknown;
   sql?: string;
+  /** MCP servers: the tool the action calls, and its input schema. */
+  tool?: string;
+  inputSchema?: Record<string, unknown>;
   watch?: { cursorField: string; idField?: string; start?: string };
 }
 

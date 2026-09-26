@@ -83,6 +83,8 @@ export { sharepointConnector } from "./connectors/sharepoint.ts";
 export { successFactorsConnector } from "./connectors/sap-successfactors.ts";
 export { workdayConnector } from "./connectors/workday.ts";
 export { oauthSettings, resolveRestUrl, restApiConnector, secureUrl } from "./connectors/rest-api.ts";
+export { actionsFromMcpTools, mcpClient, mcpServerConnector, mcpTools } from "./connectors/mcp-server.ts";
+export { MCP_PROTOCOL_VERSION, McpClient, toolAnswer, type McpServerInfo, type McpTool } from "./mcp-client.ts";
 export {
   bindNamedParams,
   createSqlDatabaseConnector,
