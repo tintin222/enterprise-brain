@@ -89,7 +89,7 @@ export function FillFromEmail({
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="The mailbox it reads" hint="IT connects it, if it isn't yet (Settings → Mailboxes).">
+        <Field label="The mailbox it reads" hint="IT connects it, if it isn't yet (Settings → Connections).">
           {(id) => (
             <input id={id} className="input" type="email" placeholder="quality@company.com" value={mailbox} onChange={(e) => setMailbox(e.target.value)} />
           )}

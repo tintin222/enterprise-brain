@@ -1,6 +1,6 @@
 # Enterprise Brain: architecture
 
-Enterprise Brain gives a company **AI employees**: agents with a job, a manager, duties, access and a probation level, that department managers hire in a Studio and that work on their own in the company's mailboxes and systems, handing a person whatever needs one. One installation serves one company; people sign in with their Microsoft 365 or Google accounts, and the app has five places: **Home, Company, Hire, Work and Settings**.
+Enterprise Brain gives a company **AI employees**: agents with a job, a manager, duties, access and a probation level, that department managers hire in a Studio and that work on their own in the company's mailboxes and systems, handing a person whatever needs one. One installation serves one company; people sign in with their Microsoft 365 or Google accounts, and the app has seven places: **Home, Company, Hire, Work, Mail, Apps and Settings**.
 
 Underneath, it gives the company:
 
@@ -50,7 +50,7 @@ It can also **extend [Paperclip](https://github.com/paperclipai/paperclip)**, no
 | `packages/builder` | The Agent Builder: requirement tree, analyst, stakeholder requests, generation, testing, refinement and deployment. |
 | `packages/paperclip` | Paperclip integration: company-package exporter, Paperclip-compatible YAML, the Hermes gateway contract and an API client. |
 | `apps/server` | Fastify server with the REST API, SSE streams, public stakeholder pages, Hermes gateway, MCP endpoint and demo seed. |
-| `apps/web` | The app, in five places: **Home** (what needs me, what my AI employees did today, a box to give work), **Company** (departments with their people and AI employees, each AI employee's page), **Hire** (the Studio and ready-made AI employees), **Work** (the work queue and every task) and **Settings** (connections and their actions, knowledge, people and roles, costs, mailboxes, audit log, installation, the Paperclip export). |
+| `apps/web` | The app, in seven places: **Home** (what needs me, what my AI employees did today, a box to give work), **Company** (departments with their people and AI employees, each AI employee's page), **Hire** (the Studio and ready-made AI employees), **Work** (the work queue and every task), **Mail** (the shared mailboxes AI employees follow, each email with what the AI employee did with it: all of them for managers and IT, their departments' ones for everyone else), **Apps** (tables, apps and calculations) and **Settings** (connections and their actions, knowledge, people and roles, costs, building, audit log, installation, the Paperclip export). |
 | `plugins/paperclip-plugin` | Paperclip plugin with agent tools, an Enterprise Brain page and a dashboard widget. |
 
 ## 2. Domain model
@@ -184,7 +184,7 @@ See [AGENT-BUILDER.md](AGENT-BUILDER.md). In short, it implements the *grilling*
 
 ## 9. LLM usage (Claude)
 
-- **Model and settings.** The default model is `claude-opus-5` (`EB_LLM_MODEL` overrides it). Requests use adaptive thinking and are always streamed. Effort is set per purpose: `low` for extraction, classification and question phrasing; `medium` for evaluation and generation; `high` for autonomous agents and for synthesising the final agent.
+- **Model and settings.** The default model is Claude Opus 5.5, `claude-opus-5-5` (`EB_LLM_MODEL` overrides it). Requests use adaptive thinking, which Opus 5.5 always does, and are always streamed. Effort is set per purpose: `low` for extraction, classification and question phrasing; `medium` for evaluation and generation; `high` for autonomous agents and for synthesising the final agent. A call that sets none gets `medium` (`EB_LLM_EFFORT` overrides it), so it never depends on the API's default, which differs by model. No request forces a tool (`tool_choice` `any`/`tool` is rejected by Opus 5.5): structured results use structured outputs. Tool loops ask for the model's notes between tool calls (`thinking.display: "updates"`), which Opus 5.5 returns as thinking blocks, and show them in the run's timeline. Computer use goes through the computer toolset. Cost reports price cache reads per model ($0.20 per million tokens on Opus 5.5).
 - **Structured outputs** (`output_config.format`) back every analysis the builder and the runtime consume.
 - **Refusal fallbacks** use the server-side `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`). Prompt caching is automatic (`cache_control`).
 - **Browser and computer use.** Screen connections use the client toolsets `browser_toolset_20260801` and `computer_toolset_20260801` (`LlmClient.operate`): member calls in a turn run in order, the rest of a batch is answered with the toolset's halt text after a failure, every result echoes `toolset_name`, and screenshots stay in the history (1280×800, within the image limits; removing old ones would invalidate later thinking), each job being bounded by its steps. `EB_SCREENS_MODEL` picks the model for them.

@@ -8,6 +8,7 @@ import {
   LayoutGrid,
   ListChecks,
   LogOut,
+  Mail,
   Menu,
   MessageSquare,
   Moon,
@@ -47,6 +48,7 @@ const PLACES: Place[] = [
   { to: "/company", label: "Company", icon: Building2, hint: "Departments, their people and AI employees" },
   { to: "/hire", label: "Hire", icon: UserPlus, for: "managers", hint: "The Studio and ready-made AI employees" },
   { to: "/work", label: "Work", icon: ListChecks, hint: "Every task, and what needs a person" },
+  { to: "/mail", label: "Mail", icon: Mail, hint: "The shared mailboxes, and what AI employees did with each email" },
   { to: "/apps", label: "Apps", icon: LayoutGrid, hint: "The tables your departments keep, and the apps on them" },
   { to: "/settings", label: "Settings", icon: Settings, for: "managers", hint: "Connections, knowledge, people, costs" },
 ];

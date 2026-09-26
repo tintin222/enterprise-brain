@@ -53,13 +53,19 @@ export function toolsetResultBlock(id: string, toolset: ToolsetName, result: Too
   return { type: "tool_result", tool_use_id: id, toolset_name: toolset, content };
 }
 
-export const DEFAULT_MODEL = "claude-opus-5";
+export const DEFAULT_MODEL = "claude-opus-5-5";
 
-/** USD per million tokens: [input, output]. Cache reads bill at 0.1x input, 5-minute cache writes at 1.25x. */
-const PRICES: Record<string, [number, number]> = {
+/** Effort when neither the request nor the installation sets one (set explicitly: the API's default differs by model). */
+export const DEFAULT_EFFORT: Effort = "medium";
+
+/**
+ * USD per million tokens: [input, output, cache reads as a share of input]. Cache reads bill at 0.1x input
+ * unless a model says otherwise, 5-minute cache writes at 1.25x.
+ */
+const PRICES: Record<string, [number, number, number?]> = {
   "claude-fable-5-1": [10, 50],
   "claude-fable-5": [10, 50],
-  "claude-opus-5-5": [4, 20],
+  "claude-opus-5-5": [4, 20, 0.05],
   "claude-opus-5": [5, 25],
   "claude-opus-4-8": [5, 25],
   "claude-opus-4-7": [5, 25],
@@ -69,9 +75,10 @@ const PRICES: Record<string, [number, number]> = {
   "claude-haiku-4-5": [1, 5],
 };
 
-function priceFor(model: string): [number, number] {
+function priceFor(model: string): [number, number, number] {
   const key = Object.keys(PRICES).find((k) => model === k || model.startsWith(`${k}-`) || model.endsWith(k));
-  return key ? PRICES[key]! : [5, 25];
+  const [input, output, cacheRead = 0.1] = key ? PRICES[key]! : [5, 25];
+  return [input, output, cacheRead];
 }
 
 /** Models on which `thinking: {type: "adaptive"}` and `output_config.effort` are supported. */
@@ -83,6 +90,17 @@ function supportsAdaptiveThinking(model: string): boolean {
 function supportsDefaultFallbacks(model: string): boolean {
   return /^claude-(opus-5|fable-5|mythos-5)/.test(model);
 }
+
+/**
+ * Models whose notes between tool calls (what they found, what they do next) come back as thinking blocks,
+ * empty unless the request asks for them with `display: "updates"`.
+ */
+function writesProgressUpdates(model: string): boolean {
+  return /^claude-(opus-5-5|fable-5|mythos-5)/.test(model);
+}
+
+/** The text of a progress block that stands in for work a stopped response didn't finish. */
+const INTERRUPTED = "This part of the response was interrupted before it finished.";
 
 export interface AnthropicLlmOptions {
   model?: string;
@@ -100,14 +118,14 @@ export class AnthropicLlm implements LlmClient {
   readonly model: string;
   private readonly client: Anthropic;
   private readonly fallbacks: boolean;
-  private readonly defaultEffort: Effort | undefined;
+  private readonly defaultEffort: Effort;
 
   constructor(options: AnthropicLlmOptions = {}) {
     this.model = options.model ?? DEFAULT_MODEL;
     // Zero-arg construction resolves ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN or an `ant auth login` profile.
     this.client = options.client ?? (options.apiKey ? new Anthropic({ apiKey: options.apiKey }) : new Anthropic());
     this.fallbacks = options.fallbacks ?? true;
-    this.defaultEffort = options.defaultEffort;
+    this.defaultEffort = options.defaultEffort ?? DEFAULT_EFFORT;
   }
 
   private baseParams(request: LlmRequest, maxTokens: number): BetaCreateParams {
@@ -132,13 +150,30 @@ export class AnthropicLlm implements LlmClient {
     return params;
   }
 
+  /** Tool loops: get the model's notes between tool calls back as text, for the run's timeline. */
+  private withProgressUpdates(params: BetaCreateParams): BetaCreateParams {
+    if (params.thinking && writesProgressUpdates(params.model)) {
+      params.thinking = { type: "adaptive", display: "updates" };
+      params.betas = [...(params.betas ?? []), "thinking-display-updates-2026-08-18"];
+    }
+    return params;
+  }
+
+  /** What the model said in a turn: its progress notes (non-empty thinking blocks under "updates"), then its text. */
+  private saidIn(message: BetaMessage, text: string): string {
+    const notes = message.content
+      .filter((b): b is Anthropic.Beta.Messages.BetaThinkingBlock => b.type === "thinking")
+      .map((b) => b.thinking.trim())
+      .filter((note) => note && note !== INTERRUPTED);
+    return [...notes, ...(text ? [text] : [])].join("\n");
+  }
+
   private usageOf(message: BetaMessage): LlmUsage {
-    const [inPrice, outPrice] = priceFor(message.model ?? this.model);
+    const [inPrice, outPrice, cacheReadShare] = priceFor(message.model ?? this.model);
     const u = message.usage;
     const cacheRead = u.cache_read_input_tokens ?? 0;
     const cacheWrite = u.cache_creation_input_tokens ?? 0;
-    const cost =
-      (u.input_tokens * inPrice + cacheRead * inPrice * 0.1 + cacheWrite * inPrice * 1.25 + u.output_tokens * outPrice) / 1_000_000;
+    const cost = (u.input_tokens * inPrice + cacheRead * inPrice * cacheReadShare + cacheWrite * inPrice * 1.25 + u.output_tokens * outPrice) / 1_000_000;
     return {
       calls: 1,
       inputTokens: u.input_tokens,
@@ -208,7 +243,7 @@ export class AnthropicLlm implements LlmClient {
     let model = request.model ?? this.model;
 
     for (let turn = 1; turn <= maxTurns; turn++) {
-      const params = this.baseParams({ ...request, messages }, 32000);
+      const params = this.withProgressUpdates(this.baseParams({ ...request, messages }, 32000));
       params.tools = [...tools, ...((request.serverTools ?? []) as unknown as BetaTool[])];
       const message = await this.send(params, request.onText);
       usage = addUsage(usage, this.usageOf(message));
@@ -221,7 +256,7 @@ export class AnthropicLlm implements LlmClient {
       if (text) lastText = text;
       const toolUses = message.content.filter((b): b is BetaToolUseBlock => b.type === "tool_use");
       const calls: ToolCall[] = toolUses.map((b) => ({ id: b.id, name: b.name, input: b.input }));
-      await request.onEvent?.({ type: "assistant", turn, text, toolCalls: calls });
+      await request.onEvent?.({ type: "assistant", turn, text: this.saidIn(message, text), toolCalls: calls });
 
       // Keep the full assistant content (thinking blocks included) in the history.
       messages.push({ role: "assistant", content: message.content });
@@ -270,7 +305,7 @@ export class AnthropicLlm implements LlmClient {
     let model = request.model ?? this.model;
 
     for (let turn = 1; turn <= maxTurns; turn++) {
-      const params = this.baseParams({ ...request, messages }, 16000);
+      const params = this.withProgressUpdates(this.baseParams({ ...request, messages }, 16000));
       params.tools = [toolset, ...tools];
       const message = await this.send(params);
       usage = addUsage(usage, this.usageOf(message));
@@ -283,7 +318,7 @@ export class AnthropicLlm implements LlmClient {
       await request.onEvent?.({
         type: "assistant",
         turn,
-        text: said,
+        text: this.saidIn(message, said),
         calls: uses.filter(members).map((u) => ({ id: u.id, toolset: request.toolset, name: u.name, input: (u.input ?? {}) as Record<string, unknown> })),
         toolCalls: uses.filter((u) => !members(u)).map((u) => ({ id: u.id, name: u.name, input: u.input })),
       });

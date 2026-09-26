@@ -322,13 +322,15 @@ A new email goes back to its task when it is a reply (the task's reference, or i
 
 ## Mail (inbox)
 
+Managers and IT read every shared mailbox; the people of a department read the ones their department's AI employees (and company-wide ones) follow, and get 403 for the others. Sending test emails and processing a message with a chosen AI employee are for managers and IT.
+
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/companies/:company/mail/mailboxes` | `{ mailbox, total, unprocessed, agents[] }` |
+| GET | `/api/companies/:company/mail/mailboxes` | The mailboxes the viewer may read: `{ mailbox, total, unprocessed, agents[] }` |
 | GET | `/api/companies/:company/mail/messages?mailbox=&direction=&status=` | Messages `{ id, mailbox, direction, fromAddress, fromName, toAddresses, subject, bodyText, attachments[] {fileId, name, mimeType, size}, status (new/processing/triaged/replied/error/draft/sent), classification, runId, receivedAt }` |
 | GET | `/api/companies/:company/mail/messages/:id` | `{ message, run, approvals[] }` |
-| POST | `/api/companies/:company/mail/messages` | Deliver a message to a (sandbox) mailbox: JSON `{ mailbox, from, fromName?, subject, body, route?: true, attachmentFileIds? }` or multipart with attachments (and `attachmentFileIds`, comma-separated, for stored files such as the demo samples). Matching active agents start automatically. → `{ message, runs[] }` |
-| POST | `/api/companies/:company/mail/messages/:id/process` | `{ agent, wait? }` — process with a specific agent |
+| POST | `/api/companies/:company/mail/messages` | Managers and IT. Deliver a message to a (sandbox) mailbox: JSON `{ mailbox, from, fromName?, subject, body, route?: true, attachmentFileIds? }` or multipart with attachments (and `attachmentFileIds`, comma-separated, for stored files such as the demo samples). Matching active agents start automatically. → `{ message, runs[] }` |
+| POST | `/api/companies/:company/mail/messages/:id/process` | Managers and IT. `{ agent, wait? }` — process with a specific agent |
 
 ## Conversational AI
 

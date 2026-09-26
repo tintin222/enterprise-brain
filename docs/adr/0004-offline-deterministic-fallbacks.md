@@ -14,7 +14,7 @@ Every LLM-backed feature has a clearly labelled deterministic fallback:
 - the analyst's standard question bank with an EN/TR reply parser
 - template-based stakeholder emails
 
-The UI shows **"Offline mode"**. Claude (`claude-opus-5`) is used automatically as soon as credentials are present.
+The UI shows **"Offline mode"**. Claude (`claude-opus-5-5` by default) is used automatically as soon as credentials are present.
 
 ## Consequences
 - Everything is testable end to end without network access. The test suite runs offline and uses a scripted LLM for the Claude paths.

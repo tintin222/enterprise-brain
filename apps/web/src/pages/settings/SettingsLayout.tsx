@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import { BookOpen, Hammer, Inbox, MessagesSquare, Plug, ScrollText, Server, Settings, Users, Wallet, Waypoints, type LucideIcon } from "lucide-react";
+import { BookOpen, Hammer, MessagesSquare, Plug, ScrollText, Server, Settings, Users, Wallet, Waypoints, type LucideIcon } from "lucide-react";
 import { Suspense } from "react";
 import { Navigate, NavLink, Outlet, useLocation } from "react-router";
 import { EmptyState } from "../../components/EmptyState.tsx";
@@ -22,7 +22,6 @@ export const SETTINGS_SECTIONS: Section[] = [
   { to: "people", label: "People and roles", icon: Users, for: "managers" },
   { to: "costs", label: "Costs", icon: Wallet, for: "managers" },
   { to: "building", label: "Building", icon: Hammer, for: "admin" },
-  { to: "mailboxes", label: "Mailboxes", icon: Inbox, for: "managers" },
   { to: "audit", label: "Audit log", icon: ScrollText, for: "admin" },
   { to: "installation", label: "Installation", icon: Server, for: "admin" },
   { to: "paperclip", label: "Paperclip export", icon: Waypoints, for: "admin" },

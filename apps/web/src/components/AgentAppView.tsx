@@ -202,7 +202,7 @@ function InboxLayout({ detail }: { detail: AgentDetail }) {
           subtitle={mailboxes.length ? `Listening to ${mailboxes.join(", ")}` : "It follows no mailbox yet."}
           icon={Inbox}
           actions={
-            <ButtonLink size="sm" variant="secondary" to={`/settings/mailboxes${qs({ mailbox: mailboxes[0], compose: "1" })}`}>
+            <ButtonLink size="sm" variant="secondary" to={`/mail${qs({ mailbox: mailboxes[0], compose: "1" })}`}>
               Simulate an email
             </ButtonLink>
           }
@@ -222,7 +222,7 @@ function InboxLayout({ detail }: { detail: AgentDetail }) {
           <ul className="divide-y divide-line">
             {messages.data.slice(0, 50).map((m) => (
               <li key={m.id}>
-                <Link to={`/settings/mailboxes${qs({ mailbox: m.mailbox, message: m.id })}`} className="flex items-center gap-3 px-5 py-3 hover:bg-subtle/60">
+                <Link to={`/mail${qs({ mailbox: m.mailbox, message: m.id })}`} className="flex items-center gap-3 px-5 py-3 hover:bg-subtle/60">
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-2 text-sm">
                       <span className="truncate font-medium text-fg">{m.fromName ?? m.fromAddress}</span>

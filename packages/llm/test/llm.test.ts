@@ -18,7 +18,7 @@ function message(partial: Partial<BetaMessage> & { content: BetaMessage["content
     id: "msg_1",
     type: "message",
     role: "assistant",
-    model: "claude-opus-5",
+    model: "claude-opus-5-5",
     stop_reason: "end_turn",
     stop_sequence: null,
     usage: { input_tokens: 1000, output_tokens: 200, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
@@ -61,14 +61,64 @@ describe("AnthropicLlm", () => {
     const result = await llm.complete({ purpose: "test", system: "sys", messages: [{ role: "user", content: "hi" }], effort: "low" });
     expect(result.text).toBe("Hello");
     const params = requests[0]!;
-    expect(params.model).toBe("claude-opus-5");
+    expect(params.model).toBe("claude-opus-5-5");
     expect(params.thinking).toEqual({ type: "adaptive" });
     expect(params.output_config).toEqual({ effort: "low" });
     expect(params.fallbacks).toBe("default");
     expect(params.betas).toEqual(["server-side-fallback-2026-07-01"]);
     expect(params.cache_control).toEqual({ type: "ephemeral" });
-    // 1000 in * $5/M + 200 out * $25/M
-    expect(result.usage.costUsd).toBeCloseTo(0.01, 6);
+    // 1000 in * $4/M + 200 out * $20/M
+    expect(result.usage.costUsd).toBeCloseTo(0.008, 6);
+  });
+
+  it("sets effort explicitly when a call doesn't, and prices each model's cache reads", async () => {
+    const usage = { input_tokens: 1000, output_tokens: 0, cache_read_input_tokens: 100_000, cache_creation_input_tokens: 0 };
+    const { client, requests } = fakeClient([
+      message({ content: [{ type: "text", text: "a", citations: null }], usage } as never),
+      message({ model: "claude-opus-5", content: [{ type: "text", text: "b", citations: null }], usage } as never),
+    ]);
+    const llm = new AnthropicLlm({ client });
+    const newer = await llm.complete({ purpose: "x", messages: [{ role: "user", content: "x" }] });
+    expect(requests[0]!.output_config).toEqual({ effort: "medium" });
+    // 1000 in * $4/M + 100k cache reads * $0.20/M
+    expect(newer.usage.costUsd).toBeCloseTo(0.024, 6);
+    const older = await llm.complete({ purpose: "x", model: "claude-opus-5", messages: [{ role: "user", content: "x" }] });
+    // 1000 in * $5/M + 100k cache reads * $0.50/M
+    expect(older.usage.costUsd).toBeCloseTo(0.055, 6);
+  });
+
+  it("asks tool loops for the notes between tool calls, on the models that write them as thinking", async () => {
+    const note = { type: "thinking", thinking: "The order exists; checking the supplier next.", signature: "sig" };
+    const { client, requests } = fakeClient([
+      message({ stop_reason: "tool_use", content: [note, { type: "tool_use", id: "t1", name: "lookup", input: { q: "a" } }] as BetaMessage["content"] }),
+      message({ content: [{ type: "text", text: "Done", citations: null }] }),
+      message({ model: "claude-opus-5", content: [{ type: "text", text: "Done", citations: null }] }),
+    ]);
+    const llm = new AnthropicLlm({ client });
+    const said: string[] = [];
+    const loop = (model?: string) =>
+      llm.runTools({
+        purpose: "agent",
+        ...(model ? { model } : {}),
+        messages: [{ role: "user", content: "look it up" }],
+        tools: [{ name: "lookup", description: "Look up", inputSchema: { type: "object", properties: { q: { type: "string" } } } }],
+        executeTool: async () => ({ content: "found" }),
+        onEvent: (e) => {
+          if (e.type === "assistant") said.push(e.text);
+        },
+      });
+    const result = await loop();
+    expect(requests[0]!.thinking).toEqual({ type: "adaptive", display: "updates" });
+    expect(requests[0]!.betas).toEqual(["server-side-fallback-2026-07-01", "thinking-display-updates-2026-08-18"]);
+    // The note is the turn's words in the timeline; the answer stays the text alone.
+    expect(said).toEqual(["The order exists; checking the supplier next.", "Done"]);
+    expect(result.text).toBe("Done");
+    // Passed back unchanged.
+    expect((requests[1]!.messages as { content: unknown }[])[1]!.content).toContainEqual(note);
+
+    await loop("claude-opus-5");
+    expect(requests[2]!.thinking).toEqual({ type: "adaptive" });
+    expect(requests[2]!.betas).toEqual(["server-side-fallback-2026-07-01"]);
   });
 
   it("requests structured output with a JSON schema", async () => {

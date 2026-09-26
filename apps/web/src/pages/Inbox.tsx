@@ -18,6 +18,7 @@ import { OutputView } from "../components/OutputView.tsx";
 import { useRunDetail } from "../components/RunViews.tsx";
 import { ErrorState, Skeleton, Spinner } from "../components/Spinner.tsx";
 import { Segmented } from "../components/Tabs.tsx";
+import { useViewer } from "../lib/auth.tsx";
 import { useCompany } from "../lib/company.tsx";
 import { formatBytes, formatDateTime, plural, timeAgo } from "../lib/format.ts";
 import { keys, useAgents, useDemoFiles, useMailboxes } from "../lib/queries.ts";
@@ -239,7 +240,7 @@ function LinkedRun({ runId }: { runId: string }) {
   );
 }
 
-function MessageDetail({ id, onBack }: { id: string; onBack: () => void }) {
+function MessageDetail({ id, onBack, canProcess }: { id: string; onBack: () => void; canProcess: boolean }) {
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -312,21 +313,23 @@ function MessageDetail({ id, onBack }: { id: string; onBack: () => void }) {
         </div>
       )}
 
-      <div className="flex flex-col gap-2 rounded-xl border border-dashed border-line-strong p-3 sm:flex-row sm:items-center">
-        <span className="text-sm text-muted">Process with…</span>
-        <select className="input h-9 flex-1 py-1.5" value={agent} onChange={(e) => setAgent(e.target.value)} aria-label="AI employee">
-          <option value="">Choose an AI employee</option>
-          {candidates.map((a) => (
-            <option key={a.id} value={a.slug}>
-              {a.name}
-              {a.status !== "active" ? ` (${a.status})` : ""}
-            </option>
-          ))}
-        </select>
-        <Button variant="primary" icon={Play} disabled={!agent} loading={process.isPending} onClick={() => process.mutate(agent)}>
-          Process
-        </Button>
-      </div>
+      {canProcess && (
+        <div className="flex flex-col gap-2 rounded-xl border border-dashed border-line-strong p-3 sm:flex-row sm:items-center">
+          <span className="text-sm text-muted">Process with…</span>
+          <select className="input h-9 flex-1 py-1.5" value={agent} onChange={(e) => setAgent(e.target.value)} aria-label="AI employee">
+            <option value="">Choose an AI employee</option>
+            {candidates.map((a) => (
+              <option key={a.id} value={a.slug}>
+                {a.name}
+                {a.status !== "active" ? ` (${a.status})` : ""}
+              </option>
+            ))}
+          </select>
+          <Button variant="primary" icon={Play} disabled={!agent} loading={process.isPending} onClick={() => process.mutate(agent)}>
+            Process
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -343,6 +346,9 @@ export default function Inbox() {
   const [compose, setCompose] = useState(params.get("compose") === "1");
   const mailboxes = useMailboxes();
   const agents = useAgents();
+  const viewer = useViewer();
+  // Managers and IT see every mailbox and can send test emails; the others read their departments' ones.
+  const manages = !viewer || viewer.isAdmin || viewer.departments.some((d) => d.role === "manager");
 
   const [direction, setDirection] = useState<"inbound" | "outbound">("inbound");
   const messages = useQuery({
@@ -371,149 +377,164 @@ export default function Inbox() {
     <Page wide>
       <PageHeader
         icon={InboxIcon}
-        title="Mailboxes"
-        description="Shared mailboxes AI employees follow: each email is sorted, its attachments read and replies drafted for approval."
+        title="Mail"
+        description="The shared mailboxes AI employees follow: each email, what the AI employee did with it, and any reply waiting for approval."
         actions={
-          <Button variant="primary" icon={MailPlus} onClick={() => setCompose(true)}>
-            Simulate incoming email
-          </Button>
+          manages && (
+            <Button variant="primary" icon={MailPlus} onClick={() => setCompose(true)}>
+              Simulate incoming email
+            </Button>
+          )
         }
       />
-      <Card className="grid grid-cols-1 overflow-hidden lg:h-[calc(100dvh-14rem)] lg:min-h-[560px] lg:grid-cols-[240px_minmax(0,380px)_minmax(0,1fr)]">
-        {/* Mailboxes */}
-        <nav className={clsx("border-b border-line lg:overflow-y-auto lg:border-r lg:border-b-0", selected && "hidden lg:block")} aria-label="Mailboxes">
-          <ul className="p-2">
-            <li>
-              <button
-                type="button"
-                onClick={() => set("mailbox", null)}
-                className={clsx(
-                  "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm",
-                  !mailbox ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200" : "hover:bg-subtle",
-                )}
-              >
-                <InboxIcon className="size-4 shrink-0" />
-                <span className="flex-1 font-medium">All mailboxes</span>
-                {totalUnprocessed > 0 && (
-                  <span className="rounded-full bg-brand-600 px-1.5 text-[11px] leading-[18px] font-semibold text-white">{totalUnprocessed}</span>
-                )}
-              </button>
-            </li>
-            {mailboxes.isLoading && <Skeleton className="m-2 h-24" />}
-            {(mailboxes.data ?? []).map((m) => (
-              <li key={m.mailbox}>
+      {!manages && mailboxes.data?.length === 0 ? (
+        <EmptyState
+          icon={Mail}
+          title="No shared mailbox in your department"
+          description="When an AI employee of your department follows a shared mailbox, its emails and what the AI employee did with them appear here."
+        />
+      ) : (
+        <Card className="grid grid-cols-1 overflow-hidden lg:h-[calc(100dvh-14rem)] lg:min-h-[560px] lg:grid-cols-[240px_minmax(0,380px)_minmax(0,1fr)]">
+          {/* Mailboxes */}
+          <nav className={clsx("border-b border-line lg:overflow-y-auto lg:border-r lg:border-b-0", selected && "hidden lg:block")} aria-label="Mailboxes">
+            <ul className="p-2">
+              <li>
                 <button
                   type="button"
-                  onClick={() => set("mailbox", m.mailbox)}
-                  className={clsx("w-full rounded-lg px-3 py-2 text-left", mailbox === m.mailbox ? "bg-brand-50 dark:bg-brand-400/15" : "hover:bg-subtle")}
-                >
-                  <span className="flex items-center gap-2">
-                    <Mail className="size-4 shrink-0 text-muted" />
-                    <span
-                      className={clsx("min-w-0 flex-1 truncate text-sm font-medium", mailbox === m.mailbox ? "text-brand-700 dark:text-brand-200" : "text-fg")}
-                    >
-                      {m.mailbox}
-                    </span>
-                    {m.unprocessed > 0 && (
-                      <span className="rounded-full bg-subtle px-1.5 text-[11px] leading-[18px] font-semibold text-muted">{m.unprocessed}</span>
-                    )}
-                  </span>
-                  <span className="mt-0.5 block pl-6 text-xs text-faint">{plural(m.total, "message")}</span>
-                  {m.agents.length > 0 && (
-                    <span className="mt-1 flex flex-wrap gap-1 pl-6">
-                      {m.agents.map((a) => (
-                        <span key={a.id} className="inline-flex items-center gap-1 text-[11px] text-muted">
-                          <span className={clsx("size-1.5 rounded-full", a.status === "active" ? "bg-emerald-500" : "bg-slate-400")} />
-                          {a.name}
-                        </span>
-                      ))}
-                    </span>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </nav>
-
-        {/* Messages */}
-        <div className={clsx("min-h-0 border-b border-line lg:overflow-y-auto lg:border-r lg:border-b-0", selected && "hidden lg:block")}>
-          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-line bg-surface/95 px-4 py-2 backdrop-blur">
-            <Segmented
-              value={direction}
-              onChange={setDirection}
-              options={[
-                { value: "inbound", label: "Received" },
-                { value: "outbound", label: "Sent" },
-              ]}
-            />
-            {messages.data && <span className="text-xs text-faint">{plural(messages.data.length, "message")}</span>}
-          </div>
-          {messages.isLoading && <Skeleton className="m-4 h-40" />}
-          {messages.error && <ErrorState error={messages.error} className="m-4" />}
-          {messages.data && messages.data.length === 0 && (
-            <EmptyState
-              compact
-              className="m-4"
-              icon={Mail}
-              title="No messages"
-              description="Send a test email to see an AI employee pick it up."
-              action={
-                <Button size="sm" icon={MailPlus} onClick={() => setCompose(true)}>
-                  Simulate email
-                </Button>
-              }
-            />
-          )}
-          <ul className="divide-y divide-line">
-            {(messages.data ?? []).map((m) => (
-              <li key={m.id}>
-                <button
-                  type="button"
-                  onClick={() => set("message", m.id)}
+                  onClick={() => set("mailbox", null)}
                   className={clsx(
-                    "w-full px-4 py-3 text-left transition-colors",
-                    selected === m.id ? "bg-brand-50/70 dark:bg-brand-400/10" : "hover:bg-subtle/60",
+                    "flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm",
+                    !mailbox ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200" : "hover:bg-subtle",
                   )}
                 >
-                  <span className="flex items-center gap-2">
-                    <span className={clsx("min-w-0 flex-1 truncate text-sm", m.status === "new" ? "font-semibold text-fg" : "font-medium text-fg/90")}>
-                      {m.direction === "outbound" ? `To ${m.toAddresses.join(", ") || "—"}` : (m.fromName ?? m.fromAddress)}
-                    </span>
-                    <span className="shrink-0 text-[11px] text-faint">{timeAgo(m.receivedAt)}</span>
-                  </span>
-                  <span className="mt-0.5 flex items-center gap-1.5">
-                    {m.attachments.length > 0 && <Paperclip className="size-3.5 shrink-0 text-faint" aria-label="Has attachments" />}
-                    <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{m.subject || "(no subject)"}</span>
-                  </span>
-                  <span className="mt-1.5 flex items-center gap-2">
-                    <StatusPill status={m.status} size="xs" />
-                    {!mailbox && <span className="truncate text-[11px] text-faint">{m.mailbox}</span>}
-                  </span>
+                  <InboxIcon className="size-4 shrink-0" />
+                  <span className="flex-1 font-medium">All mailboxes</span>
+                  {totalUnprocessed > 0 && (
+                    <span className="rounded-full bg-brand-600 px-1.5 text-[11px] leading-[18px] font-semibold text-white">{totalUnprocessed}</span>
+                  )}
                 </button>
               </li>
-            ))}
-          </ul>
-        </div>
+              {mailboxes.isLoading && <Skeleton className="m-2 h-24" />}
+              {(mailboxes.data ?? []).map((m) => (
+                <li key={m.mailbox}>
+                  <button
+                    type="button"
+                    onClick={() => set("mailbox", m.mailbox)}
+                    className={clsx("w-full rounded-lg px-3 py-2 text-left", mailbox === m.mailbox ? "bg-brand-50 dark:bg-brand-400/15" : "hover:bg-subtle")}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Mail className="size-4 shrink-0 text-muted" />
+                      <span
+                        className={clsx(
+                          "min-w-0 flex-1 truncate text-sm font-medium",
+                          mailbox === m.mailbox ? "text-brand-700 dark:text-brand-200" : "text-fg",
+                        )}
+                      >
+                        {m.mailbox}
+                      </span>
+                      {m.unprocessed > 0 && (
+                        <span className="rounded-full bg-subtle px-1.5 text-[11px] leading-[18px] font-semibold text-muted">{m.unprocessed}</span>
+                      )}
+                    </span>
+                    <span className="mt-0.5 block pl-6 text-xs text-faint">{plural(m.total, "message")}</span>
+                    {m.agents.length > 0 && (
+                      <span className="mt-1 flex flex-wrap gap-1 pl-6">
+                        {m.agents.map((a) => (
+                          <span key={a.id} className="inline-flex items-center gap-1 text-[11px] text-muted">
+                            <span className={clsx("size-1.5 rounded-full", a.status === "active" ? "bg-emerald-500" : "bg-slate-400")} />
+                            {a.name}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
 
-        {/* Detail */}
-        <div className={clsx("min-h-0 lg:overflow-y-auto", !selected && "hidden lg:block")}>
-          {selected ? (
-            <MessageDetail key={selected} id={selected} onBack={() => set("message", null)} />
-          ) : (
-            <div className="flex h-full items-center justify-center p-8">
+          {/* Messages */}
+          <div className={clsx("min-h-0 border-b border-line lg:overflow-y-auto lg:border-r lg:border-b-0", selected && "hidden lg:block")}>
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-line bg-surface/95 px-4 py-2 backdrop-blur">
+              <Segmented
+                value={direction}
+                onChange={setDirection}
+                options={[
+                  { value: "inbound", label: "Received" },
+                  { value: "outbound", label: "Sent" },
+                ]}
+              />
+              {messages.data && <span className="text-xs text-faint">{plural(messages.data.length, "message")}</span>}
+            </div>
+            {messages.isLoading && <Skeleton className="m-4 h-40" />}
+            {messages.error && <ErrorState error={messages.error} className="m-4" />}
+            {messages.data && messages.data.length === 0 && (
               <EmptyState
                 compact
+                className="m-4"
                 icon={Mail}
-                title="Select a message"
-                description="See the email, its attachments, what the AI employee found and any reply waiting for approval."
-                className="border-0"
+                title="No messages"
+                description={manages ? "Send a test email to see an AI employee pick it up." : "Emails to your department's shared mailboxes appear here."}
+                action={
+                  manages && (
+                    <Button size="sm" icon={MailPlus} onClick={() => setCompose(true)}>
+                      Simulate email
+                    </Button>
+                  )
+                }
               />
-            </div>
-          )}
-        </div>
-      </Card>
+            )}
+            <ul className="divide-y divide-line">
+              {(messages.data ?? []).map((m) => (
+                <li key={m.id}>
+                  <button
+                    type="button"
+                    onClick={() => set("message", m.id)}
+                    className={clsx(
+                      "w-full px-4 py-3 text-left transition-colors",
+                      selected === m.id ? "bg-brand-50/70 dark:bg-brand-400/10" : "hover:bg-subtle/60",
+                    )}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className={clsx("min-w-0 flex-1 truncate text-sm", m.status === "new" ? "font-semibold text-fg" : "font-medium text-fg/90")}>
+                        {m.direction === "outbound" ? `To ${m.toAddresses.join(", ") || "—"}` : (m.fromName ?? m.fromAddress)}
+                      </span>
+                      <span className="shrink-0 text-[11px] text-faint">{timeAgo(m.receivedAt)}</span>
+                    </span>
+                    <span className="mt-0.5 flex items-center gap-1.5">
+                      {m.attachments.length > 0 && <Paperclip className="size-3.5 shrink-0 text-faint" aria-label="Has attachments" />}
+                      <span className="min-w-0 flex-1 truncate text-[13px] text-muted">{m.subject || "(no subject)"}</span>
+                    </span>
+                    <span className="mt-1.5 flex items-center gap-2">
+                      <StatusPill status={m.status} size="xs" />
+                      {!mailbox && <span className="truncate text-[11px] text-faint">{m.mailbox}</span>}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Detail */}
+          <div className={clsx("min-h-0 lg:overflow-y-auto", !selected && "hidden lg:block")}>
+            {selected ? (
+              <MessageDetail key={selected} id={selected} onBack={() => set("message", null)} canProcess={manages} />
+            ) : (
+              <div className="flex h-full items-center justify-center p-8">
+                <EmptyState
+                  compact
+                  icon={Mail}
+                  title="Select a message"
+                  description="See the email, its attachments, what the AI employee found and any reply waiting for approval."
+                  className="border-0"
+                />
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
       <ComposeDialog
-        open={compose}
+        open={compose && manages}
         onClose={() => setCompose(false)}
         mailboxes={allMailboxes}
         initialMailbox={params.get("mailbox") ?? undefined}
