@@ -22,6 +22,7 @@ describe("apps over HTTP", () => {
   let zeynep = "";
   let deniz = "";
   let burak = "";
+  let mehmet = "";
   let departmentId = "";
   const call = async (cookie: string, method: "GET" | "POST" | "PATCH", url: string, payload?: unknown) =>
     t.app.inject({ method, url: `${base}${url}`, headers: { cookie }, ...(payload !== undefined ? { payload: payload as Record<string, unknown> } : {}) });
@@ -34,6 +35,7 @@ describe("apps over HTTP", () => {
     zeynep = await as("zeynep.kaya@acme.com.tr");
     deniz = await as("deniz.aydin@acme.com.tr");
     burak = await as("burak.sahin@acme.com.tr");
+    mehmet = await as("mehmet.oz@acme.com.tr");
     departmentId = (await t.platform.catalog.departments(company.id)).find((d) => d.key === "customer-service")!.id;
   });
   afterAll(async () => {
@@ -86,7 +88,11 @@ describe("apps over HTTP", () => {
     expect((await call(burak, "GET", "/apps/customer_complaints")).statusCode).toBe(404);
     expect((await call(deniz, "PATCH", "/apps/customer_complaints", { name: "Complaints" })).statusCode).toBe(403);
     const renamed = await call(zeynep, "PATCH", "/apps/customer_complaints", { name: "Complaint desk", settings: { visibility: "company" } });
-    expect(renamed.json()).toMatchObject({ name: "Complaint desk", version: 1 });
+    // Shared with the whole company once IT agrees.
+    const asked = renamed.json() as { name: string; version: number; settings: { visibility: string }; reviews: { id: string; kind: string }[] };
+    expect(asked).toMatchObject({ name: "Complaint desk", version: 1, settings: { visibility: "department" }, reviews: [{ kind: "sharing" }] });
+    expect((await call(burak, "GET", "/apps")).json()).toEqual([]);
+    expect((await call(mehmet, "POST", `/reviews/${asked.reviews[0]!.id}/approve`)).statusCode).toBe(200);
     expect(((await call(burak, "GET", "/apps")).json() as { name: string }[]).map((a) => a.name)).toEqual(["Complaint desk"]);
   });
 

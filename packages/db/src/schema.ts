@@ -795,6 +795,8 @@ export const dataTables = pgTable(
     /** TableSettings: who sees it and who edits its records. */
     settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
     /** Changes to the design, counted from 1. */
+    /** Personal-data fields the data protection officer approved (keys); others hold no values until approved. */
+    approvedPersonal: jsonb("approved_personal").$type<string[]>().notNull().default([]),
     version: integer("version").notNull().default(1),
     /** The number the next record gets (records are numbered per table: #1, #2…). */
     nextNumber: integer("next_number").notNull().default(1),
@@ -960,4 +962,51 @@ export const recurringWork = pgTable(
     stoppedBy: text("stopped_by"),
   },
   (t) => [index("recurring_work_company").on(t.companyId, t.agentId)],
+);
+
+/** Each version of what people build (tables, apps, calculations): its design then, to compare and go back to. */
+export const dataVersions = pgTable(
+  "data_versions",
+  {
+    id: id(),
+    companyId: companyId(),
+    /** table | app | calculation */
+    itemType: text("item_type").notNull(),
+    itemId: uuid("item_id").notNull(),
+    version: integer("version").notNull(),
+    /** The design at this version (a table's fields, an app's pages, a calculation's rule and code). */
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+    note: text("note").notNull().default(""),
+    by: text("by").notNull().default(""),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("data_versions_item_version").on(t.itemType, t.itemId, t.version)],
+);
+
+/**
+ * A decision the rules for building ask for: a table keeping personal data waits for the data
+ * protection officer; sharing a table or an app beyond its department waits for IT.
+ */
+export const buildReviews = pgTable(
+  "build_reviews",
+  {
+    id: id(),
+    companyId: companyId(),
+    /** personal-data | sharing */
+    kind: text("kind").notNull(),
+    /** table | app */
+    itemType: text("item_type").notNull(),
+    itemId: uuid("item_id").notNull(),
+    departmentId: uuid("department_id").references(() => departments.id, { onDelete: "set null" }),
+    /** personal-data: { fields: [{ key, label }] }; sharing: { visibility: "company" }. */
+    request: jsonb("request").$type<Record<string, unknown>>().notNull(),
+    /** waiting | approved | declined | withdrawn */
+    status: text("status").notNull().default("waiting"),
+    requestedBy: text("requested_by").notNull(),
+    decidedBy: text("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    note: text("note"),
+    createdAt: createdAt(),
+  },
+  (t) => [index("build_reviews_company").on(t.companyId, t.status)],
 );

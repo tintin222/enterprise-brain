@@ -6,6 +6,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router";
 import { api, downloadWithAuth } from "../../api.ts";
 import { Badge } from "../../components/Badge.tsx";
 import { Button } from "../../components/Button.tsx";
+import { VersionsSection, WaitingNotes } from "../../components/Building.tsx";
 import { ChangeBox } from "../../components/ChangeBox.tsx";
 import { Card, PageHeader } from "../../components/Card.tsx";
 import { Drawer } from "../../components/Dialog.tsx";
@@ -130,6 +131,7 @@ export default function TablePage() {
           </>
         }
       />
+      <WaitingNotes reviews={view.reviews} personalWaiting={view.personal?.waiting} fieldLabel={(k) => view.fields.find((f) => f.key === k)?.label ?? k} />
       {view.archivedAt && (
         <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-400/10 dark:text-amber-200">
           This table is archived: its records are kept, and nothing can be added. {view.can.design && "Bring it back from Change the table."}
@@ -424,7 +426,7 @@ function DesignDrawer({
                 onChange={(e) => setSettings({ ...settings, visibility: e.target.value as TableSettings["visibility"] })}
               >
                 <option value="department">Its department's people</option>
-                <option value="company">Everyone in the company</option>
+                <option value="company">Everyone in the company (IT agrees first)</option>
               </select>
             )}
           </Field>
@@ -446,6 +448,8 @@ function DesignDrawer({
           <Bot className="size-3.5" /> AI employees reach it through the Tables connection; each one only does what its job allows, and its changes follow its
           probation level.
         </p>
+        <p className="text-xs text-muted">A field marked personal data takes values once the data protection officer approves it.</p>
+        <VersionsSection path={`/tables/${encodeURIComponent(table.key)}`} canRestore onRestored={() => void refresh().then(onClose)} />
       </div>
     </Drawer>
   );

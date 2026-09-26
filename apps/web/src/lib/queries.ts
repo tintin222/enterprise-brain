@@ -22,6 +22,8 @@ import type {
   CalculationView,
   RecordPage,
   RecurringWork,
+  BuildingState,
+  Review,
   TableSummary,
   TableView,
   ReportPeriodKey,
@@ -62,6 +64,8 @@ export const keys = {
   calculations: (company: string) => [company, "calculations"] as const,
   table: (company: string, key: string) => [company, "tables", key] as const,
   recurring: (company: string) => [company, "recurring"] as const,
+  building: (company: string) => [company, "building"] as const,
+  reviews: (company: string) => [company, "reviews"] as const,
 };
 
 export function useCatalog() {
@@ -355,4 +359,16 @@ export function useCalculation(key: string | undefined) {
 export function useRecurring() {
   const { company, path } = useCompany();
   return useQuery({ queryKey: keys.recurring(company), queryFn: () => api.get<RecurringWork[]>(path("/recurring")) });
+}
+
+/** The rules for building as they apply to the viewer: where they build, what they decide. */
+export function useBuilding() {
+  const { company, path } = useCompany();
+  return useQuery({ queryKey: keys.building(company), queryFn: () => api.get<BuildingState>(path("/building")), staleTime: 60_000 });
+}
+
+/** Requests waiting for a decision that the viewer makes or asked for. */
+export function useReviews() {
+  const { company, path } = useCompany();
+  return useQuery({ queryKey: keys.reviews(company), queryFn: () => api.get<Review[]>(path("/reviews")) });
 }

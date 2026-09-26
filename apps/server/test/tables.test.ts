@@ -92,9 +92,16 @@ describe("tables over HTTP", () => {
     expect((await call(deniz, "PATCH", `/tables/${table.key}`, { name: "Complaints" })).statusCode).toBe(403);
   });
 
-  it("follows its settings: only managers change records, and sharing it shows it to everyone", async () => {
+  it("follows its settings: only managers change records, and sharing it (once IT agrees) shows it to everyone", async () => {
     const settings = await call(zeynep, "PATCH", `/tables/${table.key}`, { settings: { editors: "managers", visibility: "company" } });
     expect(settings.statusCode, settings.body).toBe(200);
+    // Shared beyond its department only once IT says so.
+    const asked = settings.json() as { settings: { visibility: string }; reviews: { id: string; kind: string; what: string }[] };
+    expect(asked.settings.visibility).toBe("department");
+    expect(asked.reviews).toMatchObject([{ kind: "sharing", what: "Share Customer complaints with the whole company" }]);
+    expect((await call(burak, "GET", "/tables")).json()).toEqual([]);
+    expect((await call(zeynep, "POST", `/reviews/${asked.reviews[0]!.id}/approve`)).statusCode).toBe(403);
+    expect((await call(mehmet, "POST", `/reviews/${asked.reviews[0]!.id}/approve`)).json()).toMatchObject({ status: "approved", decidedBy: "Mehmet Öz" });
     expect((await call(deniz, "POST", `/tables/${table.key}/records`, { values: { problem: "Late parcel" } })).statusCode).toBe(403);
     const seen = (await call(burak, "GET", "/tables")).json() as Table[];
     expect(seen.map((x) => [x.key, x.can.edit])).toEqual([["customer_complaints", false]]);

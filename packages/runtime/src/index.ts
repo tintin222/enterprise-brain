@@ -36,3 +36,5 @@ export * from "./tables.ts";
 export * from "./apps.ts";
 export * from "./calculations.ts";
 export * from "./recurring.ts";
+export * from "./versions.ts";
+export * from "./reviews.ts";

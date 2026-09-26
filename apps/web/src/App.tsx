@@ -29,6 +29,7 @@ const Channels = lazy(() => import("./pages/settings/Channels.tsx"));
 const Inbox = lazy(() => import("./pages/Inbox.tsx"));
 const ActivityPage = lazy(() => import("./pages/Activity.tsx"));
 const Installation = lazy(() => import("./pages/settings/Installation.tsx"));
+const Building = lazy(() => import("./pages/settings/Building.tsx"));
 const Paperclip = lazy(() => import("./pages/Paperclip.tsx"));
 const AnswerPage = lazy(() => import("./pages/AnswerPage.tsx"));
 const ActPage = lazy(() => import("./pages/ActPage.tsx"));
@@ -164,6 +165,7 @@ const router = createBrowserRouter([
               { path: "knowledge", element: <Knowledge /> },
               { path: "people", element: <People /> },
               { path: "costs", element: <Costs /> },
+              { path: "building", element: <Building /> },
               { path: "mailboxes", element: <Inbox /> },
               { path: "audit", element: <ActivityPage /> },
               { path: "installation", element: <Installation /> },

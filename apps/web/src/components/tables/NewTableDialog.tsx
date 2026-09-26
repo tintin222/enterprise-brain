@@ -5,7 +5,7 @@ import { useNavigate } from "react-router";
 import { api } from "../../api.ts";
 import { useViewer } from "../../lib/auth.tsx";
 import { useCompany } from "../../lib/company.tsx";
-import { keys, useDepartments } from "../../lib/queries.ts";
+import { keys, useBuilding, useDepartments } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { TableProposal, TableView } from "../../types.ts";
 import { Button } from "../Button.tsx";
@@ -24,10 +24,12 @@ const EXAMPLES = [
 export function useTableDepartments() {
   const viewer = useViewer();
   const departments = useDepartments();
-  const managed = new Set(viewer?.departments.filter((d) => d.role === "manager").map((d) => d.id) ?? []);
+  const building = useBuilding();
   const isAdmin = !viewer || viewer.isAdmin;
+  // As the rules for building say (IT sets them); until they are known, the departments they manage.
+  const builds = new Set(building.data?.buildsFor ?? viewer?.departments.filter((d) => d.role === "manager").map((d) => d.id) ?? []);
   return {
-    departments: (departments.data ?? []).filter((d) => isAdmin || managed.has(d.id)),
+    departments: (departments.data ?? []).filter((d) => isAdmin || builds.has(d.id)),
     companyWide: isAdmin,
   };
 }

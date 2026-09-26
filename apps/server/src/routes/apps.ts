@@ -1,12 +1,14 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { changeApp, proposeApp, type AppTable } from "@enterprise-brain/builder";
-import { AppPage, AppSettings, describeBlock, TableDesign, type AppDesign } from "@enterprise-brain/core";
+import { changeApp, describeAppChanges, namesOf, proposeApp, type AppTable } from "@enterprise-brain/builder";
+import { AppPage, AppSettings, describeBlock, TableDesign, type AppDesign, type BuildingRules } from "@enterprise-brain/core";
 import type { AppView, TableView } from "@enterprise-brain/runtime";
-import { actorOf, canManageDepartment, canSeeDepartment, viewerOf, type Viewer } from "../auth/viewer.ts";
+import { canBuildFor, canChangeBuilt, rulesOf } from "../auth/building.ts";
+import { actorOf, canSeeDepartment, viewerOf, type Viewer } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf } from "../http.ts";
-import { canDesignTable, canEditRecords, canSeeTable } from "./tables.ts";
+import { personalDataAfterDesign } from "./building.ts";
+import { canDesignTable, canEditRecords, canSeeTable, notBuilding } from "./tables.ts";
 
 /** Who uses an app: its department's people, or everyone when it is shared with the company. */
 export function canUseApp(viewer: Viewer, app: Pick<AppView, "departmentId" | "settings">): boolean {
@@ -34,18 +36,14 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
     if (!found || !canUseApp(viewerOf(request), found)) throw new HttpError(404, `There is no app "${ref}"`);
     return found;
   };
-  const designable = async (request: FastifyRequest, companyId: string, ref: string) => {
-    const found = await appFor(request, companyId, ref);
-    if (!canManageDepartment(viewerOf(request), found.departmentId)) throw new HttpError(403, `Only a manager of its department changes ${found.name}`);
+  const designable = async (request: FastifyRequest, company: { id: string; settings: Record<string, unknown> }, ref: string) => {
+    const found = await appFor(request, company.id, ref);
+    if (!canChangeBuilt(viewerOf(request), found, rulesOf(company)))
+      throw new HttpError(403, `Only a manager of its department (or whoever made it) changes ${found.name}`);
     return found;
   };
-  const assertMayCreate = (viewer: Viewer, departmentId: string | null | undefined) => {
-    if (!canManageDepartment(viewer, departmentId)) {
-      throw new HttpError(
-        403,
-        departmentId ? "Only a manager of this department makes its apps" : "Only an admin makes company-wide apps; choose a department",
-      );
-    }
+  const assertMayCreate = (viewer: Viewer, departmentId: string | null | undefined, rules: BuildingRules) => {
+    if (!canBuildFor(viewer, departmentId, rules)) throw new HttpError(403, notBuilding("apps", departmentId, rules));
   };
   /** The tables and AI employees the viewer may build on. */
   const materials = async (request: FastifyRequest, companyId: string) => {
@@ -76,7 +74,8 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
     const viewer = viewerOf(request);
     const { archived } = z.object({ archived: z.enum(["true", "false"]).optional() }).parse(request.query ?? {});
     const apps = await platform.apps.list(company.id, { archived: archived === "true" });
-    return apps.filter((a) => canUseApp(viewer, a)).map((a) => ({ ...a, can: { design: canManageDepartment(viewer, a.departmentId) } }));
+    const rules = rulesOf(company);
+    return apps.filter((a) => canUseApp(viewer, a)).map((a) => ({ ...a, can: { design: canChangeBuilt(viewer, a, rules) } }));
   });
 
   /** The Studio's proposal: the app's pages, the tables it needs made, and each block in plain words. */
@@ -98,7 +97,10 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
     const company = await companyOf(platform, request);
     const viewer = viewerOf(request);
     const body = Design.extend({ tables: z.array(TableDesign).max(5).optional() }).parse(request.body);
-    assertMayCreate(viewer, body.departmentId);
+    const rules = rulesOf(company);
+    assertMayCreate(viewer, body.departmentId, rules);
+    // Shared with the whole company only once IT says so.
+    const share = body.settings?.visibility === "company" && !viewer.isAdmin;
     const made: TableView[] = [];
     const renamed = new Map<string, string>();
     try {
@@ -117,8 +119,14 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
       const pages = renamed.size ? (JSON.parse(JSON.stringify(body.pages)) as typeof body.pages) : body.pages;
       for (const page of pages) for (const block of page.blocks) if ("table" in block && renamed.has(block.table)) block.table = renamed.get(block.table)!;
       const { tables: _tables, ...input } = body;
-      const created = await platform.apps.create(company.id, { ...input, pages }, actorOf(viewer));
+      const created = await platform.apps.create(
+        company.id,
+        { ...input, pages, ...(share ? { settings: { ...input.settings, visibility: "department" as const } } : {}) },
+        actorOf(viewer),
+      );
+      if (share) await platform.reviews.sharing(company.id, { type: "app", id: created.id, departmentId: created.departmentId }, viewer.name);
       for (const table of made) {
+        await personalDataAfterDesign(platform, company.id, viewer, rules, table);
         await platform.activity.record(company.id, {
           actor: actorOf(viewer),
           action: "table.created",
@@ -134,7 +142,12 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
         entityId: created.id,
         summary: `Made the app ${created.name}`,
       });
-      return { ...created, can: { design: true }, madeTables: made.map((t) => t.key) };
+      return {
+        ...created,
+        can: { design: true },
+        madeTables: made.map((t) => t.key),
+        reviews: (await platform.reviews.list(company.id, { status: "waiting" })).filter((r) => r.itemId === created.id || made.some((t) => t.id === r.itemId)),
+      };
     } catch (error) {
       for (const table of made) await platform.tables.remove(company.id, table.id).catch(() => undefined);
       throw error;
@@ -147,10 +160,12 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
     const viewer = viewerOf(request);
     const { app: ref } = request.params as { app: string };
     const found = await appFor(request, company.id, ref);
+    const rules = rulesOf(company);
     const tables = [];
     for (const key of found.tables) {
       const table = await platform.tables.get(company.id, key).catch(() => undefined);
-      if (table && canSeeTable(viewer, table)) tables.push({ ...table, can: { edit: canEditRecords(viewer, table), design: canDesignTable(viewer, table) } });
+      if (table && canSeeTable(viewer, table))
+        tables.push({ ...table, can: { edit: canEditRecords(viewer, table), design: canDesignTable(viewer, table, rules) } });
     }
     const agents = [];
     for (const slug of found.agents) {
@@ -164,7 +179,8 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
       if (calculation && canSeeDepartment(viewer, calculation.departmentId)) calculations.push(calculation);
     }
     return {
-      app: { ...found, can: { design: canManageDepartment(viewer, found.departmentId) } },
+      app: { ...found, can: { design: canChangeBuilt(viewer, found, rules) } },
+      reviews: await platform.reviews.list(company.id, { status: "waiting", itemId: found.id }),
       tables,
       agents,
       calculations,
@@ -177,9 +193,13 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
     const viewer = viewerOf(request);
     const { app: ref } = request.params as { app: string };
     const body = Design.partial().parse(request.body);
-    const found = await designable(request, company.id, ref);
-    if (body.departmentId !== undefined && body.departmentId !== found.departmentId) assertMayCreate(viewer, body.departmentId);
-    const changed = await platform.apps.change(company.id, found.id, body);
+    const rules = rulesOf(company);
+    const found = await designable(request, company, ref);
+    if (body.departmentId !== undefined && body.departmentId !== found.departmentId) assertMayCreate(viewer, body.departmentId, rules);
+    const share = body.settings?.visibility === "company" && found.settings.visibility !== "company" && !viewer.isAdmin;
+    const { visibility: _asked, ...otherSettings } = body.settings ?? {};
+    const changed = await platform.apps.change(company.id, found.id, { ...(share ? { ...body, settings: otherSettings } : body), by: viewer.name });
+    if (share) await platform.reviews.sharing(company.id, { type: "app", id: found.id, departmentId: changed.departmentId }, viewer.name);
     await platform.activity.record(company.id, {
       actor: actorOf(viewer),
       action: "app.changed",
@@ -187,6 +207,61 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
       entityId: found.id,
       summary: `Changed the app ${changed.name}`,
       data: { changed: Object.keys(body) },
+    });
+    return { ...changed, can: { design: true }, reviews: await platform.reviews.list(company.id, { status: "waiting", itemId: found.id }) };
+  });
+
+  /** Its versions, newest first, each with what changed from the one before, in plain words. */
+  app.get("/api/companies/:company/apps/:app/versions", async (request) => {
+    const company = await companyOf(platform, request);
+    const { app: ref } = request.params as { app: string };
+    const found = await appFor(request, company.id, ref);
+    const { tables, agents } = await materials(request, company.id);
+    const calculations = await platform.calculations.list(company.id);
+    const names = namesOf(
+      tables.map((t) => ({ key: t.key, name: t.name, fields: t.fields, titleField: t.titleField })),
+      agents.map((a) => ({ slug: a.row.slug, name: a.definition.name })),
+      calculations.map((c) => ({ key: c.key, name: c.name })),
+    );
+    const versions = await platform.versions.list(company.id, { type: "app", id: found.id });
+    return versions.map((v, i) => {
+      const previous = versions[i + 1];
+      const pages = (snapshot: Record<string, unknown>) => (snapshot.pages ?? []) as AppPage[];
+      return {
+        version: v.version,
+        by: v.by,
+        note: v.note,
+        createdAt: v.createdAt,
+        current: v.version === found.version,
+        summary: previous ? describeAppChanges(pages(previous.snapshot), pages(v.snapshot), names) : ["Made"],
+      };
+    });
+  });
+
+  /** Go back to an earlier version: a new version with its pages (checked against the tables as they are now). */
+  app.post("/api/companies/:company/apps/:app/versions/:version/restore", async (request) => {
+    const company = await companyOf(platform, request);
+    const viewer = viewerOf(request);
+    const { app: ref, version } = request.params as { app: string; version: string };
+    const found = await designable(request, company, ref);
+    const target = await platform.versions.get(company.id, { type: "app", id: found.id }, Number(version));
+    if (!target) throw new HttpError(404, `${found.name} has no version ${version}`);
+    if (target.version === found.version) throw new HttpError(400, `${found.name} is at version ${version} already`);
+    const snapshot = target.snapshot as { name: string; description?: string; icon?: string; pages: AppPage[] };
+    const changed = await platform.apps.change(company.id, found.id, {
+      name: snapshot.name,
+      description: snapshot.description ?? "",
+      icon: snapshot.icon ?? "",
+      pages: snapshot.pages,
+      by: viewer.name,
+      note: `Back to version ${target.version}`,
+    });
+    await platform.activity.record(company.id, {
+      actor: actorOf(viewer),
+      action: "app.restored",
+      entityType: "app",
+      entityId: found.id,
+      summary: `${viewer.name} took ${found.name} back to version ${target.version}`,
     });
     return { ...changed, can: { design: true } };
   });
@@ -196,7 +271,7 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
     const company = await companyOf(platform, request);
     const { app: ref } = request.params as { app: string };
     const body = z.object({ request: z.string().trim().min(3).max(2000) }).parse(request.body);
-    const found = await designable(request, company.id, ref);
+    const found = await designable(request, company, ref);
     const { tables, agents } = await materials(request, company.id);
     const viewer = viewerOf(request);
     const calculations = (await platform.calculations.list(company.id)).filter((c) => canSeeDepartment(viewer, c.departmentId));
@@ -223,7 +298,7 @@ export async function appRoutes(app: FastifyInstance, ctx: AppContext) {
       const company = await companyOf(platform, request);
       const viewer = viewerOf(request);
       const { app: ref } = request.params as { app: string };
-      const found = await designable(request, company.id, ref);
+      const found = await designable(request, company, ref);
       const done = await platform.apps.archive(company.id, found.id, archived);
       await platform.activity.record(company.id, {
         actor: actorOf(viewer),

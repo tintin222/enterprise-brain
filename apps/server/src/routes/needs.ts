@@ -3,6 +3,7 @@ import { z } from "zod";
 import { understandNeed, type NeedMaterials, type UnderstoodNeed } from "@enterprise-brain/builder";
 import { describeDuties, describeRepeat, NEED_KINDS, RepeatSchedule } from "@enterprise-brain/core";
 import type { RecurringWorkView } from "@enterprise-brain/runtime";
+import { buildsFor, canChangeBuilt, rulesOf } from "../auth/building.ts";
 import { actorOf, canManageDepartment, canSeeDepartment, viewerOf, type Viewer } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf } from "../http.ts";
@@ -78,14 +79,18 @@ export async function needRoutes(app: FastifyInstance, ctx: AppContext) {
     };
     const need = await understandNeed(platform.llm, { text: body.text, ...(body.as ? { as: body.as } : {}), materials });
     const agent = need.agent ? workers.find((a) => a.row.slug === need.agent) : undefined;
-    const departmentOf = (target: NonNullable<UnderstoodNeed["target"]>): string | null | undefined =>
-      target.type === "table"
-        ? found.tables.find((t) => t.key === target.key)?.departmentId
-        : target.type === "app"
-          ? found.apps.find((a) => a.key === target.key)?.departmentId
-          : target.type === "calculation"
-            ? found.calculations.find((c) => c.key === target.key)?.departmentId
-            : found.agents.find((a) => a.row.slug === target.key)?.row.departmentId;
+    const rules = rulesOf(company);
+    /** Whether the viewer may change what the request names (AI employees: their managers). */
+    const changeable = (target: NonNullable<UnderstoodNeed["target"]>): boolean => {
+      if (target.type === "agent") return canManageDepartment(viewer, found.agents.find((a) => a.row.slug === target.key)?.row.departmentId ?? null);
+      const item =
+        target.type === "table"
+          ? found.tables.find((t) => t.key === target.key)
+          : target.type === "app"
+            ? found.apps.find((a) => a.key === target.key)
+            : found.calculations.find((c) => c.key === target.key);
+      return item ? canChangeBuilt(viewer, item, rules) : false;
+    };
     return {
       ...need,
       summary: summaryOf(need, agent?.definition.name),
@@ -94,9 +99,12 @@ export async function needRoutes(app: FastifyInstance, ctx: AppContext) {
       /** Who can do the work: to choose another. */
       workers: workers.map((a) => ({ slug: a.row.slug, name: a.definition.name, status: a.row.status })),
       can: {
-        /** Tables, apps, calculations and AI employees are made by managers (and admins). */
-        build: viewer.isAdmin || viewer.departments.some((d) => d.role === "manager"),
-        change: need.target ? canManageDepartment(viewer, departmentOf(need.target) ?? null) : false,
+        /** Tables, apps and calculations are made as the rules for building say (AI employees by managers, in the Studio). */
+        build:
+          need.kind === "ai-employee"
+            ? viewer.isAdmin || viewer.departments.some((d) => d.role === "manager")
+            : buildsFor(viewer, rules, await platform.catalog.departments(company.id)).length > 0,
+        change: need.target ? changeable(need.target) : false,
       },
     };
   });

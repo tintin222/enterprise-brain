@@ -15,6 +15,7 @@ import { ConnectorError, tableActions, type TableStore } from "@enterprise-brain
 import { agents, dataRecordChanges, dataRecords, dataTables, users, type DatabaseHandle } from "@enterprise-brain/db";
 import type { ConnectorService } from "./connectors.ts";
 import type { FileService } from "./files.ts";
+import type { VersionService } from "./versions.ts";
 
 /**
  * Tables: business data people describe in plain words, kept in the company's database. Every value
@@ -48,6 +49,8 @@ export interface TableView {
   titleField: string;
   settings: TableSettings;
   version: number;
+  /** Its personal-data fields (keys): approved by the data protection officer, or waiting (they take no values until then). */
+  personal: { approved: string[]; waiting: string[] };
   /** Its records (not counting archived ones). */
   records: number;
   createdBy: string;
@@ -116,6 +119,9 @@ export type TableChanges = Partial<Pick<TableDesignInput, "name" | "description"
   settings?: Partial<TableSettings>;
   /** Choice values renamed in every record: { field key: { old value: new value } }. */
   renames?: Record<string, Record<string, string>>;
+  /** Who changed it, and why (kept with the version). */
+  by?: string;
+  note?: string;
 };
 
 /** What a chart or a number shows: records counted, or a number field added up or averaged, by a field. */
@@ -163,6 +169,27 @@ function settingsOf(row: TableRow): TableSettings {
   return TableSettings.parse(row.settings ?? {});
 }
 
+/** A table's design as a version keeps it. */
+function snapshotOf(row: TableRow): Record<string, unknown> {
+  const { key: _key, ...design } = designOf(row);
+  return design;
+}
+
+/** Personal-data fields the data protection officer hasn't approved yet: they take no values. */
+function heldFields(row: TableRow): TableField[] {
+  const approved = new Set(row.approvedPersonal ?? []);
+  return (row.fields as unknown as TableField[]).filter((f) => f.personal && !approved.has(f.key));
+}
+
+/** No values for held fields; a record can't be added while a held field is needed. */
+function assertNotHeld(row: TableRow, values: Record<string, unknown>, adding = false): void {
+  const held = heldFields(row);
+  const problems = held
+    .filter((f) => (adding && f.required) || (values[f.key] !== undefined && values[f.key] !== null))
+    .map((f) => `${f.label}: personal data, which waits for the data protection officer`);
+  if (problems.length) throw new RecordValueError(problems);
+}
+
 /** What changed between two sets of values: { field: { from, to } }. */
 function diff(before: Record<string, unknown>, after: Record<string, unknown>): Record<string, { from: unknown; to: unknown }> {
   const out: Record<string, { from: unknown; to: unknown }> = {};
@@ -208,6 +235,7 @@ export class TableService {
     private readonly handle: DatabaseHandle,
     private readonly connectors: ConnectorService,
     private readonly files: FileService,
+    private readonly versions?: VersionService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -259,6 +287,7 @@ export class TableService {
         createdBy: by,
       })
       .returning();
+    await this.versions?.record(companyId, { type: "table", id: row!.id }, 1, snapshotOf(row!), actorLabel(by));
     await this.syncActions(companyId);
     return this.view(row!, 0);
   }
@@ -296,7 +325,27 @@ export class TableService {
       })
       .where(eq(dataTables.id, row.id))
       .returning();
+    if (redesigned && this.versions) {
+      // Tables made before versions were kept get their first one now.
+      await this.versions.record(companyId, { type: "table", id: row.id }, row.version, snapshotOf(row), actorLabel(row.createdBy));
+      await this.versions.record(
+        companyId,
+        { type: "table", id: row.id },
+        updated!.version,
+        { ...snapshotOf(updated!), ...(changes.renames && Object.keys(changes.renames).length ? { renames: changes.renames } : {}) },
+        changes.by ?? "",
+        changes.note ?? "",
+      );
+    }
     await this.syncActions(companyId);
+    return this.view(updated!, await this.count(row.id));
+  }
+
+  /** The data protection officer approved these personal-data fields: they take values from now on. */
+  async approvePersonal(companyId: string, ref: string, keys: string[]): Promise<TableView> {
+    const row = await this.row(companyId, ref);
+    const approved = [...new Set([...(row.approvedPersonal ?? []), ...keys])];
+    const [updated] = await this.handle.db.update(dataTables).set({ approvedPersonal: approved }).where(eq(dataTables.id, row.id)).returning();
     return this.view(updated!, await this.count(row.id));
   }
 
@@ -376,6 +425,10 @@ export class TableService {
       titleField: titleFieldOf(design),
       settings: settingsOf(row),
       version: row.version,
+      personal: {
+        approved: design.fields.filter((f) => f.personal && (row.approvedPersonal ?? []).includes(f.key)).map((f) => f.key),
+        waiting: heldFields(row).map((f) => f.key),
+      },
       records,
       createdBy: actorLabel(row.createdBy),
       createdAt: row.createdAt,
@@ -486,7 +539,9 @@ export class TableService {
 
   async add(companyId: string, ref: string, input: Record<string, unknown>, by: ChangeBy): Promise<RecordView> {
     const row = await this.live(companyId, ref);
+    assertNotHeld(row, {}, true);
     const values = withoutEmpty(await checkRecordValues(designOf(row), input, this.resolvers(companyId)));
+    assertNotHeld(row, values);
     const number = await this.reserve(row.id, 1);
     const [record] = await this.handle.db
       .insert(dataRecords)
@@ -502,6 +557,7 @@ export class TableService {
     const current = await this.recordRow(row, recordRef);
     if (current.archivedAt) throw new TableError(`#${current.number} is archived; bring it back first`, 409);
     const values = await checkRecordValues(designOf(row), input, this.resolvers(companyId), { partial: true });
+    assertNotHeld(row, values);
     const next = { ...current.data };
     for (const [key, value] of Object.entries(values)) {
       if (value === null) delete next[key];
@@ -611,6 +667,7 @@ export class TableService {
     options: { dryRun?: boolean; /** Each row's number in the sheet (else counted from 2, below the column names). */ rowNumbers?: number[] } = {},
   ): Promise<ImportResult> {
     const row = await this.live(companyId, ref);
+    assertNotHeld(row, {}, true);
     const design = designOf(row);
     const columns: Record<string, string> = {};
     const ignored: string[] = [];
@@ -627,7 +684,9 @@ export class TableService {
       const input = Object.fromEntries(Object.entries(columns).map(([header, key]) => [key, source[header]]));
       if (Object.values(input).every((v) => v === undefined || v === null || String(v).trim() === "")) continue;
       try {
-        ready.push(withoutEmpty(await checkRecordValues(design, input, resolvers)));
+        const values = withoutEmpty(await checkRecordValues(design, input, resolvers));
+        assertNotHeld(row, values);
+        ready.push(values);
       } catch (error) {
         if (!(error instanceof RecordValueError)) throw error;
         problems.push({ row: options.rowNumbers?.[index] ?? index + 2, problems: error.problems });

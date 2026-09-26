@@ -11,6 +11,7 @@ import {
 import { companies, dataCalculationRuns, dataCalculations, type DatabaseHandle } from "@enterprise-brain/db";
 import { runCalculation, type SandboxLimits } from "@enterprise-brain/sandbox";
 import type { TableService } from "./tables.ts";
+import type { VersionService } from "./versions.ts";
 import { localDate, monthStartIn, weekStart, workingHoursOf, zonedInstant } from "./working-hours.ts";
 
 /**
@@ -79,6 +80,9 @@ export type NewCalculation = Omit<CalculationDesignInput, "key"> & { key?: strin
 export type CalculationChanges = Partial<Omit<CalculationDesignInput, "key" | "schedule">> & {
   departmentId?: string | null;
   schedule?: CalculationSchedule | null;
+  /** Who changed it, and why (kept with the version). */
+  by?: string;
+  note?: string;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -113,6 +117,7 @@ export class CalculationService {
     private readonly handle: DatabaseHandle,
     private readonly tables: TableService,
     private readonly limits: SandboxLimits = {},
+    private readonly versions?: VersionService,
   ) {}
 
   async list(companyId: string, options: { archived?: boolean } = {}): Promise<CalculationView[]> {
@@ -160,6 +165,7 @@ export class CalculationService {
         createdBy: by,
       })
       .returning();
+    await this.versions?.record(companyId, { type: "calculation", id: row!.id }, 1, calculationSnapshot(row!), by.replace(/\s*<[^>]*>$/, ""));
     return this.view(row!, null);
   }
 
@@ -196,6 +202,11 @@ export class CalculationService {
       })
       .where(eq(dataCalculations.id, row.id))
       .returning();
+    if (rewritten && this.versions) {
+      const item = { type: "calculation" as const, id: row.id };
+      await this.versions.record(companyId, item, row.version, calculationSnapshot(row), row.createdBy.replace(/\s*<[^>]*>$/, ""));
+      await this.versions.record(companyId, item, updated!.version, calculationSnapshot(updated!), changes.by ?? "", changes.note ?? "");
+    }
     return this.view(updated!, await this.lastRun(row.id));
   }
 
@@ -409,4 +420,9 @@ export function lastScheduled(schedule: CalculationSchedule, now: Date, timeZone
       return moment <= now ? moment : at(monthStartIn(now, timeZone, -1));
     }
   }
+}
+
+/** A calculation's design as a version keeps it (its schedule and department are not part of it). */
+function calculationSnapshot(row: typeof dataCalculations.$inferSelect): Record<string, unknown> {
+  return { name: row.name, rule: row.rule, explanation: row.explanation, tables: row.tables, code: row.code, output: row.output };
 }

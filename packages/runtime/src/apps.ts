@@ -18,6 +18,7 @@ import { dataApps, type DatabaseHandle } from "@enterprise-brain/db";
 import type { AgentService } from "./agents.ts";
 import type { CalculationService } from "./calculations.ts";
 import type { TableService, TableView } from "./tables.ts";
+import type { VersionService } from "./versions.ts";
 
 /**
  * Apps: pages of blocks on the company's tables, drawn by the platform from their description. Every
@@ -64,6 +65,9 @@ export type NewApp = Omit<AppDesignInput, "key"> & { key?: string; departmentId?
 export type AppChanges = Partial<Pick<AppDesignInput, "name" | "description" | "icon" | "pages">> & {
   departmentId?: string | null;
   settings?: Partial<AppSettings>;
+  /** Who changed it, and why (kept with the version). */
+  by?: string;
+  note?: string;
 };
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -75,6 +79,7 @@ export class AppService {
     private readonly tables: TableService,
     private readonly agents: AgentService,
     private readonly calculations?: CalculationService,
+    private readonly versions?: VersionService,
   ) {}
 
   async list(companyId: string, options: { archived?: boolean } = {}): Promise<AppView[]> {
@@ -114,6 +119,7 @@ export class AppService {
         createdBy: by,
       })
       .returning();
+    await this.versions?.record(companyId, { type: "app", id: row!.id }, 1, appSnapshot(row!), by.replace(/\s*<[^>]*>$/, ""));
     return this.view(row!);
   }
 
@@ -143,6 +149,10 @@ export class AppService {
       })
       .where(eq(dataApps.id, row.id))
       .returning();
+    if (redesigned && this.versions) {
+      await this.versions.record(companyId, { type: "app", id: row.id }, row.version, appSnapshot(row), row.createdBy.replace(/\s*<[^>]*>$/, ""));
+      await this.versions.record(companyId, { type: "app", id: row.id }, updated!.version, appSnapshot(updated!), changes.by ?? "", changes.note ?? "");
+    }
     return this.view(updated!);
   }
 
@@ -290,4 +300,9 @@ export class AppService {
       archivedAt: row.archivedAt,
     };
   }
+}
+
+/** An app's design as a version keeps it. */
+function appSnapshot(row: typeof dataApps.$inferSelect): Record<string, unknown> {
+  return { name: row.name, description: row.description, ...(row.icon ? { icon: row.icon } : {}), pages: row.pages };
 }

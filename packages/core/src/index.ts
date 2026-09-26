@@ -12,3 +12,4 @@ export * from "./tables.ts";
 export * from "./apps.ts";
 export * from "./calculations.ts";
 export * from "./needs.ts";
+export * from "./building.ts";

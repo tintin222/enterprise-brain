@@ -301,7 +301,16 @@ export function splitList(list: string): string[] {
 }
 
 /** "status (open, in progress, closed)" → a choice; "cost in TRY" → money; "owner" → a person. */
+/** Labels of fields about a person that KVKK/GDPR protects: they wait for the data protection officer. */
+const PERSONAL =
+  /(^|\s)(e-?mail|e-?posta|phone|telephone|mobile|gsm|telefon|cep|address|adres|birth|birthday|doğum|identity|id number|national id|kimlik|tc no|passport|pasaport|iban|salary|maaş|health|medical|sağlık)(\s|$)/i;
+
 export function fieldFromLabel(raw: string, turkish: boolean): Omit<TableField, "key"> {
+  const field = kindFromLabel(raw, turkish);
+  return PERSONAL.test(field.label.toLocaleLowerCase("tr")) || field.type === "email" ? { ...field, personal: true } : field;
+}
+
+function kindFromLabel(raw: string, turkish: boolean): Omit<TableField, "key"> {
   const listed = /\(([^)]*)\)/.exec(raw);
   const base = raw
     .replace(/\([^)]*\)/g, "")

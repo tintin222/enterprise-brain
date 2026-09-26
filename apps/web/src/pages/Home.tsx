@@ -7,6 +7,7 @@ import { StatusPill } from "../components/Badge.tsx";
 import { ButtonLink } from "../components/Button.tsx";
 import { Card, CardHeader } from "../components/Card.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
+import { DecisionsForYou } from "../components/Building.tsx";
 import { Page } from "../components/Layout.tsx";
 import { NeedBox } from "../components/NeedBox.tsx";
 import { ErrorState, Skeleton } from "../components/Spinner.tsx";
@@ -199,6 +200,7 @@ export default function Home() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_26rem]">
         <NeedsYou />
         <div className="space-y-6">
+          <DecisionsForYou />
           {data ? <AiEmployeesToday home={data} /> : home.isLoading && <Skeleton className="h-56" />}
           <Regularly />
           {data?.aiMailbox && data.aiEmployees.length > 0 && (

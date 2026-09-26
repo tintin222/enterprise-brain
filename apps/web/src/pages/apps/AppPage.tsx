@@ -6,6 +6,7 @@ import { Navigate, useParams, useSearchParams } from "react-router";
 import { api, isApiError } from "../../api.ts";
 import { blockSpan, BlockView, type BlockContext } from "../../components/apps/Blocks.tsx";
 import { Button, ButtonLink, IconButton } from "../../components/Button.tsx";
+import { VersionsSection, WaitingNotes } from "../../components/Building.tsx";
 import { ChangeBox } from "../../components/ChangeBox.tsx";
 import { PageHeader } from "../../components/Card.tsx";
 import { Drawer } from "../../components/Dialog.tsx";
@@ -87,6 +88,7 @@ export default function AppPage() {
           </>
         }
       />
+      <WaitingNotes reviews={detail.data.reviews} />
       {app.archivedAt && (
         <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-400/10 dark:text-amber-200">This app is archived.</p>
       )}
@@ -215,7 +217,7 @@ function AppDesignDrawer({ detail, open, onClose, initialChange }: { detail: App
           {(id) => (
             <select id={id} className="input" value={visibility} onChange={(e) => setVisibility(e.target.value as AppView["settings"]["visibility"])}>
               <option value="department">Its department's people</option>
-              <option value="company">Everyone in the company</option>
+              <option value="company">Everyone in the company (IT agrees first)</option>
             </select>
           )}
         </Field>
@@ -249,6 +251,7 @@ function AppDesignDrawer({ detail, open, onClose, initialChange }: { detail: App
             })}
           </ol>
         </div>
+        <VersionsSection path={`/apps/${encodeURIComponent(app.key)}`} canRestore onRestored={() => void refresh().then(onClose)} />
       </div>
     </Drawer>
   );

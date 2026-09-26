@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "react-router";
 import { api } from "../../api.ts";
 import { Badge } from "../../components/Badge.tsx";
 import { Button, ButtonLink } from "../../components/Button.tsx";
+import { VersionsSection } from "../../components/Building.tsx";
 import { ChangeBox } from "../../components/ChangeBox.tsx";
 import { Card, CardHeader, PageHeader } from "../../components/Card.tsx";
 import { SCHEDULES } from "../../components/calculations/NewCalculationDialog.tsx";
@@ -153,6 +154,11 @@ export default function CalculationPage() {
               onApplied={() => void run.mutateAsync()}
             />
           )}
+          <VersionsSection
+            path={`/calculations/${encodeURIComponent(key)}`}
+            canRestore={calculation.can.design}
+            onRestored={() => void refresh().then(() => run.mutateAsync())}
+          />
           {detail.data.code && (
             <details className="rounded-xl border border-line bg-subtle/40 p-4 text-sm">
               <summary className="cursor-pointer font-medium text-muted">The code the Studio wrote (IT)</summary>

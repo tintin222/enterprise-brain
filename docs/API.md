@@ -195,11 +195,13 @@ Business data people describe in plain words (Apps). A table belongs to a depart
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/companies/:company/tables?archived=true` | The tables the viewer sees: `{ id, key, name, description, departmentId, fields, titleField, settings: { visibility: department\|company, editors: members\|managers }, version, records, createdBy, createdAt, updatedAt, archivedAt, can: { edit, design } }[]` |
+| GET | `/api/companies/:company/tables?archived=true` | The tables the viewer sees: `{ id, key, name, description, departmentId, fields, titleField, settings: { visibility: department\|company, editors: members\|managers }, version, personal: { approved[], waiting[] } (personal-data fields: waiting ones take no values until the data protection officer approves), records, createdBy, createdAt, updatedAt, archivedAt, can: { edit, design } }[]` |
 | POST | `/api/companies/:company/tables/propose` | `{ description }` → the Studio's proposal (nothing is made): `{ design: { key, name, description, fields, titleField }, notes[], drafted: model\|words }` |
-| POST | `/api/companies/:company/tables` | A manager of the department (an admin for company tables): `{ name, description?, fields, titleField?, departmentId, settings? }` |
-| GET | `/api/companies/:company/tables/:table` | By key or id |
+| POST | `/api/companies/:company/tables` | Whoever builds for the department (the rules for building; IT for company tables): `{ name, description?, fields, titleField?, departmentId, settings? }` → the table with `reviews[]` (what waits: its personal data for the data protection officer; `visibility: company` from anyone but IT stays `department` until IT agrees) |
+| GET | `/api/companies/:company/tables/:table` | By key or id, with `reviews[]` (waiting) |
 | PATCH | `/api/companies/:company/tables/:table` | Its managers: `{ name?, description?, fields?, titleField?, departmentId?, settings?, renames?: { <field key>: { <old value>: <new value> } } }`. When a field's kind or list changes, records' values are converted (a renamed choice value in every record); if some don't fit, nothing changes (409, naming the records) |
+| GET | `/api/companies/:company/tables/:table/versions` | `{ version, by, note, createdAt, current, summary[] (what changed from the version before) }[]`, newest first |
+| POST | `/api/companies/:company/tables/:table/versions/:version/restore` | Whoever may change it: back to that version's fields as a new version; choice values renamed since are renamed back in every record (409 when records don't fit) |
 | POST | `/api/companies/:company/tables/:table/changes` | Its managers: a change in plain words, `{ request }` ("rename Done to Closed, add Root cause, make Owner required") → `{ design, renames, summary[] (what changes, in plain words), notes[] (what wasn't understood), problems[] (records that wouldn't fit), drafted }`; nothing changes until the design is sent to PATCH |
 | POST | `/api/companies/:company/tables/:table/archive` · `/restore` | Its managers. An archived table keeps its records; nothing is added, and AI employees no longer reach it |
 | GET | `/api/companies/:company/tables/:table/records?search&sort&direction&limit&offset&archived&filter.<field>=` | `{ table, records: [{ id, number, title, values, display (links and people by name), createdBy, updatedBy, createdAt, updatedAt, archivedAt }], total }`; `search` finds words in any field (or `#12`), `filter.<field>` a value, `sort` a field (a choice in the order of its list), `number`, `created_at` or `updated_at` |
@@ -220,7 +222,9 @@ Screens people describe in plain words, drawn by the platform from its own block
 | POST | `/api/companies/:company/apps/propose` | `{ description }` → the Studio's proposal (nothing is made): `{ design: { key, name, description, icon, pages }, tables: TableDesign[] (to make first, when the company has none for it), notes[], drafted: model\|words, outline: [{ key, title, blocks: ["A list of … whose Status is Open, in groups by Supplier, to Close"] }] }` |
 | POST | `/api/companies/:company/apps` | A manager of the department (an admin for company apps): `{ name, description?, icon?, pages, departmentId, settings?, tables?: TableDesign[] }`; the tables are made first, and taken back if the app can't be made → the app with `madeTables[]` |
 | GET | `/api/companies/:company/apps/:app` | `{ app, tables (the viewer's, with can: { edit, design }), agents: [{ slug, name, status }], outline }` |
-| PATCH | `/api/companies/:company/apps/:app` | Its managers: `{ name?, description?, icon?, pages?, departmentId?, settings? }` |
+| PATCH | `/api/companies/:company/apps/:app` | Whoever may change it: `{ name?, description?, icon?, pages?, departmentId?, settings? }` (sharing it with the company waits for IT: `reviews[]`) |
+| GET | `/api/companies/:company/apps/:app/versions` | Its versions with what changed, newest first (as for tables) |
+| POST | `/api/companies/:company/apps/:app/versions/:version/restore` | Back to that version's pages, as a new version (checked against the tables as they are now) |
 | POST | `/api/companies/:company/apps/:app/changes` | Its managers: a change in plain words, `{ request }` ("add a chart of complaints by month, remove the board") → `{ pages, summary[], notes[], outline, problems[] (what wouldn't work on its tables), drafted }`; nothing changes until the pages are sent to PATCH |
 | POST | `/api/companies/:company/apps/:app/archive` · `/restore` | Its managers |
 | GET | `/api/companies/:company/tables/:table/summary?groupBy&of=count\|sum\|average&field&limit&filter.<field>=` | For charts and numbers: `{ groups: [{ key, label, value }], total }`, a choice in the order of its list, dates by month (`2026-09`), the rest largest first; with `limit`, the others together as `Other` |
@@ -238,9 +242,23 @@ Rules people say in plain words ("rank suppliers by complaints per 100 deliverie
 | PATCH | `/api/companies/:company/calculations/:calculation` | Its managers: `{ name?, schedule?, departmentId?, rule?, explanation?, tables?, code?, output? }` (a new rule or code is a new version) |
 | POST | `/api/companies/:company/calculations/:calculation/changes` | Its managers: a change in plain words, `{ request }` ("this year instead", "per 1000 deliveries", or the whole rule) → as `write`, plus `rule` (as it becomes) and `before` (the latest run), so the result now and after the change can be compared; nothing changes until it is sent to PATCH |
 | POST | `/api/companies/:company/calculations/:calculation/run` | Its department's people: run now → the run |
+| GET | `/api/companies/:company/calculations/:calculation/versions` | Its versions (a new rule or code is a new one), newest first |
+| POST | `/api/companies/:company/calculations/:calculation/versions/:version/restore` | Back to that version's rule and code, as a new version |
 | POST | `/api/companies/:company/calculations/:calculation/archive` · `/restore` | Its managers |
 
 An app shows a calculation's latest result with the block `{ type: "result", calculation, title? }`.
+
+## The rules for building
+
+IT decides who makes tables, apps and calculations (`who`: `managers` of each department, the default; `everyone`, for their own department; or `it`, only IT) and names people who may build for their departments anyway (`builders`). Whoever may build for a department makes things for it; what was made is changed by its department's managers, IT's builders and whoever made it. Company-wide things are IT's. A table's personal-data fields take no values until the data protection officer (`dpo`; IT when none is named) approves them; the officer's own tables are approved as they make them. Sharing a table or an app with the whole company waits for IT. Every table, app and calculation keeps its versions and can go back to one (AI employees keep theirs: see Agents).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/companies/:company/building` | The rules as they apply to the viewer: `{ who, label, builders[] {id, name}, dpo {id, name} \| null, buildsFor[] (department ids), decides: { personalData, sharing } }` |
+| PUT | `/api/companies/:company/building` | IT: `{ who?, builders?[] (user ids), dpo? (user id \| null) }` |
+| GET | `/api/companies/:company/reviews?status=waiting\|approved\|declined\|withdrawn\|all` | Requests the viewer decides, asked for or whose department they are in: `{ id, kind: personal-data\|sharing, itemType: table\|app, itemId, item {key, name}, request { fields?[] {key, label}, visibility? }, what (in plain words), status, requestedBy, decidedBy, decidedAt, note, createdAt, canDecide }[]` |
+| POST | `/api/companies/:company/reviews/:id/approve` · `/decline` | Whoever decides it: `{ note? }`. Approving personal data lets those fields take values; approving sharing shows it to everyone. A request withdraws itself when the personal data it was about is no longer there |
+| GET | `/api/companies/:company/built` | IT: everything built, `{ rules, items: [{ type: table\|app\|calculation\|ai-employee\|recurring, id, key, name, departmentId, owner, version, updatedAt, archived, shared, personal[] {label, approved}, detail, waiting[], link, changeable }], reviews[] }` |
 
 ## The one box ("What do you need?")
 

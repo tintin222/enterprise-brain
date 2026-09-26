@@ -1451,6 +1451,8 @@ export interface TableView {
   titleField: string;
   settings: TableSettings;
   version: number;
+  /** Personal-data fields (keys): approved by the data protection officer, or waiting (no values until then). */
+  personal?: { approved: string[]; waiting: string[] };
   records: number;
   createdBy: string;
   createdAt: string;
@@ -1458,6 +1460,8 @@ export interface TableView {
   archivedAt: string | null;
   /** What the viewer may do: add and change records, change the table. */
   can: { edit: boolean; design: boolean };
+  /** Its requests waiting for a decision (a table's detail). */
+  reviews?: Review[];
 }
 
 export interface RecordView {
@@ -1585,6 +1589,8 @@ export interface AppOutlinePage {
 
 export interface AppDetail {
   app: AppView;
+  /** Its requests waiting for a decision (sharing it with the company). */
+  reviews?: Review[];
   /** Its tables the viewer sees, with their rights. */
   tables: TableView[];
   /** The AI employees its buttons give work to. */
@@ -1770,4 +1776,75 @@ export interface RecurringWork {
   stoppedAt: string | null;
   stoppedBy: string | null;
   agent?: { slug: string; name: string; status: AgentStatus } | null;
+}
+
+// ---------------------------------------------------------------------------
+// The rules for building
+// ---------------------------------------------------------------------------
+
+export type Builders = "managers" | "everyone" | "it";
+
+/** The rules as they apply to the viewer. */
+export interface BuildingState {
+  who: Builders;
+  label: string;
+  builders: { id: string; name: string }[];
+  dpo: { id: string; name: string } | null;
+  /** The departments the viewer builds for. */
+  buildsFor: string[];
+  decides: { personalData: boolean; sharing: boolean };
+}
+
+/** A decision the rules ask for: personal data (the data protection officer), sharing (IT). */
+export interface Review {
+  id: string;
+  kind: "personal-data" | "sharing";
+  itemType: "table" | "app";
+  itemId: string;
+  item: { key: string; name: string } | null;
+  departmentId: string | null;
+  request: { fields?: { key: string; label: string }[]; visibility?: "company" };
+  what: string;
+  status: "waiting" | "approved" | "declined" | "withdrawn";
+  requestedBy: string;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  note: string | null;
+  createdAt: string;
+  canDecide?: boolean;
+}
+
+export interface VersionEntry {
+  version: number;
+  by: string;
+  note: string;
+  createdAt: string;
+  current: boolean;
+  /** What changed from the version before, in plain words. */
+  summary: string[];
+}
+
+/** Everything people built, for IT. */
+export interface BuiltItem {
+  type: "table" | "app" | "calculation" | "ai-employee" | "recurring";
+  id: string;
+  key: string;
+  name: string;
+  departmentId: string | null;
+  owner: string;
+  version: number;
+  updatedAt: string;
+  archived: boolean;
+  shared: boolean;
+  personal: { label: string; approved: boolean }[];
+  detail: string;
+  waiting: string[];
+  link: string;
+  changeable: boolean;
+}
+
+export interface BuiltInventory {
+  rules: { who: Builders; dpo: { id: string; name: string } | null };
+  items: BuiltItem[];
+  reviews: Review[];
 }

@@ -362,7 +362,8 @@ export async function changeApp(
   return wordsAppChange(input.design, request, input.tables, input.calculations ?? []);
 }
 
-function namesOf(tables: AppTable[], agents: AppAgent[], calculations: { key: string; name: string }[]): ChangeNames {
+/** Names of what an app shows, to say its changes in plain words. */
+export function namesOf(tables: AppTable[], agents: AppAgent[], calculations: { key: string; name: string }[]): ChangeNames {
   const byKey = new Map(tables.map((t) => [t.key, t]));
   return {
     table: (key) => byKey.get(key)?.name ?? key,

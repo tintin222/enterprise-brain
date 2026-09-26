@@ -30,6 +30,8 @@ import { SecretBox } from "./secrets.ts";
 import { AppService } from "./apps.ts";
 import { CalculationService } from "./calculations.ts";
 import { RecurringWorkService } from "./recurring.ts";
+import { VersionService } from "./versions.ts";
+import { ReviewService } from "./reviews.ts";
 import { TableService } from "./tables.ts";
 import { TeamsTransport } from "./teams.ts";
 import { TaskService } from "./tasks.ts";
@@ -97,6 +99,10 @@ export class Platform {
   readonly apps: AppService;
   /** Rules people say in plain words, run in a sandbox on the tables' rows. */
   readonly calculations: CalculationService;
+  /** Every version of the tables, apps and calculations people build, to compare and go back to. */
+  readonly versions: VersionService;
+  /** Decisions the rules for building ask for: personal data (the data protection officer), sharing (IT). */
+  readonly reviews: ReviewService;
   /** Work people ask AI employees to do regularly ("every Monday: send me the open complaints"). */
   readonly recurring: RecurringWorkService;
 
@@ -112,13 +118,15 @@ export class Platform {
     this.files = new FileService(this.handle, join(options.dataDir, "files"));
     this.screens = options.screens;
     this.connectors = new ConnectorService(this.handle, options.registry ?? createDefaultRegistry(), this.secretBox, this.files, this.screens);
-    this.tables = new TableService(this.handle, this.connectors, this.files);
+    this.versions = new VersionService(this.handle);
+    this.tables = new TableService(this.handle, this.connectors, this.files, this.versions);
     this.connectors.useTables((companyId) => this.tables.storeFor(companyId));
     this.knowledge = new KnowledgeService(this.handle, this.embedder);
     this.mail = new MailService(this.handle, this.files, this.connectors);
     this.agents = new AgentService(this.handle);
-    this.calculations = new CalculationService(this.handle, this.tables);
-    this.apps = new AppService(this.handle, this.tables, this.agents, this.calculations);
+    this.calculations = new CalculationService(this.handle, this.tables, {}, this.versions);
+    this.apps = new AppService(this.handle, this.tables, this.agents, this.calculations, this.versions);
+    this.reviews = new ReviewService(this.handle, this.tables, this.apps);
     this.tasks = new TaskService(this.handle, this.events);
     this.work = new WorkService(this.handle, this.events);
     this.coachingNotes = new CoachingNotes(this.handle, this.activity);
