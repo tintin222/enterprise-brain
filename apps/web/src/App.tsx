@@ -24,6 +24,7 @@ const Connectors = lazy(() => import("./pages/Connectors.tsx"));
 const Knowledge = lazy(() => import("./pages/Knowledge.tsx"));
 const People = lazy(() => import("./pages/People.tsx"));
 const Costs = lazy(() => import("./pages/settings/Costs.tsx"));
+const Channels = lazy(() => import("./pages/settings/Channels.tsx"));
 const Inbox = lazy(() => import("./pages/Inbox.tsx"));
 const ActivityPage = lazy(() => import("./pages/Activity.tsx"));
 const Installation = lazy(() => import("./pages/settings/Installation.tsx"));
@@ -150,6 +151,7 @@ const router = createBrowserRouter([
             element: <SettingsLayout />,
             children: [
               { path: "connections", element: <Connectors /> },
+              { path: "channels", element: <Channels /> },
               { path: "knowledge", element: <Knowledge /> },
               { path: "people", element: <People /> },
               { path: "costs", element: <Costs /> },

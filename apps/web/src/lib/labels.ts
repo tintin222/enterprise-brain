@@ -91,7 +91,7 @@ export const CONNECTOR_CATEGORY_LABELS: Record<string, string> = {
   other: "Other",
 };
 
-export const CONNECTOR_CATEGORY_ORDER = ["erp", "crm", "hris", "ats", "itsm", "mail", "dms", "database", "web", "other"];
+export const CONNECTOR_CATEGORY_ORDER = ["erp", "crm", "hris", "ats", "itsm", "mail", "messaging", "dms", "database", "web", "other"];
 
 export function categoryLabel(category: string | null | undefined): string {
   if (!category) return "Other";

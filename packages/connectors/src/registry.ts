@@ -4,6 +4,7 @@ import { gmailConnector } from "./connectors/gmail.ts";
 import { hubspotConnector } from "./connectors/hubspot.ts";
 import { imapSmtpConnector } from "./connectors/imap-smtp.ts";
 import { microsoft365MailConnector } from "./connectors/microsoft-365-mail.ts";
+import { microsoftTeamsConnector } from "./connectors/microsoft-teams.ts";
 import { restApiConnector } from "./connectors/rest-api.ts";
 import { salesforceConnector } from "./connectors/salesforce.ts";
 import { sapS4hanaConnector } from "./connectors/sap-s4hana.ts";
@@ -79,6 +80,7 @@ export const BUILTIN_CONNECTORS: readonly ConnectorImplementation[] = [
   restApiConnector,
   sqlDatabaseConnector,
   webhookInboundConnector,
+  microsoftTeamsConnector,
 ];
 
 export function createDefaultRegistry(): ConnectorRegistry {

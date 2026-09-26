@@ -8,6 +8,8 @@ import { KnowledgeService } from "@enterprise-brain/knowledge";
 import { createEmbedderFromEnv, createLlmFromEnv, type Embedder, type LlmClient } from "@enterprise-brain/llm";
 import { ActivityService } from "./activity.ts";
 import { AgentService } from "./agents.ts";
+import { ChannelAccounts } from "./channel-accounts.ts";
+import { ChatChannelSender } from "./chat-channels.ts";
 import { CatalogService } from "./catalog-service.ts";
 import { ChatService } from "./chat.ts";
 import { ConnectorService } from "./connectors.ts";
@@ -21,6 +23,7 @@ import { EmailChannel, NotificationService } from "./notifications.ts";
 import { PeopleService } from "./people.ts";
 import { QueueService } from "./queue.ts";
 import { SecretBox } from "./secrets.ts";
+import { TeamsTransport } from "./teams.ts";
 import { TaskService } from "./tasks.ts";
 import { TriggerService } from "./triggers.ts";
 import { WatcherService } from "./watchers.ts";
@@ -66,6 +69,10 @@ export class Platform {
   /** Signed links people act through outside the app (an approval email's buttons). */
   readonly actionLinks: ActionLinks;
   readonly notifications: NotificationService;
+  /** People's accounts in Teams and Google Chat, and where their conversations with the app are. */
+  readonly channelAccounts: ChannelAccounts;
+  /** Writes in Teams through the company's bot. */
+  readonly teams: TeamsTransport;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -103,6 +110,8 @@ export class Platform {
     this.watchers = new WatcherService(this.handle, this.connectors, this.mail, this.agents, this.engine, this.triggers);
     this.queue = new QueueService(this.handle, this.agents, this.work);
     this.actionLinks = new ActionLinks(this.secretBox.deriveKey("action-links"));
+    this.channelAccounts = new ChannelAccounts(this.handle);
+    this.teams = new TeamsTransport(this.connectors);
     this.notifications = new NotificationService({
       handle: this.handle,
       people: this.people,
@@ -110,8 +119,11 @@ export class Platform {
       queue: this.queue,
       events: this.events,
       links: this.actionLinks,
+      tasks: this.tasks,
+      accounts: this.channelAccounts,
     });
     this.notifications.register(new EmailChannel(this.mail));
+    this.notifications.register(new ChatChannelSender("teams", this.channelAccounts, this.teams));
   }
 
   /** Create a platform from the environment: embedded Postgres under dataDir unless DATABASE_URL is set. */

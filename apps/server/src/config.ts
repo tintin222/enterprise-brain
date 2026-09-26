@@ -70,6 +70,8 @@ export interface ServerConfig {
   schedulerEnabled: boolean;
   /** How often connected mailboxes and systems are checked for new work (seconds). */
   watchIntervalSeconds?: number;
+  /** Microsoft Teams: where the Bot Framework publishes its signing keys (another for government clouds). */
+  teams?: { openIdUrl?: string };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
@@ -106,6 +108,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       : undefined,
     schedulerEnabled: env.EB_SCHEDULER !== "false",
     watchIntervalSeconds: Math.max(10, Number(env.EB_WATCH_INTERVAL ?? 60) || 60),
+    teams: env.EB_BOTFRAMEWORK_OPENID_URL ? { openIdUrl: env.EB_BOTFRAMEWORK_OPENID_URL } : undefined,
     auth: {
       mode: env.EB_AUTH === "open" ? "open" : "accounts",
       sessionHours: Number(env.EB_SESSION_HOURS ?? 12) || 12,

@@ -2,6 +2,7 @@ import { and, desc, eq, gte, or } from "drizzle-orm";
 import { isRecord, NotificationPreferences, NotificationPreferencesPatch, TimeZone, truncate, type NotificationChannel } from "@enterprise-brain/core";
 import { companies, notifications, tasks, users, type DatabaseHandle } from "@enterprise-brain/db";
 import type { AgentRecord, AgentService } from "./agents.ts";
+import { isChatChannel, type ChannelAccounts } from "./channel-accounts.ts";
 import type { PlatformEventMap, PlatformEvents } from "./events.ts";
 import type { ActionLinks } from "./links.ts";
 import type { MailService } from "./mail.ts";
@@ -16,6 +17,7 @@ import {
 } from "./notification-templates.ts";
 import { PeopleError, type PeopleService, type Person } from "./people.ts";
 import { audienceOf, isUrgent, type QueueEntry, type QueueService } from "./queue.ts";
+import type { TaskService } from "./tasks.ts";
 
 export type NotificationRow = typeof notifications.$inferSelect;
 
@@ -30,6 +32,8 @@ export interface HandledItem {
   ref: DeliveryRef;
   by: string;
   outcome: string;
+  /** The item in the app. */
+  openUrl: string;
 }
 
 /** A way to reach people outside the app: email here; Teams and Google Chat register once connected. */
@@ -79,6 +83,8 @@ export interface NotificationServiceDeps {
   queue: QueueService;
   events: PlatformEvents;
   links: ActionLinks;
+  tasks: TaskService;
+  accounts: ChannelAccounts;
 }
 
 const MINUTE = 60_000;
@@ -92,6 +98,12 @@ const RETRY_AFTER_MS = 5 * MINUTE;
 /** A delivery that never reported back (the server stopped mid-way) counts as failed after this. */
 const STALE_SENDING_MS = 15 * MINUTE;
 const AUTO_ORDER: NotificationChannel[] = ["teams", "google-chat", "email"];
+/** The task statuses that are news for the person who gave the task in a chat app. */
+const TASK_NEWS: Record<string, ((title: string) => string) | undefined> = {
+  done: (title) => `Done: ${title}`,
+  failed: (title) => `Stopped with a problem: ${title}`,
+  stopped: (title) => `Stopped: ${title}`,
+};
 
 /** A person's date and minute of the day in their time zone. */
 export function localTime(now: Date, timeZone: string): { date: string; minutes: number } {
@@ -151,6 +163,9 @@ export class NotificationService {
     });
     deps.events.on("queue.resolved", (event) => {
       if (this.running) void this.schedule(event.companyId, () => this.handled(event));
+    });
+    deps.events.on("task.changed", (event) => {
+      if (this.running && TASK_NEWS[event.status]) void this.schedule(event.companyId, () => this.taskNews(event));
     });
   }
 
@@ -251,11 +266,17 @@ export class NotificationService {
       { companyId: person.companyId, userId: person.id, type: entry.type, id: entry.id, via: options.via },
       { now: (options.now ?? new Date()).getTime() },
     );
-    return {
-      act: `${this.publicUrl}/act/${token}`,
-      open: entry.task ? `${this.publicUrl}/work/${encodeURIComponent(entry.task.ref)}` : `${this.publicUrl}/work`,
-      preferences: `${this.publicUrl}/?notifications=1`,
-    };
+    return { act: `${this.publicUrl}/act/${token}`, open: this.openUrl(entry), preferences: `${this.publicUrl}/?notifications=1` };
+  }
+
+  /** An item in the app: its task, or the work queue. */
+  openUrl(entry: Pick<QueueEntry, "task">): string {
+    return entry.task ? `${this.publicUrl}/work/${encodeURIComponent(entry.task.ref)}` : `${this.publicUrl}/work`;
+  }
+
+  /** The app's address, for links in chat messages. */
+  get appUrl(): string {
+    return this.publicUrl;
   }
 
   // -------------------------------------------------------------------------
@@ -369,6 +390,7 @@ export class NotificationService {
           ref: row.ref,
           by: event.by,
           outcome: event.outcome,
+          openUrl: this.openUrl(entry),
         });
         await this.mark(row.id, { status: "updated" });
         updated++;
@@ -377,6 +399,39 @@ export class NotificationService {
       }
     }
     return updated;
+  }
+
+  /**
+   * News of a task someone gave in a chat app, back where they gave it: done, or stopped. (What it
+   * needs from people reaches them as items.)
+   */
+  async taskNews(event: PlatformEventMap["task.changed"], now = new Date()): Promise<boolean> {
+    const text = TASK_NEWS[event.status];
+    if (!text) return false;
+    const task = await this.deps.tasks.byId(event.taskId);
+    if (!task || !isChatChannel(task.source) || !task.sourceRef) return false;
+    const channel = this.channels.get(task.source);
+    const account = await this.deps.accounts.get(event.companyId, task.sourceRef);
+    if (!channel?.sendTaskNews || !account?.userId) return false;
+    const person = await this.deps.people.get(event.companyId, account.userId).catch(() => undefined);
+    if (!person || person.status !== "active" || !(await channel.reaches(event.companyId, person))) return false;
+    const row = await this.claim(
+      { companyId: event.companyId, userId: person.id, kind: "task", itemType: event.status, itemId: task.id, channel: channel.id },
+      now,
+    );
+    if (!row) return false;
+    const company = await this.company(event.companyId);
+    const agent = await this.deps.agents.find(event.companyId, task.agentId);
+    const message: TaskNewsMessage = {
+      companyId: event.companyId,
+      companyName: company.name,
+      person,
+      task: { ref: task.ref, title: task.title, status: task.status, outcome: task.outcome },
+      agentName: agent?.definition.name ?? "Your AI employee",
+      text: text(task.title),
+      link: `${this.publicUrl}/work/${encodeURIComponent(task.ref)}`,
+    };
+    return this.deliver(row, [channel], person, (c) => c.sendTaskNews!(message));
   }
 
   /** What was sent to a person, newest first. */

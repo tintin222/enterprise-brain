@@ -5,6 +5,7 @@ import { explanationOf, isOpen, type QueueEntry } from "@enterprise-brain/runtim
 import { canHandleWork, canSeeDepartment, viewerFromPerson, viewerOf } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError } from "../http.ts";
+import { actOnItem } from "../work-actions.ts";
 
 const VIA = new Set(["email", "teams", "google-chat"]);
 
@@ -90,24 +91,9 @@ export async function notificationRoutes(app: FastifyInstance, ctx: AppContext) 
         dismiss: z.boolean().optional(),
       })
       .parse(request.body ?? {});
-    const { claim, person, entry, canHandle } = await load(token);
-    if (!canHandle) throw new HttpError(403, "This is someone else's to handle now");
+    const { claim, person, entry } = await load(token);
     const via = claim.via && VIA.has(claim.via) ? claim.via : "email";
-    const note = body.note?.trim() || undefined;
-    if (entry.type === "approval") {
-      if (!body.choice) throw new HttpError(400, "Choose to approve or reject");
-      const edits = body.choice === "approve" && body.edits && Object.keys(body.edits).length ? body.edits : undefined;
-      await platform.engine.decide(
-        claim.companyId,
-        entry.id,
-        { approved: body.choice === "approve", note, decidedBy: person.name, edits, via },
-        { wait: false },
-      );
-    } else {
-      const { answer, verdict, retry, dismiss } = body;
-      await platform.engine.resolveWorkItem(claim.companyId, entry.id, { answer, verdict, note, retry, dismiss }, person.name, { wait: false, via });
-    }
-    const after = await platform.queue.entry(claim.companyId, claim.type, claim.id);
+    const after = await actOnItem(platform, person, entry, body, via);
     return { ok: true, item: after ? publicEntry(after) : null };
   });
 }

@@ -12,6 +12,7 @@ import { agentRoutes } from "./routes/agents.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { builderRoutes } from "./routes/builder.ts";
 import { catalogRoutes } from "./routes/catalog.ts";
+import { channelRoutes } from "./routes/channels.ts";
 import { chatRoutes } from "./routes/chat.ts";
 import { connectorRoutes } from "./routes/connectors.ts";
 import { coreRoutes } from "./routes/core.ts";
@@ -26,7 +27,7 @@ import { taskRoutes } from "./routes/tasks.ts";
 import { workRoutes } from "./routes/work.ts";
 
 /** Routes reachable without signing in (they carry their own credentials, or are the sign-in itself). */
-const PUBLIC_PREFIXES = ["/api/health", "/api/info", "/api/public/", "/api/hermes/", "/api/auth/"];
+const PUBLIC_PREFIXES = ["/api/health", "/api/info", "/api/public/", "/api/hermes/", "/api/auth/", "/api/channels/"];
 
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -109,6 +110,7 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   await taskRoutes(app, ctx);
   await workRoutes(app, ctx);
   await notificationRoutes(app, ctx);
+  await channelRoutes(app, ctx);
   await homeRoutes(app, ctx);
   await knowledgeRoutes(app, ctx);
   await connectorRoutes(app, ctx);

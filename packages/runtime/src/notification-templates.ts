@@ -140,6 +140,11 @@ const KIND_SUBJECT: Record<QueueEntry["type"], (entry: QueueEntry) => string> = 
   notice: (e) => e.title,
 };
 
+/** A message's one-line subject for an item: "Approve? …", "AP Clerk asks: …". */
+export function itemSubject(entry: QueueEntry): string {
+  return truncate(KIND_SUBJECT[entry.type](entry), 150);
+}
+
 function button(href: string, label: string, color: string): string {
   return `<a href="${escapeHtml(href)}" style="display:inline-block;margin:0 8px 8px 0;padding:10px 18px;border-radius:8px;background:${color};color:#ffffff;font-weight:600;text-decoration:none">${escapeHtml(label)}</a>`;
 }
@@ -171,7 +176,7 @@ function meta(entry: QueueEntry): string {
 /** The email for one queue item: what it is, why the person is asked, what would change, and buttons. */
 export function itemEmail(message: ItemMessage): RenderedEmail {
   const { entry, links, person } = message;
-  const subject = truncate(KIND_SUBJECT[entry.type](entry), 150);
+  const subject = itemSubject(entry);
   const change = describeChange(entry.action);
   const details = explanationOf(entry);
   const actions: string[] = [];

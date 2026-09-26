@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleCheck, ClipboardList, Database, ExternalLink, FlaskConical, ListTree, Play, Plug, PlugZap, RefreshCw, Trash } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useSearchParams } from "react-router";
 import { api } from "../api.ts";
 import { Badge, StatusPill } from "../components/Badge.tsx";
 import { Button, ButtonAnchor } from "../components/Button.tsx";
@@ -368,6 +369,17 @@ export default function Connectors() {
   const [removing, setRemoving] = useState<ConnectorInstance | null>(null);
   const [explore, setExplore] = useState<string | undefined>(undefined);
   const [naming, setNaming] = useState<ConnectorInstance | null>(null);
+  const [search, setSearch] = useSearchParams();
+  // Other pages open the form for a system with ?connect=<type> (e.g. Settings → Teams and Chat for Teams).
+  useEffect(() => {
+    const type = search.get("connect");
+    if (!type || !catalog.data) return;
+    const manifest = catalog.data.find((m) => m.type === type);
+    if (manifest) setConnecting(manifest);
+    const next = new URLSearchParams(search);
+    next.delete("connect");
+    setSearch(next, { replace: true });
+  }, [search, catalog.data, setSearch]);
 
   const test = useMutation({
     mutationFn: (id: string) => api.post<{ ok: boolean; message: string }>(path(`/connectors/${encodeURIComponent(id)}/test`)),

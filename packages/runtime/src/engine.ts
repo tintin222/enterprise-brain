@@ -1227,6 +1227,8 @@ const SOURCE_TEXT: Record<string, string> = {
   paperclip: "Assigned in Paperclip",
   "connector-event": "Event in a connected system",
   chat: "Asked in chat",
+  teams: "Asked in Microsoft Teams",
+  "google-chat": "Asked in Google Chat",
 };
 
 /** A task's title: the request's first line, the email's subject, or the AI employee and its input. */

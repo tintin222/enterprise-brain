@@ -131,6 +131,18 @@ What reaches people outside the app. Approvals and questions (what an AI employe
 | GET | `/api/public/act/:token` | The page behind an email's buttons: `{ company {name}, person {name}, item {type, id, title, details, reason, suggestion, options, action, agent {name}, task {ref, title, status}, status, resolvedBy, answer, createdAt}, canAct, expiresAt }`. 400 for a changed link, 410 once expired, 403 when the person is disabled or no longer works in the item's department |
 | POST | `/api/public/act/:token` | Act as the link's person: `{ choice: "approve"\|"reject", note?, edits? }` for approvals (edits as in `decide`), `{ answer }`, `{ verdict, note? }`, `{ retry }` or `{ dismiss }` for the rest. 409 when someone already handled it ("Approval is already approved by …"); the audit log says the decision was made in an email |
 
+## Teams and Google Chat
+
+People reach their AI employees in Microsoft Teams through the company's Azure Bot (a `microsoft-teams` connection: App ID, client secret, tenant ID). Teams calls the bot's messaging endpoint; each call must carry a Bot Framework token signed with its published keys (endorsed for `msteams`), issued to this bot, and for the activity's `serviceUrl`, and come from the connection's tenant, or it gets 401/403. People are linked to their account by the email Teams gives for them. In a personal chat they give work in plain words (to the AI employee they name, e.g. "AP Clerk, …", the one they talk to, or the one they pick), say "what needs me", "switch" or "help", and press the buttons of cards (Adaptive Cards 1.5, `Action.Execute`). A task given in Teams has `source: "teams"`, and its news (done, stopped) comes back to the chat.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/channels/teams/:company/messages` | The bot's messaging endpoint (for the Azure Bot's configuration). `message` activities get replies through the Bot Connector; `invoke` `adaptiveCard/action` gets `{ statusCode: 200, type: "application/vnd.microsoft.card.adaptive", value: <card> }` (the card replaced for the person) or `{ statusCode: 400, type: "application/vnd.microsoft.error", value: { message } }` (the card stays); `conversationUpdate` on install gets a welcome |
+| GET | `/api/companies/:company/channels` | Admin: `{ publicUrl, https, teams: { connected, connectionId, appId, problem, messagingEndpoint, accounts[] {name, email, person, since, lastSeenAt} } }` |
+| GET | `/api/companies/:company/channels/teams/app` | Admin: the Teams app to upload in the Teams admin center (zip: manifest v1.17 naming the bot, color and outline icons) |
+
+`EB_BOTFRAMEWORK_OPENID_URL` points at another Bot Framework (government clouds).
+
 ## Files
 
 | Method | Path | Description |

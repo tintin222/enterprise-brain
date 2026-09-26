@@ -256,6 +256,11 @@ export class ConnectorService {
     return { row, impl, ctx: this.context(companyId, row.config, secrets) };
   }
 
+  /** A connection's context with its credentials, for platform services that talk to it directly (Teams). */
+  async contextFor(companyId: string, id: string): Promise<ConnectorContext> {
+    return (await this.instanceContext(companyId, id)).ctx;
+  }
+
   async test(companyId: string, id: string) {
     const { impl, ctx } = await this.instanceContext(companyId, id);
     let result;

@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import { BookOpen, Inbox, Plug, ScrollText, Server, Settings, Users, Wallet, Waypoints, type LucideIcon } from "lucide-react";
+import { BookOpen, Inbox, MessagesSquare, Plug, ScrollText, Server, Settings, Users, Wallet, Waypoints, type LucideIcon } from "lucide-react";
 import { Suspense } from "react";
 import { Navigate, NavLink, Outlet, useLocation } from "react-router";
 import { EmptyState } from "../../components/EmptyState.tsx";
@@ -17,6 +17,7 @@ interface Section {
 
 export const SETTINGS_SECTIONS: Section[] = [
   { to: "connections", label: "Connections", icon: Plug, for: "admin" },
+  { to: "channels", label: "Teams and Chat", icon: MessagesSquare, for: "admin" },
   { to: "knowledge", label: "Knowledge", icon: BookOpen, for: "managers" },
   { to: "people", label: "People and roles", icon: Users, for: "managers" },
   { to: "costs", label: "Costs", icon: Wallet, for: "managers" },

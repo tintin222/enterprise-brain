@@ -33,6 +33,19 @@ export { salesforceConnector, soqlString } from "./connectors/salesforce.ts";
 export { hubspotConnector } from "./connectors/hubspot.ts";
 export { microsoft365MailConnector } from "./connectors/microsoft-365-mail.ts";
 export {
+  BOT_FRAMEWORK_SCOPE,
+  botToken,
+  checkServiceUrl,
+  getMember,
+  microsoftTeamsConnector,
+  sendActivity,
+  teamsBotSettings,
+  updateActivity,
+  type TeamsAddress,
+  type TeamsBotSettings,
+  type TeamsMember,
+} from "./connectors/microsoft-teams.ts";
+export {
   createImapSmtpConnector,
   imapSmtpConnector,
   type ImapClientLike,
