@@ -261,7 +261,7 @@ export function Transcript({
           )}
           {m.data?.agentId && view.agent && (
             <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
-              <ButtonLink size="sm" variant="soft" to={`/apps/${view.agent.slug}`}>
+              <ButtonLink size="sm" variant="soft" to={`/ai/${view.agent.slug}/app`}>
                 Open its page
               </ButtonLink>
               <ButtonLink size="sm" variant="ghost" to={`/ai/${view.agent.slug}`}>

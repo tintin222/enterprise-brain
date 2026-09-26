@@ -9,3 +9,4 @@ export * from "./employment.ts";
 export * from "./notifications.ts";
 export * from "./working-hours.ts";
 export * from "./tables.ts";
+export * from "./apps.ts";

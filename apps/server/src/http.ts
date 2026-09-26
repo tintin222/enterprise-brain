@@ -5,6 +5,7 @@ import { ConnectorError } from "@enterprise-brain/connectors";
 import { RecordValueError } from "@enterprise-brain/core";
 import {
   AgentNotFoundError,
+  AppError,
   CoachingError,
   PeopleError,
   RunError,
@@ -31,7 +32,14 @@ export function statusFor(error: unknown): number {
   if (error instanceof HttpError) return error.statusCode;
   if (error instanceof RunError || error instanceof BuilderError || error instanceof HermesRequestError) return error.status;
   if (error instanceof AgentNotFoundError) return 404;
-  if (error instanceof PeopleError || error instanceof TaskError || error instanceof WorkError || error instanceof CoachingError || error instanceof TableError)
+  if (
+    error instanceof PeopleError ||
+    error instanceof TaskError ||
+    error instanceof WorkError ||
+    error instanceof CoachingError ||
+    error instanceof TableError ||
+    error instanceof AppError
+  )
     return error.status;
   if (error instanceof RecordValueError) return 400;
   if (error instanceof KnowledgeError) return error.code === "not_found" ? 404 : 400;
@@ -51,6 +59,7 @@ export function errorBody(error: unknown) {
   }
   // Every value that doesn't fit its field, at once.
   if (error instanceof RecordValueError) return { error: error.message, problems: error.problems };
+  if (error instanceof AppError && error.problems.length) return { error: error.message, problems: error.problems };
   return { error: error instanceof Error ? error.message : String(error) };
 }
 

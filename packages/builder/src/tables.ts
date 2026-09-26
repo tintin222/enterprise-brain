@@ -136,7 +136,7 @@ async function modelDraft(llm: LlmClient, description: string, existing: Existin
 // From the words alone
 // ---------------------------------------------------------------------------
 
-const TURKISH = /[ğüşıöçİĞÜŞÖÇ]|\b(ve|ile|için|durum|tarih|sorumlu)\b/i;
+export const TURKISH = /[ğüşıöçİĞÜŞÖÇ]|\b(ve|ile|için|durum|tarih|sorumlu)\b/i;
 
 /** Kinds read from a label's words (English and Turkish), in order: the first that matches. */
 const KINDS: [RegExp, TableFieldType][] = [
@@ -173,7 +173,8 @@ const CURRENCIES: [RegExp, string][] = [
   [/£|\bgbp\b/i, "GBP"],
 ];
 
-function wordsDraft(description: string, existing: ExistingTable[]): TableProposal {
+/** A table from the words alone (no model): a list of details after a colon or "with", kinds from the labels. */
+export function wordsDraft(description: string, existing: ExistingTable[]): TableProposal {
   const turkish = TURKISH.test(description);
   const notes: string[] = [];
   const { name, list } = splitDescription(description, turkish);
@@ -248,7 +249,7 @@ function splitDescription(description: string, turkish: boolean): { name: string
 }
 
 /** "I need a register of supplier complaints" → "Supplier complaints". */
-function nameOf(text: string, turkish = TURKISH.test(text)): string {
+export function nameOf(text: string, turkish = TURKISH.test(text)): string {
   const name = text
     .replace(/[.!?]+$/, "")
     .replace(/^(please\s+)?((i|we)\s+(need|want|would like)|let's|lets|create|make|build|set up|start|keep|track)\s+/i, "")
@@ -261,12 +262,12 @@ function nameOf(text: string, turkish = TURKISH.test(text)): string {
 }
 
 /** The first letter in capitals ("i" is "İ" only in Turkish). */
-function capitalize(text: string, turkish: boolean): string {
+export function capitalize(text: string, turkish: boolean): string {
   return text ? text[0]!.toLocaleUpperCase(turkish ? "tr" : "en") + text.slice(1) : "";
 }
 
 /** Split a list of details on commas, semicolons, "and" and new lines, but not inside parentheses. */
-function splitList(list: string): string[] {
+export function splitList(list: string): string[] {
   const parts: string[] = [];
   let depth = 0;
   let current = "";
@@ -336,7 +337,7 @@ function fieldFromLabel(raw: string, turkish: boolean): Omit<TableField, "key"> 
  * Fields made valid: keys from labels (unique, not the platform's own), a field that names another
  * table points at it, a link to no table becomes text, a choice without values becomes text.
  */
-function settle(drafts: Omit<TableField, "key">[], existing: ExistingTable[], notes: string[]): TableField[] {
+export function settle(drafts: Omit<TableField, "key">[], existing: ExistingTable[], notes: string[]): TableField[] {
   const keys = new Set<string>();
   const fields: TableField[] = [];
   for (const draft of drafts.slice(0, 60)) {

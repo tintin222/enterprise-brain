@@ -848,3 +848,31 @@ export const dataRecordChanges = pgTable(
   },
   (t) => [index("data_record_changes_record").on(t.recordId, t.createdAt)],
 );
+
+/**
+ * Apps people describe in plain words: pages of blocks (lists, forms, boards, charts, buttons) on the
+ * company's tables, drawn by the platform. The design is data, never code.
+ */
+export const dataApps = pgTable(
+  "data_apps",
+  {
+    id: id(),
+    companyId: companyId(),
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    icon: text("icon"),
+    /** The department it belongs to; null = company-wide. */
+    departmentId: uuid("department_id").references(() => departments.id, { onDelete: "set null" }),
+    /** AppPage[]: its pages and their blocks. */
+    pages: jsonb("pages").$type<Record<string, unknown>[]>().notNull(),
+    /** AppSettings: who uses it. */
+    settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+    version: integer("version").notNull().default(1),
+    createdBy: text("created_by").notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+    archivedAt: timestamp("archived_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("data_apps_company_key").on(t.companyId, t.key)],
+);

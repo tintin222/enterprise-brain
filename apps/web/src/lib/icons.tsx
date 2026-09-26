@@ -20,6 +20,7 @@ import {
   FolderOpen,
   Gavel,
   Globe,
+  GraduationCap,
   Handshake,
   HardDrive,
   Headphones,
@@ -49,6 +50,7 @@ import {
   Sparkles,
   Table,
   TrendingUp,
+  TriangleAlert,
   Tags,
   Truck,
   UserCheck,
@@ -114,6 +116,10 @@ const NAMED_ICONS: Record<string, LucideIcon> = {
   workflow: Workflow,
   tags: Tags,
   plug: Plug,
+  // Apps people build
+  "triangle-alert": TriangleAlert,
+  "graduation-cap": GraduationCap,
+  "layout-grid": LayoutGrid,
 };
 
 export function namedIcon(name: string | null | undefined, fallback: LucideIcon = Boxes): LucideIcon {

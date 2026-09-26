@@ -8,7 +8,7 @@ import { Page } from "../components/Layout.tsx";
 import { ErrorState, LoadingBlock } from "../components/Spinner.tsx";
 import { useAgent } from "../lib/queries.ts";
 
-/** /apps/:slug — the generated app of an agent. */
+/** /ai/:slug/app — the generated app of an agent. */
 export default function AgentApp() {
   const { slug } = useParams();
   const { data, isLoading, error, refetch } = useAgent(slug);

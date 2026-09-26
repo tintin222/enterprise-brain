@@ -16,7 +16,10 @@ import type {
   Mailbox,
   PerformanceReport,
   Person,
+  AppDetail,
+  AppView,
   RecordPage,
+  TableSummary,
   TableView,
   ReportPeriodKey,
   RunRow,
@@ -52,6 +55,7 @@ export const keys = {
   work: (company: string) => [company, "work"] as const,
   home: (company: string) => [company, "home"] as const,
   tables: (company: string) => [company, "tables"] as const,
+  apps: (company: string) => [company, "apps"] as const,
   table: (company: string, key: string) => [company, "tables", key] as const,
 };
 
@@ -286,5 +290,39 @@ export function useRecords(key: string | undefined, query: RecordQuery = {}, opt
     queryFn: () => api.get<RecordPage>(path(`/tables/${encodeURIComponent(key ?? "")}/records${qs(params)}`)),
     enabled: Boolean(key) && (options.enabled ?? true),
     placeholderData: (previous) => previous,
+  });
+}
+
+/** The apps the viewer uses (or the archived ones). */
+export function useApps(archived = false) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.apps(company), { archived }],
+    queryFn: () => api.get<AppView[]>(path(`/apps${qs({ archived: archived || undefined })}`)),
+  });
+}
+
+/** An app with its tables and the AI employees its buttons ask. */
+export function useAppDetail(key: string | undefined) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.apps(company), key ?? ""],
+    queryFn: () => api.get<AppDetail>(path(`/apps/${encodeURIComponent(key ?? "")}`)),
+    enabled: Boolean(key),
+  });
+}
+
+/** Records counted (or a number added up or averaged) by a field, for a chart or a number. */
+export function useSummary(
+  key: string | undefined,
+  query: { groupBy?: string; of?: "count" | "sum" | "average"; field?: string; limit?: number; filters?: Record<string, string> },
+) {
+  const { company, path } = useCompany();
+  const { filters = {}, ...rest } = query;
+  const params = { ...rest, ...Object.fromEntries(Object.entries(filters).map(([field, value]) => [`filter.${field}`, value])) };
+  return useQuery({
+    queryKey: [...keys.table(company, key ?? ""), "summary", params],
+    queryFn: () => api.get<TableSummary>(path(`/tables/${encodeURIComponent(key ?? "")}/summary${qs(params)}`)),
+    enabled: Boolean(key),
   });
 }

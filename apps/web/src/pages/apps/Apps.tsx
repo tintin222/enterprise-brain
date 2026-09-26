@@ -1,6 +1,7 @@
 import { Archive, Globe, LayoutGrid, Plus, Table2 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
+import { NewAppDialog } from "../../components/apps/NewAppDialog.tsx";
 import { Badge } from "../../components/Badge.tsx";
 import { Button } from "../../components/Button.tsx";
 import { Card, PageHeader, SectionTitle } from "../../components/Card.tsx";
@@ -9,30 +10,51 @@ import { Page } from "../../components/Layout.tsx";
 import { ErrorState, Skeleton } from "../../components/Spinner.tsx";
 import { NewTableDialog, useTableDepartments } from "../../components/tables/NewTableDialog.tsx";
 import { plural, timeAgo } from "../../lib/format.ts";
-import { useDepartments, useTables } from "../../lib/queries.ts";
-import type { TableView } from "../../types.ts";
+import { namedIcon } from "../../lib/icons.tsx";
+import { useApps, useDepartments, useTables } from "../../lib/queries.ts";
+import type { AppView, TableView } from "../../types.ts";
 
-function TableCard({ table }: { table: TableView }) {
+function Tile({
+  to,
+  icon,
+  tone,
+  title,
+  shared,
+  description,
+  meta,
+}: {
+  to: string;
+  icon: ReactNode;
+  tone: "app" | "table";
+  title: string;
+  shared?: boolean;
+  description?: string;
+  meta: string;
+}) {
   return (
-    <Link to={`/tables/${table.key}`} className="group block">
+    <Link to={to} className="group block">
       <Card className="h-full p-4 transition-colors group-hover:border-brand-300 dark:group-hover:border-brand-400/40">
         <div className="flex items-start gap-3">
-          <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-300">
-            <Table2 className="size-[18px]" />
+          <span
+            className={
+              tone === "app"
+                ? "flex size-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-400/15 dark:text-brand-300"
+                : "flex size-9 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-300"
+            }
+          >
+            {icon}
           </span>
           <div className="min-w-0 flex-1">
             <p className="flex items-center gap-2 truncate font-medium text-fg">
-              {table.name}
-              {table.settings.visibility === "company" && table.departmentId && (
+              {title}
+              {shared && (
                 <Badge size="xs" tone="blue" icon={Globe}>
                   Shared
                 </Badge>
               )}
             </p>
-            {table.description && <p className="mt-0.5 line-clamp-2 text-[13px] text-muted">{table.description}</p>}
-            <p className="mt-2 text-xs text-faint">
-              {plural(table.records, "record")} · {plural(table.fields.length, "field")} · changed {timeAgo(table.updatedAt)}
-            </p>
+            {description && <p className="mt-0.5 line-clamp-2 text-[13px] text-muted">{description}</p>}
+            <p className="mt-2 text-xs text-faint">{meta}</p>
           </div>
         </div>
       </Card>
@@ -40,78 +62,139 @@ function TableCard({ table }: { table: TableView }) {
   );
 }
 
-/** Apps: the tables (and, next, the apps) the viewer's departments keep. */
+function AppTile({ app }: { app: AppView }) {
+  const Icon = namedIcon(app.icon, LayoutGrid);
+  return (
+    <Tile
+      to={`/apps/${app.key}`}
+      tone="app"
+      icon={<Icon className="size-[18px]" />}
+      title={app.name}
+      shared={app.settings.visibility === "company" && Boolean(app.departmentId)}
+      description={app.description}
+      meta={`${plural(app.pages.length, "page")} · changed ${timeAgo(app.updatedAt)}`}
+    />
+  );
+}
+
+function TableTile({ table }: { table: TableView }) {
+  return (
+    <Tile
+      to={`/tables/${table.key}`}
+      tone="table"
+      icon={<Table2 className="size-[18px]" />}
+      title={table.name}
+      shared={table.settings.visibility === "company" && Boolean(table.departmentId)}
+      description={table.description}
+      meta={`${plural(table.records, "record")} · ${plural(table.fields.length, "field")} · changed ${timeAgo(table.updatedAt)}`}
+    />
+  );
+}
+
+/** By department (or the whole company), in the order people meet them. */
+function byDepartment<T extends { departmentId: string | null }>(items: T[], name: Map<string, string>): [string, T[]][] {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    const group = item.departmentId ? (name.get(item.departmentId) ?? "A department") : "The whole company";
+    groups.set(group, [...(groups.get(group) ?? []), item]);
+  }
+  return [...groups.entries()];
+}
+
+/** Apps: the apps and tables the viewer's departments keep. */
 export default function Apps() {
   const [archived, setArchived] = useState(false);
+  const apps = useApps(archived);
   const tables = useTables(archived);
   const departments = useDepartments();
   const { departments: mine, companyWide } = useTableDepartments();
   const canMake = companyWide || mine.length > 0;
-  const [making, setMaking] = useState(false);
+  const [making, setMaking] = useState<"app" | "table" | null>(null);
   const name = new Map((departments.data ?? []).map((d) => [d.id, d.name]));
-  const groups = new Map<string, TableView[]>();
-  for (const table of tables.data ?? []) {
-    const group = table.departmentId ? (name.get(table.departmentId) ?? "A department") : "The whole company";
-    groups.set(group, [...(groups.get(group) ?? []), table]);
-  }
+  const loading = apps.isLoading || tables.isLoading;
+  const empty = apps.data?.length === 0 && tables.data?.length === 0;
 
   return (
     <Page>
       <PageHeader
         icon={LayoutGrid}
         title="Apps"
-        description="What your departments keep track of. Say what you need in plain words and the Studio makes the table; your AI employees can file into it too."
+        description="What your departments keep track of, and the screens they work it on. Say what you need in plain words: the Studio makes the app and its table, and your AI employees can file into it too."
         actions={
           canMake && (
-            <Button variant="primary" icon={Plus} onClick={() => setMaking(true)}>
-              New table
-            </Button>
+            <>
+              <Button icon={Table2} onClick={() => setMaking("table")}>
+                New table
+              </Button>
+              <Button variant="primary" icon={Plus} onClick={() => setMaking("app")}>
+                New app
+              </Button>
+            </>
           )
         }
       />
-      {tables.error && <ErrorState error={tables.error} onRetry={() => void tables.refetch()} />}
-      {tables.isLoading && (
+      {(apps.error || tables.error) && <ErrorState error={apps.error ?? tables.error} onRetry={() => void apps.refetch()} />}
+      {loading && (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-28" />
           ))}
         </div>
       )}
-      {tables.data?.length === 0 &&
+      {empty &&
         (archived ? (
-          <EmptyState icon={Archive} title="No archived tables" compact />
+          <EmptyState icon={Archive} title="Nothing archived" compact />
         ) : (
           <EmptyState
-            icon={Table2}
-            title="No tables yet"
-            description='Describe what to keep track of, for example "supplier complaints: supplier, order number, problem, status, owner". Nobody needs to think about a database.'
+            icon={LayoutGrid}
+            title="No apps yet"
+            description='Describe what you need, for example "supplier complaints: supplier, order number, problem, owner; log a complaint, see the open ones by supplier, close them". Nobody needs to think about a database.'
             action={
               canMake ? (
-                <Button variant="primary" icon={Plus} onClick={() => setMaking(true)}>
-                  New table
+                <Button variant="primary" icon={Plus} onClick={() => setMaking("app")}>
+                  New app
                 </Button>
               ) : undefined
             }
           />
         ))}
-      <div className="space-y-6">
-        {[...groups.entries()].map(([group, list]) => (
-          <section key={group}>
-            <SectionTitle>{group}</SectionTitle>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {list.map((table) => (
-                <TableCard key={table.id} table={table} />
-              ))}
-            </div>
+      <div className="space-y-8">
+        {(apps.data?.length ?? 0) > 0 && (
+          <section className="space-y-5">
+            {byDepartment(apps.data ?? [], name).map(([group, list]) => (
+              <div key={group}>
+                <SectionTitle>{`Apps · ${group}`}</SectionTitle>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {list.map((app) => (
+                    <AppTile key={app.id} app={app} />
+                  ))}
+                </div>
+              </div>
+            ))}
           </section>
-        ))}
+        )}
+        {(tables.data?.length ?? 0) > 0 && (
+          <section className="space-y-5">
+            {byDepartment(tables.data ?? [], name).map(([group, list]) => (
+              <div key={group}>
+                <SectionTitle>{`Tables · ${group}`}</SectionTitle>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {list.map((table) => (
+                    <TableTile key={table.id} table={table} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
       </div>
       <div className="mt-8">
         <Button variant="ghost" size="sm" icon={Archive} onClick={() => setArchived((a) => !a)}>
-          {archived ? "Back to the tables in use" : "Archived tables"}
+          {archived ? "Back to the ones in use" : "Archived apps and tables"}
         </Button>
       </div>
-      <NewTableDialog open={making} onClose={() => setMaking(false)} />
+      <NewAppDialog open={making === "app"} onClose={() => setMaking(null)} />
+      <NewTableDialog open={making === "table"} onClose={() => setMaking(null)} />
     </Page>
   );
 }

@@ -906,7 +906,7 @@ export default function AiEmployee() {
           </Button>
         )}
         {definition.ui.layout !== "none" && (
-          <ButtonLink size="sm" variant="ghost" to={`/apps/${agent.slug}`} icon={ExternalLink}>
+          <ButtonLink size="sm" variant="ghost" to={`/ai/${agent.slug}/app`} icon={ExternalLink}>
             Open its page
           </ButtonLink>
         )}

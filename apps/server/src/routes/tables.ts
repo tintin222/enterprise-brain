@@ -181,6 +181,33 @@ export async function tableRoutes(app: FastifyInstance, ctx: AppContext) {
     return { ...found, table: withRights(viewerOf(request), found.table) };
   });
 
+  /** Records counted (or a number added up or averaged), by a field: ?groupBy=&of=count|sum|average&field=&limit=&filter.<field>= */
+  app.get("/api/companies/:company/tables/:table/summary", async (request) => {
+    const company = await companyOf(platform, request);
+    const { table: ref } = request.params as { table: string };
+    const table = await tableFor(request, company.id, ref);
+    const raw = (request.query ?? {}) as Record<string, string | undefined>;
+    const query = z
+      .object({
+        groupBy: z.string().max(60).optional(),
+        of: z.enum(["count", "sum", "average"]).optional(),
+        field: z.string().max(60).optional(),
+        limit: z.coerce.number().int().min(2).max(50).optional(),
+      })
+      .parse(raw);
+    const where = Object.fromEntries(
+      Object.entries(raw)
+        .filter(([key, value]) => key.startsWith("filter.") && value)
+        .map(([key, value]) => [key.slice("filter.".length), value]),
+    );
+    return platform.tables.summarize(company.id, table.id, {
+      ...(query.groupBy ? { groupBy: query.groupBy } : {}),
+      measure: { of: query.of ?? "count", ...(query.field ? { field: query.field } : {}) },
+      where,
+      ...(query.limit ? { limit: query.limit } : {}),
+    });
+  });
+
   app.post("/api/companies/:company/tables/:table/records", async (request) => {
     const company = await companyOf(platform, request);
     const { table: ref } = request.params as { table: string };

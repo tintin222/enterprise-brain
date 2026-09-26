@@ -181,7 +181,7 @@ export default function RunDetail() {
         </div>
         <div className="flex gap-2">
           {agent && (
-            <ButtonLink to={`/apps/${agent.slug}`} size="sm">
+            <ButtonLink to={`/ai/${agent.slug}/app`} size="sm">
               Open app
             </ButtonLink>
           )}

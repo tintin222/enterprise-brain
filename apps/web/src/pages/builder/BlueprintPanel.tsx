@@ -209,7 +209,7 @@ export function Blueprint({ definition, showPreview = true }: { definition: Agen
               <span className="size-2.5 rounded-full bg-red-400/70" />
               <span className="size-2.5 rounded-full bg-amber-400/70" />
               <span className="size-2.5 rounded-full bg-emerald-400/70" />
-              <span className="ml-2 truncate text-xs text-muted">/apps/{definition.slug}</span>
+              <span className="ml-2 truncate text-xs text-muted">/ai/{definition.slug}/app</span>
             </div>
             <div className="bg-surface p-4">
               <p className="text-sm font-semibold text-fg">{definition.ui.title ?? definition.name}</p>

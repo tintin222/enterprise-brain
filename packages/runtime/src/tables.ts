@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, isNotNull, isNull, sql, type SQL } from "drizzle
 import {
   checkRecordValues,
   RecordValueError,
+  sameData,
   TableDesign,
   TableSettings,
   tableKeyOf,
@@ -114,6 +115,22 @@ export type TableChanges = Partial<Pick<TableDesignInput, "name" | "description"
   departmentId?: string | null;
   settings?: Partial<TableSettings>;
 };
+
+/** What a chart or a number shows: records counted, or a number field added up or averaged, by a field. */
+export interface SummaryQuery {
+  groupBy?: string;
+  measure?: { of: "count" | "sum" | "average"; field?: string };
+  where?: Record<string, unknown>;
+  /** Only the largest this many groups; the rest together as "Other". */
+  limit?: number;
+}
+
+export interface Summary {
+  /** In the order of a choice's list, of dates, else largest first. `key` null: records without a value. */
+  groups: { key: string | null; label: string; value: number }[];
+  /** All records together (the average of all, for an average). */
+  total: number;
+}
 
 export interface ImportResult {
   /** Which field each column went to (column → field key). */
@@ -259,7 +276,7 @@ export class TableService {
       titleField: changes.titleField === undefined ? before.titleField : changes.titleField || undefined,
     });
     await this.checkLinks(companyId, design);
-    const redesigned = JSON.stringify(design.fields) !== JSON.stringify(before.fields) || design.titleField !== before.titleField;
+    const redesigned = !sameData(design.fields, before.fields) || design.titleField !== before.titleField;
     if (changes.fields) await this.convertValues(companyId, row, before, design);
     const [updated] = await this.handle.db
       .update(dataTables)
@@ -289,6 +306,15 @@ export class TableService {
       .returning();
     await this.syncActions(companyId);
     return this.view(updated!, await this.count(row.id));
+  }
+
+  /** Take back a table nobody has used yet (no records): what making an app undoes when the app can't be made. */
+  async remove(companyId: string, ref: string): Promise<void> {
+    const row = await this.row(companyId, ref);
+    const [used] = await this.handle.db.select({ id: dataRecords.id }).from(dataRecords).where(eq(dataRecords.tableId, row.id)).limit(1);
+    if (used) throw new TableError(`${row.name} has records; archive it instead`, 409);
+    await this.handle.db.delete(dataTables).where(eq(dataTables.id, row.id));
+    await this.syncActions(companyId);
   }
 
   private async row(companyId: string, ref: string): Promise<TableRow> {
@@ -360,13 +386,7 @@ export class TableService {
     const old = new Map(before.fields.map((f) => [f.key, f]));
     const changed = after.fields.filter((f) => {
       const was = old.get(f.key);
-      return (
-        !was ||
-        was.type !== f.type ||
-        JSON.stringify(was.choices ?? []) !== JSON.stringify(f.choices ?? []) ||
-        was.table !== f.table ||
-        was.currency !== f.currency
-      );
+      return !was || was.type !== f.type || !sameData(was.choices ?? [], f.choices ?? []) || was.table !== f.table || was.currency !== f.currency;
     });
     if (!changed.length) return;
     const records = await this.handle.db
@@ -806,6 +826,89 @@ export class TableService {
       .where(and(eq(dataRecords.tableId, table.id), isNull(dataRecords.archivedAt), match))
       .limit(2);
     return rows.length === 1 ? rows[0]!.id : undefined;
+  }
+
+  /** Records counted, or a number field added up or averaged, in groups by a field (a date by month). */
+  async summarize(companyId: string, ref: string, query: SummaryQuery = {}): Promise<Summary> {
+    const row = await this.row(companyId, ref);
+    const design = designOf(row);
+    const conditions = await this.conditions(companyId, row, { where: query.where });
+    const of = query.measure?.of ?? "count";
+    let value: SQL<number> = sql<number>`count(*)::float8`;
+    if (of !== "count") {
+      const field = design.fields.find((f) => f.key === query.measure?.field);
+      if (!field || (field.type !== "number" && field.type !== "money"))
+        throw new TableError(`To ${of === "sum" ? "add up" : "average"}, name a number field of ${row.name}`);
+      const number = sql`(${dataRecords.data} ->> ${field.key}::text)::numeric`;
+      value = of === "sum" ? sql<number>`coalesce(sum(${number}), 0)::float8` : sql<number>`coalesce(avg(${number}), 0)::float8`;
+    }
+    const [all] = await this.handle.db
+      .select({ value })
+      .from(dataRecords)
+      .where(and(...conditions));
+    const total = all?.value ?? 0;
+    if (!query.groupBy) return { groups: [], total };
+    const group = design.fields.find((f) => f.key === query.groupBy);
+    if (!group) throw new TableError(`${row.name} has no field "${query.groupBy}"`);
+    const bucket = group.type === "date" ? sql`substr(${dataRecords.data} ->> ${group.key}::text, 1, 7)` : sql`${dataRecords.data} ->> ${group.key}::text`;
+    // Grouped by the first column: the same expression written twice would be two different parameters.
+    const rows = (await this.handle.db
+      .select({ key: sql<string | null>`${bucket}`, value })
+      .from(dataRecords)
+      .where(and(...conditions))
+      .groupBy(sql.raw("1"))) as { key: string | null; value: number }[];
+    const linked =
+      group.type === "link"
+        ? await this.linkedTitles(
+            companyId,
+            rows.flatMap((r) => (r.key ? [r.key] : [])),
+          )
+        : new Map<string, string>();
+    const names =
+      group.type === "person"
+        ? await this.peopleNames(
+            companyId,
+            rows.flatMap((r) => (r.key ? [r.key] : [])),
+          )
+        : new Map<string, string>();
+    const label = (key: string | null): string => {
+      if (key === null) return "Not given";
+      if (group.type === "yes_no") return key === "true" ? "Yes" : "No";
+      if (group.type === "link") return linked.get(key) ?? "(a removed record)";
+      if (group.type === "person") return names.get(key) ?? key;
+      return key;
+    };
+    let groups = rows.map((r) => ({ key: r.key, label: label(r.key), value: r.value }));
+    const position = (key: string | null) => (key === null ? Infinity : (group.choices ?? []).indexOf(key) >= 0 ? (group.choices ?? []).indexOf(key) : 1000);
+    if (group.type === "choice") groups.sort((a, b) => position(a.key) - position(b.key));
+    else if (group.type === "date") groups.sort((a, b) => (a.key ?? "9999").localeCompare(b.key ?? "9999"));
+    else groups.sort((a, b) => b.value - a.value || a.label.localeCompare(b.label));
+    const limit = query.limit;
+    if (limit && groups.length > limit && group.type !== "date") {
+      const kept = [...groups].sort((a, b) => b.value - a.value).slice(0, limit - 1);
+      const rest = groups.filter((g) => !kept.includes(g));
+      groups = [
+        ...groups.filter((g) => kept.includes(g)),
+        {
+          key: "__other__",
+          label: "Other",
+          value: of === "average" ? rest.reduce((sum, g) => sum + g.value, 0) / rest.length : rest.reduce((sum, g) => sum + g.value, 0),
+        },
+      ];
+    }
+    return { groups, total };
+  }
+
+  /** Problems with values for a table's fields (a filter, an action's values), without saving anything. */
+  async checkValues(companyId: string, ref: string, values: Record<string, unknown>): Promise<string[]> {
+    const row = await this.row(companyId, ref);
+    try {
+      await checkRecordValues(designOf(row), values, this.resolvers(companyId), { partial: true });
+      return [];
+    } catch (error) {
+      if (error instanceof RecordValueError) return error.problems;
+      throw error;
+    }
   }
 
   // -------------------------------------------------------------------------

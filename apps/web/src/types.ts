@@ -1505,3 +1505,107 @@ export interface TableImport {
   sheet: string;
   rows: number;
 }
+
+// ---------------------------------------------------------------------------
+// Apps: pages of blocks on tables, drawn by the platform
+// ---------------------------------------------------------------------------
+
+export type BlockFilter = Record<string, string | number | boolean>;
+
+/** A quick change from a list or a board: set fields, or give the record to an AI employee. */
+export interface RecordAction {
+  label: string;
+  set?: Record<string, string | number | boolean | null>;
+  agent?: string;
+  /** The work, with {field} from the record. */
+  ask?: string;
+  confirm?: boolean;
+}
+
+export interface Measure {
+  of: "count" | "sum" | "average";
+  field?: string;
+}
+
+export type AppBlock =
+  | {
+      type: "list";
+      title?: string;
+      table: string;
+      fields?: string[];
+      filter?: BlockFilter;
+      sort?: { field: string; direction: "asc" | "desc" };
+      groupBy?: string;
+      search?: boolean;
+      actions?: RecordAction[];
+      limit?: number;
+    }
+  | { type: "form"; title?: string; table: string; fields?: string[]; values?: BlockFilter; submitLabel?: string }
+  | { type: "board"; title?: string; table: string; groupBy: string; fields?: string[]; filter?: BlockFilter; actions?: RecordAction[] }
+  | { type: "chart"; title?: string; table: string; groupBy: string; measure: Measure; kind: "bar" | "pie"; filter?: BlockFilter; limit?: number }
+  | { type: "number"; title: string; table: string; measure: Measure; filter?: BlockFilter }
+  | { type: "button"; title: string; description?: string; agent: string; ask: string }
+  | { type: "text"; title?: string; text: string };
+
+export interface AppPageSpec {
+  key: string;
+  title: string;
+  blocks: AppBlock[];
+}
+
+export interface AppView {
+  id: string;
+  key: string;
+  name: string;
+  description: string;
+  icon: string | null;
+  departmentId: string | null;
+  pages: AppPageSpec[];
+  settings: { visibility: "department" | "company" };
+  version: number;
+  tables: string[];
+  agents: string[];
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+  archivedAt: string | null;
+  can: { design: boolean };
+}
+
+/** Each page's blocks in plain words. */
+export interface AppOutlinePage {
+  key: string;
+  title: string;
+  blocks: string[];
+}
+
+export interface AppDetail {
+  app: AppView;
+  /** Its tables the viewer sees, with their rights. */
+  tables: TableView[];
+  /** The AI employees its buttons give work to. */
+  agents: { slug: string; name: string; status: string }[];
+  outline: AppOutlinePage[];
+}
+
+export interface AppDesignSpec {
+  key: string;
+  name: string;
+  description: string;
+  icon?: string;
+  pages: AppPageSpec[];
+}
+
+export interface AppProposal {
+  design: AppDesignSpec;
+  /** Tables made first, for the app. */
+  tables: TableDesign[];
+  notes: string[];
+  drafted: "model" | "words";
+  outline: AppOutlinePage[];
+}
+
+export interface TableSummary {
+  groups: { key: string | null; label: string; value: number }[];
+  total: number;
+}

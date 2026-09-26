@@ -277,6 +277,22 @@ export async function checkRecordValues(
   return out;
 }
 
+/** The same data, whatever the order of keys (the database keeps JSON keys in its own order). */
+export function sameData(a: unknown, b: unknown): boolean {
+  const canonical = (value: unknown): unknown =>
+    Array.isArray(value)
+      ? value.map(canonical)
+      : value && typeof value === "object"
+        ? Object.fromEntries(
+            Object.entries(value)
+              .filter(([, v]) => v !== undefined)
+              .sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0))
+              .map(([k, v]) => [k, canonical(v)]),
+          )
+        : value;
+  return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+}
+
 /** A table key from its name: "Supplier complaints" → "supplier_complaints". */
 export function tableKeyOf(name: string): string {
   const key = name

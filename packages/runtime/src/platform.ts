@@ -27,6 +27,7 @@ import { EmailChannel, NotificationService } from "./notifications.ts";
 import { PeopleService } from "./people.ts";
 import { QueueService } from "./queue.ts";
 import { SecretBox } from "./secrets.ts";
+import { AppService } from "./apps.ts";
 import { TableService } from "./tables.ts";
 import { TeamsTransport } from "./teams.ts";
 import { TaskService } from "./tasks.ts";
@@ -90,6 +91,8 @@ export class Platform {
   readonly screens?: ScreenOperator & { close?(): Promise<void> };
   /** The tables people make (business data), which AI employees reach through the Tables connection. */
   readonly tables: TableService;
+  /** Apps people describe: pages of lists, forms, boards and charts on the tables, drawn by the platform. */
+  readonly apps: AppService;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -108,6 +111,7 @@ export class Platform {
     this.knowledge = new KnowledgeService(this.handle, this.embedder);
     this.mail = new MailService(this.handle, this.files, this.connectors);
     this.agents = new AgentService(this.handle);
+    this.apps = new AppService(this.handle, this.tables, this.agents);
     this.tasks = new TaskService(this.handle, this.events);
     this.work = new WorkService(this.handle, this.events);
     this.coachingNotes = new CoachingNotes(this.handle, this.activity);

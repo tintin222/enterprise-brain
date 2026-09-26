@@ -99,7 +99,7 @@ The AI employee is hired in **testing** ("on trial") at the agreed level and run
 
 - ask for changes in plain language ("make English a must-have", "draft the rejection email in Turkish"). `Analyst.refine()` turns the request into JSON Patch operations, so only what was asked changes. The result is validated, saved as a new version and re-tested.
 - reopen any requirement.
-- **put it to work** ("activate"). Its duties start: it follows its mailbox or system on its own, and what needs a person goes to its department's work queue. Its page is `/ai/<slug>`; its form, generated from its inputs, and its results view, generated from its outputs, are at `/apps/<slug>`.
+- **put it to work** ("activate"). Its duties start: it follows its mailbox or system on its own, and what needs a person goes to its department's work queue. Its page is `/ai/<slug>`; its form, generated from its inputs, and its results view, generated from its outputs, are at `/ai/<slug>/app`.
 
 ## Example: the HR manager's CV analyser
 

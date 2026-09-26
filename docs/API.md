@@ -208,6 +208,20 @@ Business data people describe in plain words (Apps). A table belongs to a depart
 | POST | `/api/companies/:company/tables/:table/import` | Multipart with an Excel or CSV file: checks it and adds nothing → `{ fileId, fileName, sheet, rows, columns: { <column>: <field key> }, ignored[], ready, added: 0, problems: [{ row, problems[] }] }` (rows as the sheet numbers them); then JSON `{ fileId }` adds its rows that fit |
 | GET | `/api/companies/:company/tables/:table/export` | The records as an Excel file, links and people by name |
 
+## Apps
+
+Screens people describe in plain words, drawn by the platform from its own blocks on the company's tables (no code is generated or deployed). An app belongs to a department (its people use it; its managers change it) or to the whole company, and can be shared with everyone; each block shows only what the viewer may see of its table. `AppBlock`: `list` `{ table, fields?, filter?, sort?: { field, direction }, groupBy?, search?, actions?: RecordAction[], limit? }`, `form` `{ table, fields?, values?, submitLabel? }` (required fields are always asked), `board` `{ table, groupBy (a choice field: its values are the columns), fields?, filter?, actions? }`, `chart` `{ table, groupBy (a date groups by month), measure: { of: count\|sum\|average, field? }, kind: bar\|pie, filter?, limit? }`, `number` `{ title, table, measure, filter? }`, `button` `{ title, agent (slug), ask }` (gives the AI employee work), `text` `{ text }`, each with an optional `title`. `RecordAction`: `{ label, set?: { field: value }, agent?, ask? ("Draft a reply to {customer}"), confirm? }`. An app is checked against its tables and AI employees when it is saved (every field exists, a board's columns are a choice, a sum is of a number, filter values fit, each AI employee exists): one that wouldn't work answers 400 with `{ error, problems[] }`.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/companies/:company/apps?archived=true` | The apps the viewer uses: `{ id, key, name, description, icon, departmentId, pages: [{ key, title, blocks }], settings: { visibility }, version, tables[], agents[], createdBy, createdAt, updatedAt, archivedAt, can: { design } }[]` |
+| POST | `/api/companies/:company/apps/propose` | `{ description }` → the Studio's proposal (nothing is made): `{ design: { key, name, description, icon, pages }, tables: TableDesign[] (to make first, when the company has none for it), notes[], drafted: model\|words, outline: [{ key, title, blocks: ["A list of … whose Status is Open, in groups by Supplier, to Close"] }] }` |
+| POST | `/api/companies/:company/apps` | A manager of the department (an admin for company apps): `{ name, description?, icon?, pages, departmentId, settings?, tables?: TableDesign[] }`; the tables are made first, and taken back if the app can't be made → the app with `madeTables[]` |
+| GET | `/api/companies/:company/apps/:app` | `{ app, tables (the viewer's, with can: { edit, design }), agents: [{ slug, name, status }], outline }` |
+| PATCH | `/api/companies/:company/apps/:app` | Its managers: `{ name?, description?, icon?, pages?, departmentId?, settings? }` |
+| POST | `/api/companies/:company/apps/:app/archive` · `/restore` | Its managers |
+| GET | `/api/companies/:company/tables/:table/summary?groupBy&of=count\|sum\|average&field&limit&filter.<field>=` | For charts and numbers: `{ groups: [{ key, label, value }], total }`, a choice in the order of its list, dates by month (`2026-09`), the rest largest first; with `limit`, the others together as `Other` |
+
 ## Knowledge base & search
 
 | Method | Path | Description |

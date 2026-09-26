@@ -40,6 +40,7 @@ const UseCaseApp = lazy(() => import("./pages/UseCaseApp.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 const Apps = lazy(() => import("./pages/apps/Apps.tsx"));
 const TablePage = lazy(() => import("./pages/apps/TablePage.tsx"));
+const AppPage = lazy(() => import("./pages/apps/AppPage.tsx"));
 const SignIn = lazy(() => import("./pages/SignIn.tsx"));
 
 const queryClient = new QueryClient({
@@ -167,7 +168,8 @@ const router = createBrowserRouter([
               { path: "paperclip", element: <Paperclip /> },
             ],
           },
-          { path: "apps/:slug", element: <AgentApp /> },
+          { path: "ai/:slug/app", element: <AgentApp /> },
+          { path: "apps/:key", element: <AppPage /> },
           { path: "runs/:id", element: <RunDetail /> },
           { path: "assistant", element: <Assistant /> },
           { path: "search", element: <Search /> },

@@ -243,7 +243,7 @@ export default function Search() {
                     return (
                       <li key={a.id}>
                         <Link
-                          to={`/apps/${a.slug}`}
+                          to={`/ai/${a.slug}/app`}
                           className="flex items-start gap-3 rounded-xl border border-line bg-surface p-3 hover:border-brand-300 dark:hover:border-brand-400/40"
                         >
                           <Icon className="mt-0.5 size-4 shrink-0 text-brand-600 dark:text-brand-300" />
