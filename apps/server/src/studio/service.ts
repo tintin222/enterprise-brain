@@ -21,7 +21,7 @@ import {
   type StudioSystem,
 } from "@enterprise-brain/builder";
 import { sandboxConnectorFor } from "@enterprise-brain/connectors";
-import { AppDesign, describeDuties, isRecord, slugify, truncate, type TableField } from "@enterprise-brain/core";
+import { AppDesign, describeDuties, isRecord, slugify, truncate, type AgentDefinition, type TableField } from "@enterprise-brain/core";
 import { studioEvents, studioThreads } from "@enterprise-brain/db";
 import { extractDocument } from "@enterprise-brain/documents";
 import {
@@ -119,6 +119,11 @@ function json(value: unknown, max = 30_000): string {
   return text.length > max ? `${text.slice(0, max)}\n…(cut)` : text;
 }
 
+/** Its duties in plain words, naming the systems it watches. */
+function dutiesOf(definition: AgentDefinition): string[] {
+  return describeDuties(definition.triggers, Object.fromEntries(definition.connectors.map((c) => [c.ref, c.purpose ?? c.ref]))).map((d) => d.text);
+}
+
 function problem(text: string): ToolExecution {
   return { content: text, isError: true };
 }
@@ -127,7 +132,10 @@ export class StudioService {
   /** Turns running in this process, by conversation. */
   private readonly running = new Map<string, { turn: Turn; done: Promise<void> }>();
 
-  constructor(private readonly platform: Platform) {}
+  constructor(
+    private readonly platform: Platform,
+    private readonly options: { publicUrl?: string } = {},
+  ) {}
 
   private get db() {
     return this.platform.handle.db;
@@ -437,7 +445,8 @@ export class StudioService {
     for (const instance of await this.platform.connectors.list(companyId)) {
       if (instance.type === "tables" || ["mail", "messaging"].includes(instance.category)) continue;
       const operations = await this.platform.connectors.operationsOf(companyId, instance.id).catch(() => []);
-      if (!operations.length) continue;
+      const events = await this.platform.connectors.eventsOf(companyId, instance.id).catch(() => []);
+      if (!operations.length && !events.length) continue;
       let key = slugify(instance.name, 40);
       for (let n = 2; taken.has(key); n++) key = `${slugify(instance.name, 36)}-${n}`;
       taken.add(key);
@@ -449,6 +458,7 @@ export class StudioService {
         instanceId: instance.id,
         demo: instance.sandbox,
         actions: operations.map((o) => ({ id: o.id, name: o.name, kind: o.kind })),
+        events: events.map((e) => ({ id: e.id, name: e.name })),
       });
     }
     for (const category of ["erp", "crm", "hris", "ats", "itsm", "calendar"]) {
@@ -540,7 +550,7 @@ export class StudioService {
           department: a.row.departmentId ? (keyOf.get(a.row.departmentId) ?? null) : null,
           status: a.row.status,
           does: a.definition.summary,
-          duties: describeDuties(a.definition.triggers).map((d) => d.text),
+          duties: dutiesOf(a.definition),
           ...(solution.employees.some((e) => e.agentId === a.row.id) ? { made_here: true } : {}),
         })),
       tables: tables
@@ -563,6 +573,7 @@ export class StudioService {
         kind: s.demo ? "demo, until IT connects the real one" : "connected",
         category: s.category,
         actions: s.actions.length,
+        ...(s.events?.length ? { watch_for: s.events } : {}),
       })),
       mailboxes: manages
         ? mailboxes.map((m) => ({ address: m.mailbox, emails: m.total, followed_by: followers(m.mailbox) }))
@@ -656,7 +667,7 @@ export class StudioService {
           status: agent.row.status,
           level: agent.row.probation,
           does: agent.definition.summary,
-          duties: describeDuties(agent.definition.triggers).map((d) => d.text),
+          duties: dutiesOf(agent.definition),
           may_use: abilitiesOf(agent.definition),
           asks_approval_for: agent.definition.guardrails.approvalRequiredFor,
           job: truncate(agent.definition.instructions, 12_000),
@@ -698,6 +709,7 @@ export class StudioService {
         key: system.key,
         name: system.name,
         kind: system.demo ? "demo, until IT connects the real one" : "connected",
+        can_be_watched_for: system.events ?? [],
         actions: operations.map((o) => ({
           id: o.id,
           name: o.name,
@@ -741,6 +753,13 @@ export class StudioService {
     await this.saveSolution(id, solution);
     await this.event(id, "request", { system: input.system, needed: input.needed, workItemId: item.id });
     return { content: `Asked IT: “${item.title}”. The answer will show in look_around under requests_to_it. Tell the person.` };
+  }
+
+  /** For IT: how another system gives an AI employee work. */
+  private async callNote(companyId: string, slug: string): Promise<string> {
+    const company = await this.platform.company(companyId);
+    const base = (this.options.publicUrl ?? "").replace(/\/$/, "");
+    return `For IT: another system gives it work by calling POST ${base}/api/companies/${company?.slug ?? companyId}/agents/${slug}/runs with {"input": {…the item…}, "trigger": "webhook", "wait": false} and the machine key (EB_API_KEY) as a Bearer token.`;
   }
 
   private async departmentFor(companyId: string, thread: ThreadRow, key: string | undefined) {
@@ -840,6 +859,7 @@ export class StudioService {
     if (spec.key && !mine) return problem(`You didn't make "${spec.key}" in this conversation: AI employees at work are changed from their page.`);
     const compiled = compileEmployee({ ...spec, department: department.key }, await this.compileContext(companyId, mine?.key));
     if (compiled.problems.length) return problem(`Not saved: ${compiled.problems.join(" ")}`);
+    const called = compiled.definition.triggers.some((t) => t.type === "webhook");
     let agent;
     if (mine) {
       agent = await this.platform.agents.update(companyId, mine.agentId, compiled.definition, { note: "Changed in the Studio", createdBy: viewer.name });
@@ -858,15 +878,19 @@ export class StudioService {
       });
       solution.employees.push({ key: agent.row.slug, agentId: agent.row.id, spec, notes: compiled.notes });
     }
+    if (called) {
+      const entry = solution.employees.find((e) => e.agentId === agent.row.id)!;
+      entry.notes = [...entry.notes, await this.callNote(companyId, agent.row.slug)];
+    }
     await this.saveSolution(id, solution);
     await this.event(id, "part", { part: "ai_employee", key: agent.row.slug, name: agent.definition.name, changed: Boolean(mine) });
     return {
       content: json({
         key: agent.row.slug,
         saved: mine ? "changed (still a draft)" : "made, as a draft: it works only in tries until the solution is put to work",
-        duties: describeDuties(agent.definition.triggers).map((d) => d.text),
+        duties: dutiesOf(agent.definition),
         may_use: abilitiesOf(agent.definition),
-        notes: compiled.notes,
+        notes: solution.employees.find((e) => e.agentId === agent.row.id)?.notes ?? compiled.notes,
         next: "Try it on real examples with try_ai_employee.",
       }),
     };
@@ -948,7 +972,8 @@ export class StudioService {
       example = `a made-up email, “${truncate(input.email.subject, 70)}”`;
     } else if (input.file_id) {
       const file = await this.platform.files.get(companyId, input.file_id);
-      runInput = { file: { id: file.id, name: file.name } };
+      // As a new file in a watched folder arrives: its id, and what the folder said about it.
+      runInput = { file: file.id, event: { file_id: file.id, name: file.name }, eventType: "new_file" };
       example = file.name;
     } else if (input.form) {
       runInput = input.form;

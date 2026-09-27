@@ -11,7 +11,7 @@ import { StudioService } from "../studio/service.ts";
  */
 export async function studioRoutes(app: FastifyInstance, ctx: AppContext) {
   const { platform } = ctx;
-  const studio = (ctx.studio ??= new StudioService(platform));
+  const studio = (ctx.studio ??= new StudioService(platform, { publicUrl: ctx.config.publicUrl }));
   const base = "/api/companies/:company/studio/threads";
 
   app.post(base, async (request) => {

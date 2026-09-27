@@ -181,6 +181,74 @@ describe("an AI employee from plain words", () => {
   });
 });
 
+describe("work that doesn't come by email", () => {
+  const withFolder: CompileContext = {
+    ...ctx,
+    systems: [
+      ...ctx.systems,
+      {
+        key: "invoice-folder",
+        name: "Invoice folder",
+        category: "storage",
+        instanceId: "conn-folder",
+        demo: false,
+        actions: [{ id: "move_file", name: "Move a file", kind: "write" }],
+        events: [{ id: "new_file", name: "New file" }],
+      },
+    ],
+  };
+  const invoiceClerk = {
+    name: "Invoice Clerk",
+    role: "Files the supplier invoices scanned into the invoice folder",
+    department: "operations",
+    job: "For each new invoice file: read it, add it to Supplier complaints when it disputes a delivery, and keep a monthly Excel summary.",
+    form: [],
+    approval: ["changes" as const],
+    level: "supervised" as const,
+  };
+
+  it("starts on each new file in a watched folder, or when another system calls it, and works with Excel", () => {
+    const { definition, problems, notes } = compileEmployee(
+      {
+        ...invoiceClerk,
+        starts: [
+          { when: "system", system: "invoice-folder", event: "new_file" },
+          { when: "call", about: "An invoice from the supplier portal" },
+        ],
+        can: { documents: true, excel: true },
+      },
+      withFolder,
+    );
+    expect(problems).toEqual([]);
+    expect(definition).toMatchObject({
+      archetype: "document-processing",
+      triggers: [
+        { type: "connector-event", connector: "invoice_folder", event: "new_file" },
+        { type: "webhook", description: "An invoice from the supplier portal" },
+        { type: "manual" },
+      ],
+      // Watched, with no actions of its own there.
+      connectors: [{ ref: "invoice_folder", category: "storage", instanceId: "conn-folder", purpose: "Invoice folder", operations: [] }],
+      tools: ["documents.read", "excel.read", "excel.write"],
+    });
+    expect(notes).toEqual(["It picks up what is new in Invoice folder from the moment it is put to work; what is there before stays as it is."]);
+    expect(employeeCard(definition, "supervised")).toMatchObject({
+      duties: ["Picks up each new file in Invoice folder", "Acts when another system calls it: An invoice from the supplier portal"],
+      abilities: ["Reads attachments and files", "Reads Excel and CSV files, and writes Excel workbooks"],
+    });
+  });
+
+  it("only watches what a connection can be watched for", () => {
+    const watch = (system: string, event: string) =>
+      compileEmployee({ ...invoiceClerk, starts: [{ when: "system", system, event }], can: {} }, withFolder).problems;
+    expect(watch("invoice-folder", "new_record")).toEqual(['Invoice folder can\'t be watched for "new_record". It can be watched for: new_file (New file).']);
+    expect(watch("demo-erp", "new_file")).toEqual([
+      "Demo ERP can't be watched for new items. Ask IT (ask_it) to connect it with something to watch, such as a folder or an action that lists new records.",
+    ]);
+    expect(watch("sftp", "new_file")).toEqual(['There is no connected system "sftp"; use a key from look_around, or ask IT with ask_it.']);
+  });
+});
+
 describe("the Studio's own parts", () => {
   it("plans an app on the tables it was given", () => {
     const design = AppDesign.parse(

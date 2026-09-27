@@ -38,6 +38,10 @@ export const EmployeeStart = z.discriminatedUnion("when", [
     time: z.string().regex(TIME).optional(),
   }),
   z.object({ when: z.literal("form") }),
+  /** Something happening in a connected system: a new file in a watched folder, a new record or row. */
+  z.object({ when: z.literal("system"), system: z.string().min(1), event: z.string().min(1) }),
+  /** Another system calls it, with the item to work on. */
+  z.object({ when: z.literal("call"), about: z.string().max(300).optional() }),
 ]);
 export type EmployeeStart = z.infer<typeof EmployeeStart>;
 
@@ -55,6 +59,8 @@ export type FormFieldSpec = z.infer<typeof FormFieldSpec>;
 export const EmployeeAbilities = z.object({
   /** Read attachments and files. */
   documents: z.boolean().optional(),
+  /** Read Excel and CSV files as rows, and write Excel workbooks. */
+  excel: z.boolean().optional(),
   /** Search the company's knowledge: all of it, or these collections. */
   knowledge: z.union([z.boolean(), z.array(z.string())]).optional(),
   /** Emails: none, drafts people send, or sent by itself (asking first while on probation). */
@@ -297,10 +303,14 @@ export const STUDIO_TOOLS: ToolDefinition[] = [
             properties: {
               when: {
                 type: "string",
-                enum: ["email", "schedule", "form"],
-                description: "email: each email to a mailbox; schedule: regularly; form: each time people fill its form",
+                enum: ["email", "schedule", "form", "system", "call"],
+                description:
+                  "email: each email to a mailbox; schedule: regularly; form: each time people fill its form; system: each time something happens in a connected system (a new file in a watched folder, a new record or row: the events look_around lists); call: each time another system calls it with an item",
               },
               mailbox: string("For email: the mailbox address"),
+              system: string("For system: the system's key, from look_around"),
+              event: string("For system: the event's id, e.g. new_file"),
+              about: string("For call: what the other system sends"),
               every: { type: "string", enum: ["day", "weekday", "week", "month"] },
               weekday: { type: "integer", description: "For every week: 0 Sunday … 6 Saturday" },
               day: { type: "integer", description: "For every month: the day, 1 to 28" },
@@ -315,6 +325,7 @@ export const STUDIO_TOOLS: ToolDefinition[] = [
           description: "What it may use",
           properties: {
             documents: { type: "boolean", description: "Read attachments and files" },
+            excel: { type: "boolean", description: "Read Excel and CSV files as rows, and write Excel workbooks" },
             knowledge: { description: "Search the company's knowledge: true for all, or a list of collection keys" },
             emails: {
               type: "string",
@@ -425,11 +436,11 @@ export function studioSystemPrompt(ctx: StudioContext): string {
       ? "IT, for the whole company"
       : "the company";
   return [
-    `You are the Studio of Enterprise Brain at ${ctx.company}. Here people build AI employees: AI agents that do real work on their own, such as handling every email that comes to a shared mailbox, keeping a table up to date, looking things up in the company's systems, asking people when they are needed and following up until the work is done.`,
+    `You are the Studio of Enterprise Brain at ${ctx.company}. Here people build AI employees: AI agents that do real work on their own, such as handling every email that comes to a shared mailbox, every file that lands in a folder or every new record in a system, doing a job every morning or every month, answering people's questions, keeping a table up to date, looking things up in the company's systems, asking people when they are needed and following up until the work is done.`,
     `You are working with ${ctx.person.name}${ctx.person.title ? `, ${ctx.person.title}` : ""} (${where}).${ctx.department ? ` They are building for ${ctx.department.name} (key ${ctx.department.key}).` : ""} They know the work; you know how to build it. They never see code, databases or settings: you take care of that with your tools.`,
     "",
     "How you work",
-    "- Understand the work before you build: where it comes from, what should happen with each kind of item, how decisions are made, who is involved, what must never happen, and when it is done. Emails and requests vary too much for templates: ask how each kind is handled, in the person's own words, and build exactly that.",
+    "- Understand the work before you build: where it comes from, what should happen with each kind of item, how decisions are made, who is involved, what must never happen, and when it is done. Work can come by email, on a schedule, from a form, from a new file or record in a connected system, from another system calling, or from people asking. Emails and requests vary too much for templates: ask how each kind is handled, in the person's own words, and build exactly that.",
     "- Look before you ask. Read the mailbox, the tables, the systems and the AI employees the company has, and never ask for something your tools can show you. Say briefly what you found.",
     "- Ask with ask_person, at most three questions at a time, each with the answer you recommend. Decisions are theirs; facts are yours to find. Once you know enough, build: don't interview for its own sake.",
     "- Build with save_table (what should be tracked, one record per case), save_ai_employee (who does the work) and save_app (the screens people use). Reuse what the company already has when it fits.",
@@ -460,6 +471,8 @@ export interface StudioSystem {
   instanceId?: string;
   demo: boolean;
   actions: { id: string; name: string; kind: "read" | "write" }[];
+  /** What it can be watched for (a connection only): a new file, a new record from a watched action. */
+  events?: { id: string; name: string }[];
 }
 
 export interface CompileContext {
@@ -525,6 +538,10 @@ export function compileEmployee(input: EmployeeSpec, ctx: CompileContext): Compi
   const connectors: AgentDefinition["connectors"] = [];
   const can = spec.can;
   if (can.documents) capabilities.add("documents.read");
+  if (can.excel) {
+    capabilities.add("excel.read");
+    capabilities.add("excel.write");
+  }
   if (can.knowledge) capabilities.add("knowledge.search");
   const collections = Array.isArray(can.knowledge) ? can.knowledge : [];
   for (const key of collections) if (!ctx.collections.includes(key)) problems.push(`There is no knowledge collection "${key}".`);
@@ -564,8 +581,10 @@ export function compileEmployee(input: EmployeeSpec, ctx: CompileContext): Compi
     for (const op of tableOps) capabilities.add(`connector:tables.${op}`);
   }
 
+  const systemOf = (ref: string) => ctx.systems.find((s) => s.key === ref || s.instanceId === ref || s.name.toLowerCase() === ref.toLowerCase());
+  const refOf = (system: StudioSystem) => (system.demo && !system.instanceId ? system.category : slugify(system.key, 40).replace(/-/g, "_"));
   for (const use of can.actions ?? []) {
-    const system = ctx.systems.find((s) => s.key === use.system || s.instanceId === use.system || s.name.toLowerCase() === use.system.toLowerCase());
+    const system = systemOf(use.system);
     if (!system) {
       problems.push(`There is no connected system "${use.system}"; use a key from look_around, or ask IT with ask_it.`);
       continue;
@@ -578,7 +597,7 @@ export function compileEmployee(input: EmployeeSpec, ctx: CompileContext): Compi
       );
     }
     if (!known.length) continue;
-    const ref = system.demo ? system.category : slugify(system.key, 40).replace(/-/g, "_");
+    const ref = refOf(system);
     const existing = connectors.find((c) => c.ref === ref);
     if (existing) existing.operations = [...new Set([...(existing.operations ?? []), ...known])];
     else
@@ -607,6 +626,29 @@ export function compileEmployee(input: EmployeeSpec, ctx: CompileContext): Compi
       triggers.push({ type: "schedule", cron, ...(ctx.timeZone ? { timezone: ctx.timeZone } : {}) });
     } else if (start.when === "form") {
       triggers.push({ type: "form", description: spec.role });
+    } else if (start.when === "system") {
+      const system = systemOf(start.system);
+      if (!system) {
+        problems.push(`There is no connected system "${start.system}"; use a key from look_around, or ask IT with ask_it.`);
+        continue;
+      }
+      const events = system.events ?? [];
+      if (!system.instanceId || !events.some((e) => e.id === start.event)) {
+        problems.push(
+          events.length && system.instanceId
+            ? `${system.name} can't be watched for "${start.event}". It can be watched for: ${events.map((e) => `${e.id} (${e.name})`).join(", ")}.`
+            : `${system.name} can't be watched for new items. Ask IT (ask_it) to connect it with something to watch, such as a folder or an action that lists new records.`,
+        );
+        continue;
+      }
+      const ref = refOf(system);
+      // The duty needs the system among its connections, even with no actions to use there.
+      if (!connectors.some((c) => c.ref === ref))
+        connectors.push({ ref, category: system.category, instanceId: system.instanceId, purpose: system.name, operations: [] });
+      triggers.push({ type: "connector-event", connector: ref, event: start.event });
+      notes.push(`It picks up what is new in ${system.name} from the moment it is put to work; what is there before stays as it is.`);
+    } else if (start.when === "call") {
+      triggers.push({ type: "webhook", ...(start.about ? { description: start.about } : {}) });
     }
   }
   if (spec.starts.some((s) => s.when === "email")) {
@@ -654,7 +696,7 @@ export function compileEmployee(input: EmployeeSpec, ctx: CompileContext): Compi
       title: spec.role,
       summary: spec.role,
       ...(department ? { department: department.key } : {}),
-      archetype: email ? "mail-triage" : "process-automation",
+      archetype: email ? "mail-triage" : spec.starts.some((s) => s.when === "system" && s.event === "new_file") ? "document-processing" : "process-automation",
       instructions: department ? `${spec.job}\n\nYou work in ${department.name}.` : spec.job,
       model: { effort: "medium" },
       inputs,
@@ -713,6 +755,8 @@ export function abilitiesOf(definition: AgentDefinition, names: { tables?: Recor
   const out: string[] = [];
   const tools = new Set(definition.tools);
   if (tools.has("documents.read")) out.push("Reads attachments and files");
+  if (tools.has("excel.read") || tools.has("excel.write"))
+    out.push(tools.has("excel.write") ? "Reads Excel and CSV files, and writes Excel workbooks" : "Reads Excel and CSV files");
   if (tools.has("knowledge.search"))
     out.push(definition.knowledge.collections.length ? `Searches ${definition.knowledge.collections.join(", ")}` : "Searches the company's knowledge");
   if (tools.has("mail.send")) out.push("Sends emails");
@@ -734,7 +778,8 @@ export function abilitiesOf(definition: AgentDefinition, names: { tables?: Recor
       }
       continue;
     }
-    out.push(`Uses ${names.systems?.[binding.ref] ?? binding.purpose ?? binding.ref}: ${ops.join(", ")}`);
+    // A system it only watches has no actions to use.
+    if (ops.length) out.push(`Uses ${names.systems?.[binding.ref] ?? binding.purpose ?? binding.ref}: ${ops.join(", ")}`);
   }
   return out;
 }
@@ -744,7 +789,10 @@ export function employeeCard(definition: AgentDefinition, level: Probation, name
   return {
     name: definition.name,
     role: definition.summary,
-    duties: describeDuties(definition.triggers).map((d) => d.text),
+    duties: describeDuties(
+      definition.triggers,
+      Object.fromEntries(definition.connectors.map((c) => [c.ref, names.systems?.[c.ref] ?? c.purpose ?? c.ref])),
+    ).map((d) => d.text),
     abilities: abilitiesOf(definition, names),
     approvals: [
       ...(definition.guardrails.approvalRequiredFor.includes("mail.send") && definition.tools.includes("mail.send") ? ["Sending emails"] : []),

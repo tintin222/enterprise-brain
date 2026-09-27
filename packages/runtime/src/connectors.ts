@@ -205,6 +205,12 @@ export class ConnectorService {
     return this.implFor(await this.row(companyId, id))?.manifest.operations ?? [];
   }
 
+  /** What a connection can be watched for: a new file, a new message, a new record from a watched action. */
+  async eventsOf(companyId: string, id: string): Promise<ConnectorManifest["events"]> {
+    const impl = this.implFor(await this.row(companyId, id));
+    return impl?.poll ? impl.manifest.events : [];
+  }
+
   /** The implementation serving a connection: its named actions (and only those) when it has any. */
   private implFor(row: typeof connectorInstances.$inferSelect): ConnectorImplementation | undefined {
     const impl = this.registry.get(row.type);
