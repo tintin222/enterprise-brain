@@ -66,6 +66,8 @@ export const EmployeeAbilities = z.object({
   /** Emails: none, drafts people send, or sent by itself (asking first while on probation). */
   emails: z.enum(["none", "draft", "send"]).optional(),
   web: z.boolean().optional(),
+  /** Look things up in the company brain at work: people and what they know, processes, systems, clients, projects. */
+  company: z.boolean().optional(),
   tables: z.array(z.object({ table: z.string(), can: z.array(z.enum(["find", "add", "update"])).min(1) })).optional(),
   actions: z.array(z.object({ system: z.string(), actions: z.array(z.string()).min(1) })).optional(),
 });
@@ -333,6 +335,11 @@ export const STUDIO_TOOLS: ToolDefinition[] = [
               description: "draft: people send what it writes; send: it sends (asking first while approval covers emails)",
             },
             web: { type: "boolean", description: "Search the web" },
+            company: {
+              type: "boolean",
+              description:
+                "Look things up in the company brain while working: who does what and who to ask, processes and their rules, systems, clients, projects",
+            },
             tables: {
               type: "array",
               items: {
@@ -551,6 +558,7 @@ export function compileEmployee(input: EmployeeSpec, ctx: CompileContext): Compi
     capabilities.add("mail.send");
   }
   if (can.web) capabilities.add("web.search");
+  if (can.company) capabilities.add("company.lookup");
 
   let personal = false;
   const tableOps: string[] = [];
@@ -762,6 +770,7 @@ export function abilitiesOf(definition: AgentDefinition, names: { tables?: Recor
   if (tools.has("mail.send")) out.push("Sends emails");
   else if (tools.has("mail.draft")) out.push("Drafts emails for people to send");
   if (tools.has("web.search")) out.push("Searches the web");
+  if (tools.has("company.lookup")) out.push("Looks things up in the company brain");
   for (const binding of definition.connectors) {
     const ops = binding.operations ?? [];
     if (binding.ref === "tables") {

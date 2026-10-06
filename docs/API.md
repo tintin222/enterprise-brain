@@ -337,10 +337,37 @@ Managers and IT read every shared mailbox; the people of a department read the o
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/companies/:company/chat/conversations?agent=` | The viewer's own conversations (a signed-in person sees only theirs) |
-| POST | `/api/companies/:company/chat/conversations` | `{ agent?, title? }` (no agent = company assistant). The conversation belongs to the person who starts it; people talk only to the AI employees of their departments (404 otherwise) |
+| POST | `/api/companies/:company/chat/conversations` | `{ agent?, title? }` (no agent = company assistant, which looks things up in the company brain and the knowledge base). The conversation belongs to the person who starts it; people talk only to the AI employees of their departments (404 otherwise) |
 | GET | `/api/companies/:company/chat/conversations/:id/messages` | `{ id, role (user/assistant), content (markdown), citations[] {n, title, collection, documentId, snippet}, createdAt }` |
 | POST | `/api/companies/:company/chat/conversations/:id/messages` | `{ text }` → assistant message |
 | POST | `/api/companies/:company/chat/conversations/:id/messages/stream` | *SSE* `{ text }` → `delta` events, then `message` |
+
+## The company brain
+
+What the company knows about itself: its people and what they know, processes, IT systems and databases, clients and partners, projects and work, goals, decisions and know-how. Everyone signed in reads it, asks it, adds notes to the timeline and writes down know-how; managers and admins add, change and remove things and links, and read its sources (403 for others). `:id` is a thing's id.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/companies/:company/brain/model` | `{ dimensions[] {key, name, icon, description}, kinds[] {key, dimension, name, plural, icon, description, fields[] {key, label, type, choices?, hint?, brief?, tracked?, hidden?}}, relations[] {key, label, inverse, from, to, detail? {label, choices?}} }`. Field types: text, long_text, number, money, percent, date, choice, url, email, phone, list, and structured `steps`, `apis`, `tables`, `contacts`, `milestones` |
+| GET | `/api/companies/:company/brain/overview` | BrainOverview: `{ company, counts {kind: n}, total, links, events {total, lastWeek, bySource}, recent[] Event, projects[] {id, name, status, health, progress, end, client, lead, openTasks, now}, attention[] {type (risk/issue/overdue/deal/goal), title, detail, entity, severity}, gaps[] {type (on-leave-expert/single-expert/no-owner/no-steps), title, detail, entity}, busy[] {person, open, tasks[]}, goals[] }` |
+| GET | `/api/companies/:company/brain/entities?kind=&kinds=a,b&q=&limit=&with=links` | Summaries `{ id, kind, key, name, summary, brief [[label, value]], updatedAt, keyLinks? }` (`with=links`: the links that say most about each, such as a task's "Who" or a project's "Lead") |
+| GET | `/api/companies/:company/brain/search?q=&kinds=a,b` | Up to 30 summaries, best first (names and other names before words in summaries) |
+| GET | `/api/companies/:company/brain/entities/:id` | Thing: a summary with `{ aliases[], data, origins {field: "manual" or a source}, refs {source: id}, createdBy, updatedBy, createdAt, links[] {id, relation, direction (out/in), label, detail, origin, other}, events[] }` |
+| POST | `/api/companies/:company/brain/entities` | `{ kind, name, summary?, aliases?, data?, links?: [{ relation, to, detail?, reverse? }] }` → Thing. Know-how (`kind: "knowhow"`) from anyone, linked to the person who shared it; anything else from managers and admins |
+| PATCH | `/api/companies/:company/brain/entities/:id` | Managers and admins. `{ name?, summary?, aliases?, data? }` → Thing. A value a person sets is never overwritten by a source |
+| DELETE | `/api/companies/:company/brain/entities/:id` | Managers and admins. A thing a source brought is hidden, so the next reading doesn't bring it back |
+| POST | `/api/companies/:company/brain/links` | Managers and admins. `{ from, relation, to, detail? }` (the relation must fit the two kinds, 400 otherwise) |
+| DELETE | `/api/companies/:company/brain/links/:id` | Managers and admins. A source's link stays removed when the source is read again |
+| GET | `/api/companies/:company/brain/events?about=&origin=&before=&limit=` | Events, newest first: `{ id, at, kind (message/email/meeting/call/update/change/note/ticket/order), origin, title, body, actor, actorId, place, about[] {id, kind, name}, data }` |
+| POST | `/api/companies/:company/brain/events` | `{ kind? (note), title, body?, at?, about?: [id] }`: a note or an update, from anyone, on the timeline of the things it is about |
+| GET | `/api/companies/:company/brain/graph?focus=&depth=1-3&limit=` | `{ focus, nodes[] {id, kind, name, depth}, edges[] {id, from, to, relation, label, detail}, more }` (no `focus`: the company) |
+| POST | `/api/companies/:company/brain/learn` | "Tell the brain": `{ text, about? }` → `{ understood, changes[] {type (add/update/link/knowhow), kind, id, name, summary, fields {key: words}, relation, to {id, name, kind}, detail, about[] {id, name}, why}, offline }`. Without Claude the text is proposed as know-how |
+| POST | `/api/companies/:company/brain/learn/apply` | `{ changes[] }` (the ones the person picked) → `{ done[], skipped[], ids[] }`. Workers' changes other than know-how are skipped |
+| GET | `/api/companies/:company/brain/sources` | `{ key, name, system, description, brings[], icon, demo, status (connected/off/new), syncs, lastSyncAt, lastResult, lastError }[]` |
+| POST | `/api/companies/:company/brain/sources/:key/connect` · `/disconnect` · `/sync` | Managers and admins. `sync` connects the source and reads it now → `{ result: SyncResult, sources[] }` |
+| POST | `/api/companies/:company/brain/sources/sync-all` | Managers and admins. Connects and reads every source in order → `{ results {key: SyncResult}, sources[] }` |
+
+**SyncResult**: `{ added, updated, unchanged, links {added, removed}, events, changes, byKind {kind: n}, skipped[] }`. Connected sources are read again every `EB_BRAIN_SYNC_MINUTES` (60; 0 turns it off) while the scheduler runs. The sources are Enterprise Brain itself (its departments, people, AI employees and processes) and demo sources standing in for HR, IT inventory, intranet, CRM, ERP, IT service desk, projects, Teams, Slack and email, with made-up data of the demo company that matches the sandbox CRM, ERP and service desk; each reading brings what changed since the last (new messages, task and project progress).
 
 ## The Studio agent
 

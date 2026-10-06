@@ -1967,3 +1967,247 @@ export interface StudioThreadSummary {
   builtAt: string | null;
   updatedAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// The company brain
+
+export type BrainFieldType =
+  | "text"
+  | "long_text"
+  | "number"
+  | "money"
+  | "percent"
+  | "date"
+  | "choice"
+  | "url"
+  | "email"
+  | "phone"
+  | "list"
+  | "steps"
+  | "apis"
+  | "tables"
+  | "contacts"
+  | "milestones";
+
+export interface BrainField {
+  key: string;
+  label: string;
+  type: BrainFieldType;
+  choices?: string[];
+  hint?: string;
+  brief?: boolean;
+  tracked?: boolean;
+  hidden?: boolean;
+}
+
+export interface BrainKind {
+  key: string;
+  dimension: string;
+  name: string;
+  plural: string;
+  icon: string;
+  description: string;
+  fields: BrainField[];
+}
+
+export interface BrainDimension {
+  key: string;
+  name: string;
+  icon: string;
+  description: string;
+}
+
+export interface BrainRelation {
+  key: string;
+  label: string;
+  inverse: string;
+  from: string[] | "any";
+  to: string[] | "any";
+  detail?: { label: string; choices?: string[] };
+}
+
+export interface BrainModel {
+  dimensions: BrainDimension[];
+  kinds: BrainKind[];
+  relations: BrainRelation[];
+}
+
+export interface BrainEntitySummary {
+  id: string;
+  kind: string;
+  key: string;
+  name: string;
+  summary: string;
+  brief: [string, string][];
+  updatedAt: string;
+  score?: number;
+  keyLinks?: Record<string, { id: string; kind: string; name: string }[]>;
+}
+
+export interface BrainLink {
+  id: string;
+  relation: string;
+  direction: "out" | "in";
+  label: string;
+  detail: string;
+  origin: string;
+  other: BrainEntitySummary;
+}
+
+export interface BrainEvent {
+  id: string;
+  at: string;
+  kind: "message" | "email" | "meeting" | "call" | "update" | "change" | "note" | "ticket" | "order";
+  origin: string;
+  title: string;
+  body: string;
+  actor: string | null;
+  actorId: string | null;
+  place: string | null;
+  about: { id: string; kind: string; name: string }[];
+  data: Record<string, unknown>;
+}
+
+export interface BrainEntity extends BrainEntitySummary {
+  aliases: string[];
+  data: Record<string, unknown>;
+  origins: Record<string, string>;
+  refs: Record<string, string>;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  links: BrainLink[];
+  events: BrainEvent[];
+}
+
+export interface BrainStep {
+  name: string;
+  does: string;
+  who: string;
+  system: string;
+}
+
+export interface BrainApi {
+  name: string;
+  style: string;
+  url: string;
+  auth: string;
+  docs: string;
+  endpoints: string[];
+}
+
+export interface BrainColumn {
+  name: string;
+  type: string;
+  key: string;
+  description: string;
+}
+
+export interface BrainTable {
+  name: string;
+  description: string;
+  columns: BrainColumn[];
+}
+
+export interface BrainContact {
+  name: string;
+  title: string;
+  email: string;
+  phone: string;
+}
+
+export interface BrainMilestone {
+  name: string;
+  due: string;
+  status: string;
+}
+
+export interface BrainRef {
+  id: string;
+  kind: string;
+  name: string;
+}
+
+export interface BrainOverview {
+  company: BrainEntitySummary | null;
+  counts: Record<string, number>;
+  total: number;
+  links: number;
+  events: { total: number; lastWeek: number; bySource: Record<string, number> };
+  recent: BrainEvent[];
+  projects: {
+    id: string;
+    name: string;
+    status: string | null;
+    health: string | null;
+    progress: number | null;
+    end: string | null;
+    client: { id: string; name: string } | null;
+    lead: { id: string; name: string } | null;
+    openTasks: number;
+    now: string | null;
+  }[];
+  attention: { type: string; title: string; detail: string; entity: BrainRef; severity: "high" | "medium" }[];
+  gaps: { type: string; title: string; detail: string; entity: BrainRef }[];
+  busy: { person: { id: string; name: string; title: string | null }; open: number; tasks: string[] }[];
+  goals: BrainEntitySummary[];
+}
+
+export interface BrainGraph {
+  focus: string | null;
+  nodes: { id: string; kind: string; name: string; depth: number }[];
+  edges: { id: string; from: string; to: string; relation: string; label: string; detail: string }[];
+  more: number;
+}
+
+export interface BrainSyncResult {
+  added: number;
+  updated: number;
+  unchanged: number;
+  links: { added: number; removed: number };
+  events: number;
+  changes: number;
+  byKind: Record<string, number>;
+  skipped: string[];
+}
+
+export interface BrainSource {
+  key: string;
+  name: string;
+  system: string;
+  description: string;
+  brings: string[];
+  icon: string;
+  demo: boolean;
+  status: "connected" | "off" | "new";
+  syncs: number;
+  lastSyncAt: string | null;
+  lastResult: BrainSyncResult | null;
+  lastError: string | null;
+}
+
+export interface BrainLearnChange {
+  type: "add" | "update" | "link" | "knowhow";
+  kind: string;
+  id: string;
+  name: string;
+  summary: string;
+  fields: Record<string, string>;
+  relation: string;
+  to: { id: string; name: string; kind: string };
+  detail: string;
+  about: { id: string; name: string }[];
+  why: string;
+}
+
+export interface BrainLearnProposal {
+  understood: string;
+  changes: BrainLearnChange[];
+  offline: boolean;
+}
+
+export interface BrainLearnApplied {
+  done: string[];
+  skipped: string[];
+  ids: string[];
+}

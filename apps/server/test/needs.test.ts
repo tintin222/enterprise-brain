@@ -94,18 +94,22 @@ describe("the one box", () => {
     expect(((await call(deniz, "GET", "/recurring")).json() as unknown[]).length).toBe(1);
     expect(((await call(zeynep, "GET", `/agents/${need.agent}`)).json() as { recurring: unknown[] }).recurring).toHaveLength(1);
 
-    // Its time: Monday 28 September 2026, 09:00 in Istanbul.
-    await t.platform.recurring.runDue(new Date("2026-09-28T05:59:00Z"));
-    const started = await t.platform.recurring.runDue(new Date("2026-09-28T06:00:00Z"));
+    // Its time: next Monday, 09:00 in Istanbul (06:00 UTC).
+    const monday = new Date();
+    monday.setUTCHours(6, 0, 0, 0);
+    monday.setUTCDate(monday.getUTCDate() + ((8 - monday.getUTCDay()) % 7 || 7));
+    const at = (minutes: number) => new Date(monday.getTime() + minutes * 60_000);
+    await t.platform.recurring.runDue(at(-1));
+    const started = await t.platform.recurring.runDue(at(0));
     expect(started).toHaveLength(1);
     const task = await t.platform.tasks.get(companyId, started[0]!.taskId!);
     expect(task).toMatchObject({ source: "recurring", requestedBy: "Deniz Aydın", title: expect.stringContaining("Send me the open complaints") });
-    expect(await t.platform.recurring.runDue(new Date("2026-09-28T06:01:00Z"))).toHaveLength(0);
+    expect(await t.platform.recurring.runDue(at(1))).toHaveLength(0);
 
     // Stopped by whoever asked or its manager; other departments don't see it.
     expect((await call(burak, "POST", `/recurring/${recurring.id}/stop`)).statusCode).toBe(404);
     const stopped = await call(zeynep, "POST", `/recurring/${recurring.id}/stop`);
     expect(stopped.json()).toMatchObject({ stoppedBy: "Zeynep Kaya" });
-    expect(await t.platform.recurring.runDue(new Date("2026-10-05T06:00:00Z"))).toHaveLength(0);
+    expect(await t.platform.recurring.runDue(at(7 * 24 * 60))).toHaveLength(0);
   });
 });

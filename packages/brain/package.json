@@ -1,0 +1,20 @@
+{
+  "name": "@enterprise-brain/brain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The company brain: people, processes, systems, clients and current work as a graph that sources and people keep up to date, with search, an overview, and tools for AI employees.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@enterprise-brain/core": "workspace:*",
+    "@enterprise-brain/db": "workspace:*",
+    "@enterprise-brain/llm": "workspace:*",
+    "drizzle-orm": "^0.45.2",
+    "zod": "^4.4.3"
+  }
+}

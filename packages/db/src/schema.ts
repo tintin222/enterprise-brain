@@ -1062,3 +1062,113 @@ export const studioEvents = pgTable(
   },
   (t) => [uniqueIndex("studio_events_thread_seq").on(t.threadId, t.seq)],
 );
+
+/**
+ * The company brain: what the company knows about itself. A thing (person, process, system, client,
+ * project…) is a row here; its kind decides its fields (see BRAIN_KINDS in core). Each field remembers
+ * where its value came from, so a source never overwrites what a person wrote by hand.
+ */
+export const brainEntities = pgTable(
+  "brain_entities",
+  {
+    id: id(),
+    companyId: companyId(),
+    kind: text("kind").notNull(),
+    /** Unique within its kind: a slug of the name unless a source gives one. */
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    summary: text("summary").notNull().default(""),
+    /** Other names it goes by ("SAP", "Petrokim"), used to find it in messages. */
+    aliases: jsonb("aliases").$type<string[]>().notNull().default([]),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    /** Where each value came from: "manual" or a source key ({ name: "hr", "data.title": "hr" }). */
+    origins: jsonb("origins").$type<Record<string, string>>().notNull().default({}),
+    /** Its id in each source: { crm: "ACC-3001", erp: "CUST-2001" }. */
+    refs: jsonb("refs").$type<Record<string, string>>().notNull().default({}),
+    /** Name, other names, summary and values, in lower case without accents. */
+    searchText: text("search_text").notNull().default(""),
+    /** active · removed (a person removed it; its sources don't bring it back) */
+    status: text("status").notNull().default("active"),
+    createdBy: text("created_by").notNull().default("system"),
+    updatedBy: text("updated_by").notNull().default("system"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("brain_entities_company_kind_key").on(t.companyId, t.kind, t.key), index("brain_entities_company_kind").on(t.companyId, t.kind)],
+);
+
+/** How two things of the brain relate: "Kerem Yıldız knows 8D complaint handling (expert)". */
+export const brainLinks = pgTable(
+  "brain_links",
+  {
+    id: id(),
+    companyId: companyId(),
+    fromId: uuid("from_id")
+      .notNull()
+      .references(() => brainEntities.id, { onDelete: "cascade" }),
+    relation: text("relation").notNull(),
+    toId: uuid("to_id")
+      .notNull()
+      .references(() => brainEntities.id, { onDelete: "cascade" }),
+    /** A word or two: how well, their role, what flows. */
+    detail: text("detail").notNull().default(""),
+    /** "manual" or the source that knows it. */
+    origin: text("origin").notNull().default("manual"),
+    createdBy: text("created_by").notNull().default("system"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("brain_links_unique").on(t.fromId, t.relation, t.toId), index("brain_links_company").on(t.companyId), index("brain_links_to").on(t.toId)],
+);
+
+/** What happens: messages, emails, calls, updates and changes, each about some things of the brain. */
+export const brainEvents = pgTable(
+  "brain_events",
+  {
+    id: id(),
+    companyId: companyId(),
+    at: timestamp("at", { withTimezone: true }).notNull(),
+    /** message · email · meeting · call · update · change · note · ticket · order */
+    kind: text("kind").notNull(),
+    /** "manual", "brain" (a change it noticed) or the source it came from. */
+    origin: text("origin").notNull(),
+    /** Its id in the source, so a sync never adds it twice. */
+    ref: text("ref"),
+    title: text("title").notNull(),
+    body: text("body").notNull().default(""),
+    /** Who said or did it, as the source names them, and that person in the brain. */
+    actor: text("actor"),
+    actorId: uuid("actor_id").references(() => brainEntities.id, { onDelete: "set null" }),
+    /** Where: a channel, mailbox or system ("#nordwind-npi", "support@acme.com.tr"). */
+    place: text("place"),
+    /** Ids of the brain things it is about. */
+    about: jsonb("about").$type<string[]>().notNull().default([]),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("brain_events_ref").on(t.companyId, t.origin, t.ref),
+    index("brain_events_company_at").on(t.companyId, t.at),
+    index("brain_events_about").using("gin", t.about),
+  ],
+);
+
+/** The systems the brain learns from (demo integrations for now), and how their last reading went. */
+export const brainSources = pgTable(
+  "brain_sources",
+  {
+    id: id(),
+    companyId: companyId(),
+    key: text("key").notNull(),
+    /** connected · off */
+    status: text("status").notNull().default("connected"),
+    /** How many times it was read. */
+    syncs: integer("syncs").notNull().default(0),
+    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    /** What the last reading added and changed. */
+    lastResult: jsonb("last_result").$type<Record<string, unknown>>().notNull().default({}),
+    lastError: text("last_error"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("brain_sources_company_key").on(t.companyId, t.key)],
+);

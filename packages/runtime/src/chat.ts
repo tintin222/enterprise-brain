@@ -1,3 +1,4 @@
+import { COMPANY_GUIDANCE, describeSummary, linkLines } from "@enterprise-brain/brain";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { truncate, type AgentDefinition } from "@enterprise-brain/core";
 import { chatConversations, chatMessages, type DatabaseHandle } from "@enterprise-brain/db";
@@ -21,15 +22,15 @@ const DEFAULT_ASSISTANT: AgentDefinition = {
   summary: "Answers questions from the company knowledge base.",
   archetype: "conversational",
   instructions: [
-    "You are the company's internal assistant. Answer employees' questions accurately and concisely,",
-    "grounded in the company knowledge base. Always search the knowledge base before answering policy or",
-    "process questions and cite sources as [n]. If the answer is not in the sources, say so and suggest who",
-    "to contact. Answer in the language of the question.",
+    "You are the company's internal assistant. Answer employees' questions accurately and concisely.",
+    "For people, roles, processes, systems, clients, projects and what is happening, look in the company brain;",
+    "for policies and documents, search the knowledge base and cite sources as [n]. If the answer is in neither,",
+    "say so and suggest who to ask. Answer in the language of the question.",
   ].join(" "),
   inputs: [],
   outputs: [],
   workflow: [],
-  tools: ["knowledge.search"],
+  tools: ["knowledge.search", "company.lookup"],
   triggers: [{ type: "chat" }],
   knowledge: { collections: [] },
   connectors: [],
@@ -141,7 +142,7 @@ export class ChatService {
       ];
       const result = await this.llm.runTools({
         purpose: `chat:${definition.slug}`,
-        system: `${definition.instructions}\n\n${TOOL_GUIDANCE}`,
+        system: `${definition.instructions}\n\n${TOOL_GUIDANCE}${capabilities.includes("company.lookup") ? `\n\n${COMPANY_GUIDANCE}` : ""}`,
         messages,
         tools: tools.map((t) => t.definition),
         serverTools,
@@ -163,14 +164,31 @@ export class ChatService {
         topK: 3,
       });
       citations.push(...hits);
-      answer = hits.length
+      const brainService = definition.tools.includes("company.lookup") ? this.toolDeps.brain : undefined;
+      const things = (await brainService?.search(companyId, text, { limit: 5 })) ?? [];
+      // The best match with what it links to: who knows it, who does it, who owns it.
+      const top = things[0] && brainService ? await brainService.get(companyId, things[0].id) : undefined;
+      const brain = things.length
         ? [
-            "_Offline mode (no LLM configured) — here are the most relevant passages from the knowledge base:_",
+            "_From the company brain:_",
+            "",
+            // A Markdown line break keeps each summary under its name.
+            ...things.map((t) => describeSummary(t).replace("\n  ", "  \n  ")),
+            ...(top?.links.length ? ["", `_About ${top.name}:_`, "", ...linkLines(top).map((line) => `- ${line}`)] : []),
+          ].join("\n")
+        : "";
+      const passages = hits.length
+        ? [
+            "_The most relevant passages from the knowledge base:_",
             "",
             // Quoted as plain text: a passage's own headings would otherwise render as headings.
             ...hits.map((h, i) => `**[${i + 1}] ${h.title}**\n> ${truncate(h.content.replace(/^\s{0,3}#{1,6}\s+/gm, "").replace(/\s+/g, " ").trim(), 500)}`),
           ].join("\n\n")
-        : "_Offline mode (no LLM configured)._ I could not find anything relevant in the knowledge base.";
+        : "";
+      answer =
+        brain || passages
+          ? ["_Offline mode (no LLM configured): I can't write an answer, but this is what I found._", brain, passages].filter(Boolean).join("\n\n")
+          : "_Offline mode (no LLM configured)._ I could not find anything relevant in the company brain or the knowledge base.";
       options.onText?.(answer);
     }
     const citationList: Citation[] = citations.map((c, i) => ({

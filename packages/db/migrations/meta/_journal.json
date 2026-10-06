@@ -127,6 +127,13 @@
       "when": 1790438952657,
       "tag": "0017_studio_agent",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791269423872,
+      "tag": "0018_company_brain",
+      "breakpoints": true
     }
   ]
 }

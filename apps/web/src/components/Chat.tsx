@@ -114,6 +114,7 @@ export function ChatPanel({
   className,
   emptyTitle = "Ask anything about the company",
   emptyDescription = "Answers come from the company knowledge base, with sources you can check.",
+  initialQuestion,
 }: {
   conversationId: string | null;
   agent?: string;
@@ -123,6 +124,8 @@ export function ChatPanel({
   className?: string;
   emptyTitle?: string;
   emptyDescription?: string;
+  /** Asked as soon as a new conversation opens (a question typed elsewhere). */
+  initialQuestion?: string;
 }) {
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
@@ -207,6 +210,15 @@ export function ChatPanel({
       }
     }
   };
+
+  const asked = useRef(false);
+  useEffect(() => {
+    if (!initialQuestion || conversationId || asked.current) return;
+    asked.current = true;
+    void send(initialQuestion);
+    // Only once, for the conversation this panel opens with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuestion, conversationId]);
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {

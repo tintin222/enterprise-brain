@@ -2,6 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import {
   Bell,
+  Brain,
   Building,
   Building2,
   House,
@@ -48,6 +49,12 @@ interface Place {
 const PLACES: Place[] = [
   { to: "/", label: "Home", icon: House, end: true, hint: "What needs you, and what your AI employees did today" },
   { to: "/company", label: "Company", icon: Building2, hint: "Departments, their people and AI employees" },
+  {
+    to: "/brain",
+    label: "Brain",
+    icon: Brain,
+    hint: "Everything the company knows: people and what they know, processes, systems, clients, projects and what is happening",
+  },
   { to: "/hire", label: "Hire", icon: UserPlus, for: "managers", hint: "The Studio and ready-made AI employees", also: ["/studio"] },
   { to: "/work", label: "Work", icon: ListChecks, hint: "Every task, and what needs a person" },
   { to: "/mail", label: "Mail", icon: Mail, hint: "The shared mailboxes, and what AI employees did with each email" },

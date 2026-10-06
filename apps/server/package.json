@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@enterprise-brain/brain": "workspace:*",
     "@enterprise-brain/builder": "workspace:*",
     "@enterprise-brain/catalog": "workspace:*",
     "@enterprise-brain/connectors": "workspace:*",

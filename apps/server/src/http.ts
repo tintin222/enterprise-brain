@@ -1,5 +1,6 @@
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { ZodError } from "zod";
+import { BrainError } from "@enterprise-brain/brain";
 import { BuilderError } from "@enterprise-brain/builder";
 import { ConnectorError } from "@enterprise-brain/connectors";
 import { RecordValueError } from "@enterprise-brain/core";
@@ -33,7 +34,7 @@ export class HttpError extends Error {
 
 export function statusFor(error: unknown): number {
   if (error instanceof HttpError) return error.statusCode;
-  if (error instanceof RunError || error instanceof BuilderError || error instanceof HermesRequestError) return error.status;
+  if (error instanceof RunError || error instanceof BuilderError || error instanceof HermesRequestError || error instanceof BrainError) return error.status;
   if (error instanceof AgentNotFoundError) return 404;
   if (
     error instanceof PeopleError ||
@@ -66,6 +67,7 @@ export function errorBody(error: unknown) {
   // Every value that doesn't fit its field, at once.
   if (error instanceof RecordValueError) return { error: error.message, problems: error.problems };
   if (error instanceof AppError && error.problems.length) return { error: error.message, problems: error.problems };
+  if (error instanceof BrainError && error.problems.length) return { error: error.message, problems: error.problems };
   return { error: error instanceof Error ? error.message : String(error) };
 }
 

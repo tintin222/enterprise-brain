@@ -10,6 +10,7 @@ import type { AppContext } from "./context.ts";
 import { bearer, errorBody, statusFor } from "./http.ts";
 import { agentRoutes } from "./routes/agents.ts";
 import { authRoutes } from "./routes/auth.ts";
+import { brainRoutes } from "./routes/brain.ts";
 import { builderRoutes } from "./routes/builder.ts";
 import { catalogRoutes } from "./routes/catalog.ts";
 import { channelRoutes } from "./routes/channels.ts";
@@ -130,6 +131,7 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   await chatRoutes(app, ctx);
   await builderRoutes(app, ctx);
   await studioRoutes(app, ctx);
+  await brainRoutes(app, ctx);
   await paperclipRoutes(app, ctx);
   await mcpRoutes(app, ctx);
   await tableRoutes(app, ctx);

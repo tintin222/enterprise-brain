@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
+import { BRAIN_SOURCES, BrainService, BrainSources, sourceName, sourcePriority } from "@enterprise-brain/brain";
 import { loadCatalog } from "@enterprise-brain/catalog";
 import { createDefaultRegistry, type ConnectorRegistry, type ScreenOperator } from "@enterprise-brain/connectors";
 import type { Catalog } from "@enterprise-brain/core";
@@ -9,6 +10,7 @@ import { createEmbedderFromEnv, createLlmFromEnv, type Embedder, type LlmClient 
 import { createScreensFromEnv } from "@enterprise-brain/screens";
 import { ActivityService } from "./activity.ts";
 import { AgentService } from "./agents.ts";
+import { brainSourceDeps } from "./brain-deps.ts";
 import { ChannelAccounts } from "./channel-accounts.ts";
 import { ChatChannelSender } from "./chat-channels.ts";
 import { CatalogService } from "./catalog-service.ts";
@@ -105,6 +107,10 @@ export class Platform {
   readonly reviews: ReviewService;
   /** Work people ask AI employees to do regularly ("every Monday: send me the open complaints"). */
   readonly recurring: RecurringWorkService;
+  /** What the company knows about itself: people, processes, systems, clients, projects and what happens. */
+  readonly brain: BrainService;
+  /** The systems the company brain learns from. */
+  readonly brainSources: BrainSources;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -131,6 +137,18 @@ export class Platform {
     this.work = new WorkService(this.handle, this.events);
     this.coachingNotes = new CoachingNotes(this.handle, this.activity);
     this.reports = new ReportService(this.handle);
+    this.brain = new BrainService(this.handle, {
+      priority: sourcePriority,
+      originName: sourceName,
+      onChange: (companyId, change) =>
+        this.activity.record(companyId, {
+          actor: change.actor,
+          action: change.action,
+          entityType: "brain",
+          entityId: change.entityId,
+          summary: change.summary,
+        }),
+    });
     this.engine = new RunEngine({
       handle: this.handle,
       llm: this.llm,
@@ -144,9 +162,16 @@ export class Platform {
       work: this.work,
       events: this.events,
       coaching: this.coachingNotes,
+      brain: this.brain,
     });
     this.chat = new ChatService(this.handle, this.llm, this.agents, this.knowledge, this.engine.toolDeps);
     this.catalog = new CatalogService(this.handle, options.catalog, this.agents, this.knowledge, this.activity);
+    this.brainSources = new BrainSources(
+      this.handle,
+      this.brain,
+      brainSourceDeps({ handle: this.handle, catalog: this.catalog, people: this.people, agents: this.agents, connectors: this.connectors }),
+      BRAIN_SOURCES,
+    );
     this.triggers = new TriggerService(this.handle, this.agents, this.engine, this.mail, this.tasks, this.people);
     this.triggers.onTick((now) => this.calculations.runDue(now));
     this.recurring = new RecurringWorkService(this.handle, this.agents, this.engine);

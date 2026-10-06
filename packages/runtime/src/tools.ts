@@ -1,3 +1,4 @@
+import { COMPANY_TOOLS, runCompanyTool, type BrainService } from "@enterprise-brain/brain";
 import type { AgentDefinition, ConnectorBinding, JsonSchema } from "@enterprise-brain/core";
 import { operationToolName } from "@enterprise-brain/connectors";
 import { extractDocument, readWorkbook, writeWorkbook } from "@enterprise-brain/documents";
@@ -48,6 +49,8 @@ export interface ToolDeps {
   changesToday?: (agentId: string) => Promise<number>;
   tasks?: TaskService;
   askPerson?: (request: AskPersonRequest) => Promise<{ id: string }>;
+  /** The company brain, for "company.lookup". */
+  brain?: BrainService;
 }
 
 export interface ToolScope {
@@ -312,6 +315,17 @@ export async function buildTools(
       case "web.search":
         serverTools.push({ type: "web_search_20260209", name: "web_search", max_uses: 5 });
         break;
+      case "company.lookup": {
+        const brain = deps.brain;
+        if (!brain) {
+          warnings.push("The company brain is not available here");
+          break;
+        }
+        for (const definition of COMPANY_TOOLS) {
+          tools.push({ capability, kind: "read", definition, execute: (input) => runCompanyTool(brain, companyId, definition.name, input) });
+        }
+        break;
+      }
       default: {
         const parsed = connectorCapability(capability);
         if (!parsed) {

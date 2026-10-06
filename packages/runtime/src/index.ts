@@ -1,4 +1,5 @@
 export * from "./platform.ts";
+export * from "./brain-deps.ts";
 export * from "./secrets.ts";
 export * from "./files.ts";
 export * from "./activity.ts";

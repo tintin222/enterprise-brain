@@ -11,6 +11,13 @@ import { RouteError } from "./pages/RouteError.tsx";
 
 const Home = lazy(() => import("./pages/Home.tsx"));
 const Company = lazy(() => import("./pages/company/Company.tsx"));
+const BrainLayout = lazy(() => import("./pages/brain/BrainLayout.tsx"));
+const BrainHome = lazy(() => import("./pages/brain/BrainHome.tsx"));
+const BrainList = lazy(() => import("./pages/brain/BrainList.tsx"));
+const BrainEntityPage = lazy(() => import("./pages/brain/BrainEntity.tsx"));
+const BrainMap = lazy(() => import("./pages/brain/BrainMap.tsx"));
+const BrainSources = lazy(() => import("./pages/brain/BrainSources.tsx"));
+const BrainAsk = lazy(() => import("./pages/brain/BrainAsk.tsx"));
 const Performance = lazy(() => import("./pages/company/Performance.tsx"));
 const AiEmployee = lazy(() => import("./pages/ai/AiEmployee.tsx"));
 const Hire = lazy(() => import("./pages/hire/Hire.tsx"));
@@ -147,6 +154,18 @@ const router = createBrowserRouter([
           { index: true, element: <Home /> },
           { path: "company", element: <Company /> },
           { path: "company/performance", element: <Performance /> },
+          {
+            path: "brain",
+            element: <BrainLayout />,
+            children: [
+              { index: true, element: <BrainHome /> },
+              { path: "k/:kind", element: <BrainList /> },
+              { path: "e/:id", element: <BrainEntityPage /> },
+              { path: "map", element: <BrainMap /> },
+              { path: "sources", element: <BrainSources /> },
+              { path: "ask", element: <BrainAsk /> },
+            ],
+          },
           { path: "ai/:slug", element: <AiEmployee /> },
           { path: "hire", element: <Hire /> },
           { path: "hire/studio/new", element: <BuilderNew /> },

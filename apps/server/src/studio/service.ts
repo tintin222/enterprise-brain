@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, gt } from "drizzle-orm";
+import { BUILDING_GUIDANCE, COMPANY_TOOL_NAMES, COMPANY_TOOLS, runCompanyTool } from "@enterprise-brain/brain";
 import {
   AppSpec,
   AskItInput,
@@ -21,7 +22,7 @@ import {
   type StudioSystem,
 } from "@enterprise-brain/builder";
 import { sandboxConnectorFor } from "@enterprise-brain/connectors";
-import { AppDesign, describeDuties, isRecord, slugify, truncate, type AgentDefinition, type TableField } from "@enterprise-brain/core";
+import { AppDesign, brainKind, describeDuties, isRecord, slugify, truncate, type AgentDefinition, type TableField } from "@enterprise-brain/core";
 import { studioEvents, studioThreads } from "@enterprise-brain/db";
 import { extractDocument } from "@enterprise-brain/documents";
 import {
@@ -100,7 +101,8 @@ interface Turn {
 
 const MAX_TURNS = 30;
 /** A conversation's model calls stop here and ask to carry on. */
-const TOOL_NAMES = new Set(STUDIO_TOOLS.map((t) => t.name));
+const TOOLS = [...STUDIO_TOOLS, ...COMPANY_TOOLS];
+const TOOL_NAMES = new Set(TOOLS.map((t) => t.name));
 
 function emptySolution(): SolutionState {
   return { employees: [], tables: [], apps: [], requests: [], tries: [], files: [] };
@@ -175,7 +177,7 @@ export class StudioService {
         departmentId: department?.id ?? null,
         status: "idle",
         // The instructions and tools stay as written for the whole conversation.
-        setup: { system, tools: STUDIO_TOOLS },
+        setup: { system: `${system}\n\n${BUILDING_GUIDANCE}`, tools: TOOLS },
         messages: [],
         solution: emptySolution() as unknown as Record<string, unknown>,
       })
@@ -392,6 +394,7 @@ export class StudioService {
     if (!TOOL_NAMES.has(call.name)) return problem(`There is no tool called ${call.name}.`);
     const input = isRecord(call.input) ? call.input : {};
     try {
+      if (COMPANY_TOOL_NAMES.has(call.name)) return await this.lookUpCompany(companyId, id, call.name, input);
       switch (call.name) {
         case "look_around":
           return await this.lookAround(companyId, id, viewer);
@@ -431,6 +434,27 @@ export class StudioService {
       await this.event(id, "step", { tool: call.name, text: `Couldn't ${verbOf(call.name)}: ${truncate(message, 200)}`, ok: false });
       return problem(message);
     }
+  }
+
+  /** The company brain: how the company really works, before building for it. */
+  private async lookUpCompany(companyId: string, id: string, tool: string, input: Record<string, unknown>): Promise<ToolExecution> {
+    const said = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : "");
+    const text =
+      tool === "company_search"
+        ? `Looked up "${said(input.query)}" in the company brain`
+        : tool === "company_open"
+          ? `Read about ${said(input.id_or_name) && !/^[0-9a-f-]{36}$/i.test(said(input.id_or_name)) ? said(input.id_or_name) : "it"} in the company brain`
+          : tool === "company_list"
+            ? `Listed the company's ${said(input.kind).replace(/_/g, " ") || "things"} in the brain`
+            : `Read what has been happening${said(input.about) && !/^[0-9a-f-]{36}$/i.test(said(input.about)) ? ` with ${said(input.about)}` : ""}`;
+    const result = await runCompanyTool(this.platform.brain, companyId, tool, input);
+    if (tool === "company_open" && !result.isError) {
+      const name = result.content.match(/^# (.+?) — /)?.[1];
+      await this.step(id, tool, name ? `Read about ${name} in the company brain` : text);
+    } else {
+      await this.step(id, tool, text);
+    }
+    return result;
   }
 
   private async step(id: string, tool: string, text: string, data: Record<string, unknown> = {}): Promise<void> {
@@ -502,7 +526,7 @@ export class StudioService {
     const thread = await this.row(companyId, id);
     const solution = solutionOf(thread);
     const rules = rulesOf((await this.platform.company(companyId))!);
-    const [departments, people, agents, tables, apps, systems, mailboxes, collections, company] = await Promise.all([
+    const [departments, people, agents, tables, apps, systems, mailboxes, collections, company, brain] = await Promise.all([
       this.platform.catalog.departments(companyId),
       this.platform.people.list(companyId),
       this.platform.agents.list(companyId),
@@ -512,6 +536,7 @@ export class StudioService {
       this.platform.mail.mailboxes(companyId),
       this.platform.knowledge.listCollections(companyId),
       this.platform.company(companyId),
+      this.platform.brain.counts(companyId),
     ]);
     const keyOf = new Map(departments.map((d) => [d.id, d.key]));
     const zone = workingHoursOf(company?.settings ?? {}).timeZone;
@@ -579,6 +604,15 @@ export class StudioService {
         ? mailboxes.map((m) => ({ address: m.mailbox, emails: m.total, followed_by: followers(m.mailbox) }))
         : "Only managers and IT see the mailboxes",
       knowledge: collections.map((c) => ({ key: c.key, name: c.name, documents: c.documentCount })),
+      company_brain: Object.keys(brain).length
+        ? {
+            knows: Object.entries(brain)
+              .sort((a, b) => b[1] - a[1])
+              .map(([kind, n]) => `${n} ${(n === 1 ? brainKind(kind)?.name : brainKind(kind)?.plural)?.toLowerCase() ?? kind}`)
+              .join(", "),
+            how: "company_search, then company_open on what you find",
+          }
+        : "Empty: nothing is known yet (IT fills it in Brain → Sources)",
       requests_to_it: requests,
       files_added_here: solution.files,
     };

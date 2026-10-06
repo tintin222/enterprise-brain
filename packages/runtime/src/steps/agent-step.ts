@@ -1,3 +1,4 @@
+import { COMPANY_GUIDANCE } from "@enterprise-brain/brain";
 import { renderTemplate, type WorkflowStep } from "@enterprise-brain/core";
 import { buildContext } from "@enterprise-brain/knowledge";
 import type { LlmUsage } from "@enterprise-brain/llm";
@@ -82,7 +83,7 @@ export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps:
   const byName = new Map(tools.map((t) => [t.definition.name, t]));
   const result = await deps.llm.runTools({
     purpose: `runtime.agent:${scope.definition.slug}.${step.id}`,
-    system: `${scope.definition.instructions}\n\n${TOOL_GUIDANCE}${scope.task ? `\n\n${taskGuidance(scope.task.ref)}` : scope.context.run.isTest ? `\n\n${PRACTICE_GUIDANCE}` : ""}`,
+    system: `${scope.definition.instructions}\n\n${TOOL_GUIDANCE}${capabilities.includes("company.lookup") ? `\n\n${COMPANY_GUIDANCE}` : ""}${scope.task ? `\n\n${taskGuidance(scope.task.ref)}` : scope.context.run.isTest ? `\n\n${PRACTICE_GUIDANCE}` : ""}`,
     messages: [{ role: "user", content: task }],
     tools: tools.map((t) => t.definition),
     serverTools,

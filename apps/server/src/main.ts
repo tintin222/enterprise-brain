@@ -32,6 +32,16 @@ async function main() {
     platform.watchers.start((config.watchIntervalSeconds ?? 60) * 1000);
     // Urgent items reach people at once; summaries each morning.
     platform.notifications.start();
+    // The company brain reads its connected sources again every hour (EB_BRAIN_SYNC_MINUTES, 0 for never).
+    const minutes = config.brainSyncMinutes ?? 60;
+    if (minutes > 0) {
+      const timer = setInterval(() => {
+        void (async () => {
+          for (const each of await platform.companies()) await platform.brainSources.syncAll(each.id, { only: "connected" }).catch(() => undefined);
+        })();
+      }, minutes * 60_000);
+      timer.unref();
+    }
   }
   await app.listen({ port: config.port, host: config.host });
 

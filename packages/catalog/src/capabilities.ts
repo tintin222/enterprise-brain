@@ -14,6 +14,7 @@ export const BUILTIN_CAPABILITIES = [
   "mail.draft",
   "mail.send",
   "web.search",
+  "company.lookup",
 ] as const;
 export type BuiltinCapability = (typeof BUILTIN_CAPABILITIES)[number];
 

@@ -23,6 +23,9 @@ importers:
 
   apps/server:
     dependencies:
+      '@enterprise-brain/brain':
+        specifier: workspace:*
+        version: link:../../packages/brain
       '@enterprise-brain/builder':
         specifier: workspace:*
         version: link:../../packages/builder
@@ -132,6 +135,24 @@ importers:
       vite:
         specifier: ^8.2.2
         version: 8.3.0(@types/node@25.9.8)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)
+
+  packages/brain:
+    dependencies:
+      '@enterprise-brain/core':
+        specifier: workspace:*
+        version: link:../core
+      '@enterprise-brain/db':
+        specifier: workspace:*
+        version: link:../db
+      '@enterprise-brain/llm':
+        specifier: workspace:*
+        version: link:../llm
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.3(@electric-sql/pglite@0.5.8)(@types/pg@8.23.1)(mysql2@3.24.4(@types/node@25.9.8))(pg@8.23.0)
+      zod:
+        specifier: ^4.4.3
+        version: 4.6.5
 
   packages/builder:
     dependencies:
@@ -300,6 +321,9 @@ importers:
 
   packages/runtime:
     dependencies:
+      '@enterprise-brain/brain':
+        specifier: workspace:*
+        version: link:../brain
       '@enterprise-brain/catalog':
         specifier: workspace:*
         version: link:../catalog
