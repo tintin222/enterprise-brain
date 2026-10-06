@@ -349,8 +349,10 @@ export default function BrainEntityPage() {
                   {fields.map((field) => {
                     const origin = thing.origins[`data.${field.key}`];
                     const value = thing.data[field.key];
-                    // Lists of sentences (rules, risks) read better across the card.
-                    const long = field.type === "list" && ((value as string[]).length > 8 || (value as string[]).some((item) => item.length > 32));
+                    // Lists of sentences (rules, risks) and long sentences read better across the card.
+                    const long =
+                      (field.type === "list" && ((value as string[]).length > 8 || (value as string[]).some((item) => item.length > 32))) ||
+                      (typeof value === "string" && value.length > 60);
                     return (
                       <div key={field.key} className={wide.has(field.type) || long ? "sm:col-span-2" : ""}>
                         <dt className="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted" title={origin ? `From ${originName(origin)}` : undefined}>

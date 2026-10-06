@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import { ArrowRight, Bot, CalendarClock, CircleCheck, Inbox, UserPlus } from "lucide-react";
+import { useState } from "react";
 import { Link } from "react-router";
 import { api } from "../api.ts";
 import { StatusPill } from "../components/Badge.tsx";
@@ -32,6 +33,7 @@ function firstName(name: string): string {
 
 /** "23 done · 4 open · 2 need you": what one AI employee did today, in a line. */
 function todayLine(today: HomeData["aiEmployees"][number]["today"]): string {
+  if (!today.done && !today.open && !today.failed) return "Nothing yet today";
   const parts = [`${today.done} done`];
   if (today.open) parts.push(`${today.open} open`);
   if (today.failed) parts.push(`${today.failed} stopped with a problem`);
@@ -78,6 +80,12 @@ function NeedsYou() {
 }
 
 function AiEmployeesToday({ home }: { home: HomeData }) {
+  const [all, setAll] = useState(false);
+  // The ones that need a person or are busy first; the quiet ones wait behind "Show all".
+  const sorted = [...home.aiEmployees].sort(
+    (a, b) => b.today.needsPerson - a.today.needsPerson || b.today.open - a.today.open || b.today.done - a.today.done || a.name.localeCompare(b.name),
+  );
+  const shown = all ? sorted : sorted.slice(0, SHOWN);
   return (
     <Card>
       <CardHeader title="Your AI employees today" icon={Bot} />
@@ -101,7 +109,7 @@ function AiEmployeesToday({ home }: { home: HomeData }) {
         </div>
       ) : (
         <ul className="divide-y divide-line">
-          {home.aiEmployees.map((ai) => (
+          {shown.map((ai) => (
             <li key={ai.id}>
               <Link to={`/ai/${ai.slug}`} className="flex items-center gap-3 px-5 py-3 hover:bg-subtle/60">
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-400/15 dark:text-brand-300">
@@ -122,6 +130,17 @@ function AiEmployeesToday({ home }: { home: HomeData }) {
               </Link>
             </li>
           ))}
+          {sorted.length > SHOWN && (
+            <li>
+              <button
+                type="button"
+                onClick={() => setAll(!all)}
+                className="w-full px-5 py-2.5 text-left text-xs font-medium text-brand-600 hover:bg-subtle/60 dark:text-brand-300"
+              >
+                {all ? "Show fewer" : `Show all ${sorted.length}`}
+              </button>
+            </li>
+          )}
         </ul>
       )}
     </Card>
@@ -189,7 +208,12 @@ export default function Home() {
         <h1 className="text-xl font-semibold tracking-tight text-fg sm:text-2xl">
           {greeting()}
           {data ? `, ${firstName(data.person.name)}` : ""}
-          {data?.person.departments.length ? <span className="font-normal text-muted"> · {data.person.departments.join(", ")}</span> : null}
+          {data?.person.departments.length ? (
+            <span className="block text-base font-normal text-muted sm:inline sm:text-2xl">
+              <span className="hidden sm:inline"> · </span>
+              {data.person.departments.join(", ")}
+            </span>
+          ) : null}
         </h1>
         <p className={clsx("mt-1 text-sm", waiting ? "text-amber-700 dark:text-amber-300" : "text-muted")}>
           {waiting ? `${plural(waiting, "thing")} waiting for you.` : "Your AI employees are on it."}

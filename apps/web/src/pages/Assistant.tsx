@@ -14,9 +14,9 @@ import { useDocumentTitle } from "../lib/title.ts";
 
 const SUGGESTIONS = [
   "How many days of annual leave do I get?",
-  "What is the hotel limit in the travel policy?",
+  "Who knows the 8D complaint process?",
   "How do I request VPN access?",
-  "Yıllık izin hakkım kaç gün?",
+  "What is happening with Petrokim?",
 ];
 
 export default function Assistant() {
@@ -69,8 +69,8 @@ export default function Assistant() {
         <div className="border-t border-line p-3 text-[11px] leading-relaxed text-muted">
           <p className="flex items-start gap-1.5">
             <ShieldCheck className="mt-px size-3.5 shrink-0" />
-            Answers come from the company knowledge base and stay in your tenant.
-            {!info.llm.available && " Offline mode: the assistant shows the most relevant passages instead of writing answers."}
+            Answers come from the company brain and the knowledge base, and stay in your installation.
+            {!info.llm.available && " Offline mode: the assistant shows what it found instead of writing answers."}
           </p>
         </div>
       </aside>
@@ -100,7 +100,7 @@ export default function Assistant() {
           assistantName="Company Assistant"
           suggestions={SUGGESTIONS}
           emptyTitle="Ask the company assistant"
-          emptyDescription="Policies, procedures, IT how-tos — in English or Turkish. Every answer shows its sources."
+          emptyDescription="People and who knows what, processes, systems, clients, policies and IT how-tos, in English or Turkish. Every answer shows its sources."
           onConversationCreated={(id) => {
             void queryClient.invalidateQueries({ queryKey: [...keys.chat(company), "conversations"] });
             setParams({ c: id }, { replace: true });

@@ -13,6 +13,7 @@ import {
   Menu,
   MessageSquare,
   Moon,
+  PanelLeftClose,
   Search,
   Send,
   Settings,
@@ -26,11 +27,13 @@ import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-route
 import { signOut, useViewer } from "../lib/auth.tsx";
 import { useCompany } from "../lib/company.tsx";
 import { initials } from "../lib/format.ts";
+import { isTyping, useStoredFlag } from "../lib/preferences.ts";
 import { useWork } from "../lib/queries.ts";
 import { useTheme } from "../lib/theme.ts";
 import { GiveWorkDialog } from "./GiveWork.tsx";
 import { NotificationsDialog } from "./NotificationSettings.tsx";
 import { Wordmark } from "./Logo.tsx";
+import { FoldButton } from "./SideMenu.tsx";
 import { LoadingBlock } from "./Spinner.tsx";
 
 interface Place {
@@ -68,7 +71,8 @@ function useNeedsYou(): number {
   return data?.length ?? 0;
 }
 
-function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
+/** The main menu; `folded` shows only the icons (wide screens), with each name on hover. */
+function Sidebar({ onNavigate, folded = false, onFold }: { onNavigate?: () => void; folded?: boolean; onFold?: () => void }) {
   const viewer = useViewer();
   const { pathname } = useLocation();
   const needsYou = useNeedsYou();
@@ -76,12 +80,12 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   const isManager = !viewer || viewer.isAdmin || viewer.departments.some((d) => d.role === "manager");
   return (
     <nav className="flex h-full flex-col" aria-label="Main">
-      <div className="flex h-14 shrink-0 items-center border-b border-line px-4">
-        <Link to="/" onClick={onNavigate} className="rounded-lg focus-visible:outline-2">
-          <Wordmark />
+      <div className={clsx("flex h-14 shrink-0 items-center border-b border-line", folded ? "justify-center px-2" : "px-4")}>
+        <Link to="/" onClick={onNavigate} className="rounded-lg focus-visible:outline-2" title={folded ? "Enterprise Brain: Home" : undefined}>
+          <Wordmark compact={folded} />
         </Link>
       </div>
-      <ul className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
+      <ul className={clsx("flex-1 space-y-1 overflow-y-auto py-4", folded ? "px-2" : "px-3")}>
         {PLACES.filter((place) => place.for !== "managers" || isManager).map((place) => {
           const Icon = place.icon;
           const count = place.to === "/work" ? needsYou : 0;
@@ -91,10 +95,11 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                 to={place.to}
                 end={place.end}
                 onClick={onNavigate}
-                title={place.hint}
+                title={folded ? `${place.label}: ${place.hint}` : place.hint}
                 className={({ isActive }) =>
                   clsx(
-                    "group flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] font-medium transition-colors",
+                    "group relative flex items-center rounded-xl py-2.5 text-[15px] font-medium transition-colors",
+                    folded ? "justify-center" : "gap-3 px-3",
                     isActive || place.also?.some((a) => pathname.startsWith(a))
                       ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200"
                       : "text-muted hover:bg-subtle hover:text-fg",
@@ -106,13 +111,16 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
                   return (
                     <>
                       <Icon className={clsx("size-5 shrink-0", isActive ? "text-brand-600 dark:text-brand-300" : "text-faint group-hover:text-muted")} />
-                      <span className="flex-1 truncate">{place.label}</span>
+                      <span className={folded ? "sr-only" : "flex-1 truncate"}>{place.label}</span>
                       {count > 0 && (
                         <span
-                          className="rounded-full bg-amber-500 px-1.5 text-[11px] leading-[18px] font-semibold text-white tabular-nums"
+                          className={clsx(
+                            "rounded-full bg-amber-500 font-semibold text-white tabular-nums",
+                            folded ? "absolute top-1 right-1 min-w-4 px-1 text-center text-[10px] leading-4" : "px-1.5 text-[11px] leading-[18px]",
+                          )}
                           title={`${count} waiting for you`}
                         >
-                          {count}
+                          {folded && count > 9 ? "9+" : count}
                         </span>
                       )}
                     </>
@@ -123,16 +131,36 @@ function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           );
         })}
       </ul>
-      <div className="shrink-0 border-t border-line p-3">
+      <div className={clsx("shrink-0 border-t border-line", folded ? "flex flex-col items-center gap-2 p-2" : "space-y-1 p-3")}>
         <button
           type="button"
           onClick={() => setGiving(true)}
           title="Give work to an AI employee"
-          className="flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-brand-600 to-violet-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:from-brand-700 hover:to-violet-700"
+          aria-label={folded ? "Give work" : undefined}
+          className={clsx(
+            "flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-brand-600 to-violet-600 text-sm font-medium text-white shadow-sm hover:from-brand-700 hover:to-violet-700",
+            folded ? "size-10" : "w-full px-3 py-2",
+          )}
         >
           <Send className="size-4" />
-          Give work
+          {!folded && "Give work"}
         </button>
+        {onFold &&
+          (folded ? (
+            <FoldButton folded onToggle={onFold} label="the menu ( [ )" />
+          ) : (
+            <button
+              type="button"
+              onClick={onFold}
+              aria-expanded
+              title="Collapse the menu to its icons ( [ )"
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-faint transition-colors hover:bg-subtle hover:text-fg"
+            >
+              <PanelLeftClose className="size-4" />
+              Collapse menu
+              <kbd className="ml-auto rounded border border-line px-1.5 font-sans text-[10px] text-faint">[</kbd>
+            </button>
+          ))}
       </div>
       <GiveWorkDialog open={giving} onClose={() => setGiving(false)} />
     </nav>
@@ -309,15 +337,30 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
   );
 }
 
-/** Console chrome: sidebar (off-canvas on narrow screens), top bar and the routed page. */
+/** Console chrome: sidebar (off-canvas on narrow screens, collapsible to icons on wide ones), top bar and the routed page. */
 export function AppShell() {
   const [open, setOpen] = useState(false);
+  const [folded, setFolded] = useStoredFlag("eb.menu.folded", () => false);
   const location = useLocation();
   useEffect(() => setOpen(false), [location.pathname]);
+  // "[" collapses or expands the menu, as in many work apps, unless the person is typing.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "[" || event.metaKey || event.ctrlKey || event.altKey || isTyping(event.target)) return;
+      setFolded(!folded);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [folded, setFolded]);
   return (
     <div className="flex min-h-screen">
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-line bg-surface lg:block">
-        <Sidebar />
+      <aside
+        className={clsx(
+          "fixed inset-y-0 left-0 z-40 hidden border-r border-line bg-surface transition-[width] duration-200 lg:block",
+          folded ? "w-16" : "w-64",
+        )}
+      >
+        <Sidebar folded={folded} onFold={() => setFolded(!folded)} />
       </aside>
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden">
@@ -335,7 +378,7 @@ export function AppShell() {
           </aside>
         </div>
       )}
-      <div className="flex min-w-0 flex-1 flex-col lg:pl-64">
+      <div className={clsx("flex min-w-0 flex-1 flex-col transition-[padding] duration-200", folded ? "lg:pl-16" : "lg:pl-64")}>
         <TopBar onMenu={() => setOpen(true)} />
         <main className="flex min-w-0 flex-1 flex-col">
           <Suspense fallback={<LoadingBlock />}>

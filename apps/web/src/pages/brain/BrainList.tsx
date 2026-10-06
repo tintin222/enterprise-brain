@@ -140,7 +140,7 @@ export default function BrainList() {
                   const choice = choiceField ? row.brief.find(([label]) => label === choiceField.label)?.[1] : undefined;
                   return (
                     <tr key={row.id} className="hover:bg-subtle/50">
-                      <td className="min-w-64 px-4 py-2.5">
+                      <td className="min-w-52 px-4 py-2.5">
                         <Link to={brainPath(row.id)} className="flex items-center gap-2.5 font-medium text-fg hover:underline">
                           <KindIcon kind={row.kind} model={model} size="sm" />
                           <span className="min-w-0">{row.name}</span>

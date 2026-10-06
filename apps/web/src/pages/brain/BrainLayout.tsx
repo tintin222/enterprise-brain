@@ -4,13 +4,15 @@ import { Brain, Cable, LayoutDashboard, MessageCircleQuestion, Search, Share2 } 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { api, qs } from "../../api.ts";
+import { FoldButton, RailLink, railLinkClass } from "../../components/SideMenu.tsx";
 import { LoadingBlock } from "../../components/Spinner.tsx";
 import { useCompany } from "../../lib/company.tsx";
-import type { BrainEntitySummary } from "../../types.ts";
-import { DIMENSION_ICONS, KindIcon, brainKeys, brainPath, kindOf, useBrainModel, useBrainOverview } from "./brain.tsx";
+import { useStoredFlag } from "../../lib/preferences.ts";
+import type { BrainDimension, BrainKind, BrainModel, BrainEntitySummary } from "../../types.ts";
+import { DIMENSION_ICONS, KindIcon, brainKeys, brainPath, kindOf, useBrainEntity, useBrainModel, useBrainOverview } from "./brain.tsx";
 
 /** Search across the brain from anywhere in it: results as you type, Enter opens the first. */
-function BrainSearch({ className }: { className?: string }) {
+function BrainSearch({ className, autoFocus }: { className?: string; autoFocus?: boolean }) {
   const { company, path } = useCompany();
   const { data: model } = useBrainModel();
   const navigate = useNavigate();
@@ -42,6 +44,7 @@ function BrainSearch({ className }: { className?: string }) {
     <div ref={box} className={clsx("relative", className)}>
       <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-faint" />
       <input
+        autoFocus={autoFocus}
         className="input h-9 pl-8 text-[13px]"
         placeholder="Find a person, system, client…"
         value={text}
@@ -106,6 +109,97 @@ function linkClass({ isActive }: { isActive: boolean }) {
   );
 }
 
+/** An area's icon in the collapsed menu: a click lists its kinds beside it. */
+function AreaFlyout({
+  dimension,
+  kinds,
+  counts,
+  model,
+  active,
+  current,
+}: {
+  dimension: BrainDimension;
+  kinds: BrainKind[];
+  counts: Record<string, number>;
+  model: BrainModel;
+  active: boolean;
+  /** The kind of what is open now. */
+  current?: string;
+}) {
+  const [at, setAt] = useState<{ top: number; left: number } | null>(null);
+  const button = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const { pathname } = useLocation();
+  useEffect(() => setAt(null), [pathname]);
+  useEffect(() => {
+    if (!at) return;
+    const onPointer = (event: MouseEvent) => {
+      if (!panel.current?.contains(event.target as Node) && !button.current?.contains(event.target as Node)) setAt(null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setAt(null);
+      button.current?.focus();
+    };
+    const close = () => setAt(null);
+    document.addEventListener("mousedown", onPointer);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", close);
+    return () => {
+      document.removeEventListener("mousedown", onPointer);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", close);
+    };
+  }, [at]);
+  const Icon = DIMENSION_ICONS[dimension.key] ?? Brain;
+  const open = () => {
+    const rect = button.current!.getBoundingClientRect();
+    // Beside the icon, kept inside the window.
+    const height = 44 + kinds.length * 34;
+    setAt({ top: Math.max(64, Math.min(rect.top - 6, window.innerHeight - height - 8)), left: rect.right + 10 });
+  };
+  return (
+    <>
+      <button
+        ref={button}
+        type="button"
+        title={dimension.name}
+        aria-label={dimension.name}
+        aria-haspopup="menu"
+        aria-expanded={Boolean(at)}
+        onClick={() => (at ? setAt(null) : open())}
+        className={railLinkClass(active || Boolean(at))}
+      >
+        <Icon className="size-[18px]" />
+      </button>
+      {at && (
+        <div
+          ref={panel}
+          role="menu"
+          aria-label={dimension.name}
+          style={{ top: at.top, left: at.left }}
+          className="fixed z-50 w-64 animate-fade-in rounded-xl border border-line bg-surface p-1.5 shadow-xl"
+        >
+          <p className="px-2.5 pt-1 pb-1.5 text-[11px] font-semibold tracking-wide text-faint uppercase">{dimension.name}</p>
+          {kinds.map((kind) => (
+            <NavLink
+              key={kind.key}
+              role="menuitem"
+              to={`/brain/k/${kind.key}`}
+              className={({ isActive }) => linkClass({ isActive: isActive || kind.key === current })}
+              title={kind.description}
+            >
+              <KindIcon kind={kind.key} model={model} size="sm" className="!size-5" />
+              <span className="flex-1 truncate">{kind.plural}</span>
+              <span className="text-[11px] text-faint tabular-nums">{counts[kind.key] ?? 0}</span>
+            </NavLink>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
 /** The Brain place: its own menu (overview, ask, map, sources, and every kind of thing by area) beside the page. */
 export default function BrainLayout() {
   const { data: model } = useBrainModel();
@@ -114,58 +208,117 @@ export default function BrainLayout() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const kindPath = pathname.match(/^\/brain\/k\/([^/]+)/)?.[1] ?? "";
+  // A thing's page belongs to its kind in the menu (the page already loaded it).
+  const { data: thing } = useBrainEntity(pathname.match(/^\/brain\/e\/([^/]+)/)?.[1]);
+  const currentKind = kindPath || thing?.kind || "";
+  // On laptops the page gets the room: collapsed to icons until the person expands it.
+  const [folded, setFolded] = useStoredFlag("eb.brain.menu.folded", () => window.innerWidth < 1440);
+  const [searching, setSearching] = useState(false);
+  const activeDimension = kindOf(model, currentKind)?.dimension;
 
   return (
     <div className="flex flex-1">
-      <aside className="sticky top-14 hidden h-[calc(100dvh-3.5rem)] w-64 shrink-0 flex-col self-start border-r border-line bg-surface lg:flex">
-        <div className="flex items-center gap-2 border-b border-line px-4 py-3">
-          <span className="flex size-8 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-violet-600 text-white">
-            <Brain className="size-4" />
-          </span>
-          <div>
-            <p className="text-sm font-semibold text-fg">Company brain</p>
-            <p className="text-[11px] text-muted">
-              {overview ? `${overview.total.toLocaleString("en-US")} things · ${overview.links.toLocaleString("en-US")} links` : "…"}
-            </p>
+      {folded ? (
+        <aside
+          aria-label="Company brain"
+          className="sticky top-14 hidden h-[calc(100dvh-3.5rem)] w-14 shrink-0 flex-col items-center gap-1 self-start overflow-y-auto border-r border-line bg-surface py-3 lg:flex"
+        >
+          <FoldButton folded onToggle={() => setFolded(false)} label="the brain's menu" />
+          <button
+            type="button"
+            title="Find a person, system, client…"
+            aria-label="Search the company brain"
+            onClick={() => {
+              setSearching(true);
+              setFolded(false);
+            }}
+            className={railLinkClass(false)}
+          >
+            <Search className="size-[18px]" />
+          </button>
+          <span className="my-1 h-px w-8 shrink-0 bg-line" />
+          {TOP.map(({ to, label, icon, end }) => (
+            <RailLink key={to} to={to} end={end} icon={icon} label={label} />
+          ))}
+          <span className="my-1 h-px w-8 shrink-0 bg-line" />
+          {model?.dimensions.map((dimension) => (
+            <AreaFlyout
+              key={dimension.key}
+              dimension={dimension}
+              kinds={model.kinds.filter((k) => k.dimension === dimension.key)}
+              counts={counts}
+              model={model}
+              active={activeDimension === dimension.key}
+              current={currentKind}
+            />
+          ))}
+        </aside>
+      ) : (
+        <aside className="sticky top-14 hidden h-[calc(100dvh-3.5rem)] w-64 shrink-0 flex-col self-start border-r border-line bg-surface lg:flex">
+          <div className="flex items-center gap-2 border-b border-line py-3 pr-2 pl-4">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-brand-500 to-violet-600 text-white">
+              <Brain className="size-4" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold text-fg">Company brain</p>
+              <p className="truncate text-[11px] text-muted">
+                {overview ? `${overview.total.toLocaleString("en-US")} things · ${overview.links.toLocaleString("en-US")} links` : "…"}
+              </p>
+            </div>
+            <FoldButton
+              folded={false}
+              onToggle={() => {
+                setSearching(false);
+                setFolded(true);
+              }}
+              label="the brain's menu"
+            />
           </div>
-        </div>
-        <div className="border-b border-line p-3">
-          <BrainSearch />
-        </div>
-        <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3" aria-label="Company brain">
-          <ul className="space-y-0.5">
-            {TOP.map(({ to, label, icon: Icon, end }) => (
-              <li key={to}>
-                <NavLink to={to} end={end} className={linkClass}>
-                  <Icon className="size-4 shrink-0" /> {label}
-                </NavLink>
-              </li>
-            ))}
-          </ul>
-          {model?.dimensions.map((dimension) => {
-            const Icon = DIMENSION_ICONS[dimension.key] ?? Brain;
-            const kinds = model.kinds.filter((k) => k.dimension === dimension.key);
-            return (
-              <div key={dimension.key}>
-                <p className="mb-1 flex items-center gap-1.5 px-2.5 text-[11px] font-semibold tracking-wide text-faint uppercase" title={dimension.description}>
-                  <Icon className="size-3.5" /> {dimension.name}
-                </p>
-                <ul className="space-y-0.5">
-                  {kinds.map((kind) => (
-                    <li key={kind.key}>
-                      <NavLink to={`/brain/k/${kind.key}`} className={linkClass} title={kind.description}>
-                        <KindIcon kind={kind.key} model={model} size="sm" className="!size-5" />
-                        <span className="flex-1 truncate">{kind.plural}</span>
-                        <span className="text-[11px] text-faint tabular-nums">{counts[kind.key] ?? 0}</span>
-                      </NavLink>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            );
-          })}
-        </nav>
-      </aside>
+          <div className="border-b border-line p-3">
+            <BrainSearch autoFocus={searching} />
+          </div>
+          <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3" aria-label="Company brain">
+            <ul className="space-y-0.5">
+              {TOP.map(({ to, label, icon: Icon, end }) => (
+                <li key={to}>
+                  <NavLink to={to} end={end} className={linkClass}>
+                    <Icon className="size-4 shrink-0" /> {label}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+            {model?.dimensions.map((dimension) => {
+              const Icon = DIMENSION_ICONS[dimension.key] ?? Brain;
+              const kinds = model.kinds.filter((k) => k.dimension === dimension.key);
+              return (
+                <div key={dimension.key}>
+                  <p
+                    className="mb-1 flex items-center gap-1.5 px-2.5 text-[11px] font-semibold tracking-wide text-faint uppercase"
+                    title={dimension.description}
+                  >
+                    <Icon className="size-3.5" /> {dimension.name}
+                  </p>
+                  <ul className="space-y-0.5">
+                    {kinds.map((kind) => (
+                      <li key={kind.key}>
+                        <NavLink
+                          to={`/brain/k/${kind.key}`}
+                          className={({ isActive }) => linkClass({ isActive: isActive || kind.key === currentKind })}
+                          title={kind.description}
+                        >
+                          <KindIcon kind={kind.key} model={model} size="sm" className="!size-5" />
+                          <span className="flex-1 truncate">{kind.plural}</span>
+                          <span className="text-[11px] text-faint tabular-nums">{counts[kind.key] ?? 0}</span>
+                        </NavLink>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              );
+            })}
+          </nav>
+        </aside>
+      )}
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="space-y-2 border-b border-line bg-surface px-4 py-2.5 lg:hidden">
           <div className="flex gap-1 overflow-x-auto">

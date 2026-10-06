@@ -4,8 +4,10 @@ import { Suspense } from "react";
 import { Navigate, NavLink, Outlet, useLocation } from "react-router";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Page } from "../../components/Layout.tsx";
+import { FoldButton } from "../../components/SideMenu.tsx";
 import { LoadingBlock } from "../../components/Spinner.tsx";
 import { useViewer } from "../../lib/auth.tsx";
+import { useStoredFlag } from "../../lib/preferences.ts";
 
 interface Section {
   to: string;
@@ -35,11 +37,12 @@ export function useSettingsSections(): Section[] {
   return SETTINGS_SECTIONS.filter((s) => admin || (s.for === "managers" && manager));
 }
 
-/** Settings: a side list of sections (tabs on narrow screens) and the chosen section. */
+/** Settings: a side list of sections (tabs on narrow screens, collapsible to icons on wide ones) and the chosen section. */
 export default function SettingsLayout() {
   const sections = useSettingsSections();
   const location = useLocation();
   const current = location.pathname.split("/")[2];
+  const [folded, setFolded] = useStoredFlag("eb.settings.menu.folded", () => false);
   if (!sections.length) {
     return (
       <Page>
@@ -57,24 +60,35 @@ export default function SettingsLayout() {
   }
   return (
     <div className="flex min-w-0 flex-1 flex-col lg:flex-row">
-      <nav aria-label="Settings" className="shrink-0 border-b border-line bg-surface/60 lg:w-56 lg:border-r lg:border-b-0">
-        <p className="hidden px-5 pt-6 pb-2 text-xs font-semibold tracking-wide text-muted uppercase lg:block">Settings</p>
-        <ul className="flex gap-1 overflow-x-auto px-3 py-2 lg:flex-col lg:overflow-visible lg:py-1">
+      <nav
+        aria-label="Settings"
+        className={clsx(
+          "shrink-0 border-b border-line bg-surface/60 lg:sticky lg:top-14 lg:h-[calc(100dvh-3.5rem)] lg:self-start lg:border-r lg:border-b-0",
+          folded ? "lg:w-14" : "lg:w-56",
+        )}
+      >
+        <div className={clsx("hidden items-center lg:flex", folded ? "justify-center pt-4 pb-2" : "justify-between pt-5 pr-2 pb-2 pl-5")}>
+          {!folded && <p className="text-xs font-semibold tracking-wide text-muted uppercase">Settings</p>}
+          <FoldButton folded={folded} onToggle={() => setFolded(!folded)} label="the settings menu" />
+        </div>
+        <ul className={clsx("flex gap-1 overflow-x-auto px-3 py-2 lg:flex-col lg:overflow-visible lg:py-1", folded && "lg:items-center lg:px-2")}>
           {sections.map((s) => {
             const Icon = s.icon;
             return (
               <li key={s.to} className="shrink-0">
                 <NavLink
                   to={`/settings/${s.to}`}
+                  title={folded ? s.label : undefined}
                   className={({ isActive }) =>
                     clsx(
                       "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors",
+                      folded && "lg:size-9 lg:justify-center lg:gap-0 lg:p-0",
                       isActive ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200" : "text-muted hover:bg-subtle hover:text-fg",
                     )
                   }
                 >
                   <Icon className="size-4 shrink-0" />
-                  {s.label}
+                  <span className={folded ? "lg:sr-only" : undefined}>{s.label}</span>
                 </NavLink>
               </li>
             );

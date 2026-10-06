@@ -133,7 +133,9 @@ function Overview({ report }: { report: PerformanceReport }) {
               ? `${trusted.finishedAlone} of ${plural(trusted.finished, "task")} by ${plural(trusted.aiEmployees, "Trusted AI employee")}${
                   m.finished !== trusted.finished ? `; ${percent(m.aloneShare)} of all ${m.finished}` : ""
                 }`
-              : `No AI employee is Trusted yet; ${percent(m.aloneShare)} of all ${plural(m.finished, "finished task")}`
+              : m.finished
+                ? `No AI employee is Trusted yet; ${percent(m.aloneShare)} of all ${plural(m.finished, "finished task")}`
+                : "No AI employee is Trusted yet, and no task was finished"
           }
           target={`${percent(targets.aloneShare)} or more`}
           verdict={trusted.aiEmployees ? verdictOf(trusted.aloneShare, targets.aloneShare, "higher") : "none"}
@@ -170,6 +172,7 @@ function Overview({ report }: { report: PerformanceReport }) {
         <CardHeader title="Tasks finished, by week" icon={UserCheck} subtitle="Finished alone, and with a person approving, answering or checking." />
         <div className="px-5 pt-3 pb-4">
           <StackedBars
+            empty="No task was finished in these weeks"
             bars={weeks.map((w) => ({
               label: weekLabel(w.start),
               parts: [

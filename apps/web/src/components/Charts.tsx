@@ -31,6 +31,7 @@ export function StackedBars({
   className,
   labels = "auto",
   format = String,
+  empty = "Nothing yet in this period",
 }: {
   bars: { label: string; parts: BarPart[] }[];
   height?: number;
@@ -39,34 +40,39 @@ export function StackedBars({
   labels?: "all" | "ends" | "auto";
   /** How a bar's total reads above it (money, say). */
   format?: (total: number) => string;
+  /** Said in place of the bars when every one is zero. */
+  empty?: string;
 }) {
   const max = Math.max(1, ...bars.map((bar) => bar.parts.reduce((sum, p) => sum + p.value, 0)));
-  const legend = bars[0]?.parts ?? [];
+  const nothing = bars.every((bar) => bar.parts.every((part) => !part.value));
+  const legend = nothing ? [] : (bars[0]?.parts ?? []);
   return (
     <div className={className}>
       <div
         className="flex items-end gap-1.5 sm:gap-3"
         style={{ height }}
         role="img"
-        aria-label={bars.map((b) => `${b.label}: ${b.parts.map((p) => `${p.value} ${p.label}`).join(", ")}`).join("; ")}
+        aria-label={nothing ? empty : bars.map((b) => `${b.label}: ${b.parts.map((p) => `${p.value} ${p.label}`).join(", ")}`).join("; ")}
       >
-        {bars.map((bar) => {
-          const total = bar.parts.reduce((sum, p) => sum + p.value, 0);
-          return (
-            <div
-              key={bar.label}
-              className="flex h-full min-w-0 flex-1 flex-col justify-end"
-              title={`${bar.label}: ${bar.parts.map((p) => `${p.value} ${p.label}`).join(", ")}`}
-            >
-              <span className="mb-1 truncate text-center text-[11px] text-muted tabular-nums">{total ? format(total) : ""}</span>
-              <div className="flex flex-col-reverse overflow-hidden rounded-md" style={{ height: `${(total / max) * 100}%` }}>
-                {bar.parts.map((part) => (
-                  <div key={part.label} className={FILL[part.tone]} style={{ height: total ? `${(part.value / total) * 100}%` : 0 }} />
-                ))}
+        {nothing && <p className="flex h-full w-full items-center justify-center text-center text-xs text-faint">{empty}</p>}
+        {!nothing &&
+          bars.map((bar) => {
+            const total = bar.parts.reduce((sum, p) => sum + p.value, 0);
+            return (
+              <div
+                key={bar.label}
+                className="flex h-full min-w-0 flex-1 flex-col justify-end"
+                title={`${bar.label}: ${bar.parts.map((p) => `${p.value} ${p.label}`).join(", ")}`}
+              >
+                <span className="mb-1 truncate text-center text-[11px] text-muted tabular-nums">{total ? format(total) : ""}</span>
+                <div className="flex flex-col-reverse overflow-hidden rounded-md" style={{ height: `${(total / max) * 100}%` }}>
+                  {bar.parts.map((part) => (
+                    <div key={part.label} className={FILL[part.tone]} style={{ height: total ? `${(part.value / total) * 100}%` : 0 }} />
+                  ))}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
       </div>
       {labels !== "all" && (
         <div className={clsx("mt-1.5 flex justify-between border-t border-line pt-1.5 text-[11px] text-faint", labels === "auto" && "sm:hidden")}>

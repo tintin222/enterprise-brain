@@ -184,6 +184,7 @@ function PerformanceCard({ detail }: { detail: AgentDetail }) {
         <StackedBars
           height={64}
           labels="ends"
+          empty="Nothing finished in the last 4 weeks"
           bars={data.weeks.map((w) => ({
             label: new Date(`${w.start}T12:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
             parts: [

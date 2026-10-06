@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Bot, BookOpen, LibraryBig, Search as SearchIcon } from "lucide-react";
+import { ArrowRight, Bot, BookOpen, Brain, LibraryBig, Search as SearchIcon } from "lucide-react";
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useSearchParams } from "react-router";
 import { api, qs } from "../api.ts";
@@ -14,8 +14,9 @@ import { humanize, truncate } from "../lib/format.ts";
 import { archetypeIcon } from "../lib/icons.tsx";
 import { archetypeLabel } from "../lib/labels.ts";
 import { keys, useAgents } from "../lib/queries.ts";
-import type { CatalogSearchResult, SearchHit, SearchResponse } from "../types.ts";
+import type { BrainEntitySummary, CatalogSearchResult, SearchHit, SearchResponse } from "../types.ts";
 import { useDocumentTitle } from "../lib/title.ts";
+import { KindIcon, brainKeys, brainPath, kindOf, useBrainModel } from "./brain/brain.tsx";
 
 function terms(query: string): string[] {
   return [
@@ -77,7 +78,7 @@ function catalogLink(r: CatalogSearchResult): string {
   }
 }
 
-const SUGGESTIONS = ["annual leave", "travel policy hotel limit", "VPN access", "purchase order", "yıllık izin"];
+const SUGGESTIONS = ["annual leave", "travel policy hotel limit", "VPN access", "SAP S/4HANA", "Petrokim", "yıllık izin"];
 
 export default function Search() {
   const { company, path } = useCompany();
@@ -97,6 +98,13 @@ export default function Search() {
     queryFn: () => api.get<CatalogSearchResult[]>(`/api/catalog/search${qs({ q })}`),
     enabled: Boolean(q),
   });
+  // People, processes, systems, clients and the rest the company brain knows.
+  const brain = useQuery({
+    queryKey: [...brainKeys.all(company), "search", q],
+    queryFn: () => api.get<BrainEntitySummary[]>(path(`/brain/search${qs({ q })}`)),
+    enabled: Boolean(q),
+  });
+  const { data: model } = useBrainModel();
   const agents = useAgents();
   // The same passage often lives in several collections: show it once, with every collection.
   const hits = useMemo(() => {
@@ -136,7 +144,7 @@ export default function Search() {
       <div className="mx-auto max-w-3xl pt-2 pb-8 text-center">
         <h1 className="text-2xl font-semibold tracking-tight text-fg sm:text-3xl">Search the company</h1>
         <p className="mt-2 text-sm text-muted">
-          Policies, procedures and documents in the knowledge base — plus AI employees, working or ready-made, that can do the job.
+          People, processes, systems and clients in the company brain; policies and documents in the knowledge base; and AI employees that can do the job.
         </p>
         <form onSubmit={submit} className="relative mt-6">
           <SearchIcon className="pointer-events-none absolute top-1/2 left-4 size-5 -translate-y-1/2 text-faint" />
@@ -171,68 +179,114 @@ export default function Search() {
 
       {q && (
         <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
-          <section aria-label="Knowledge results">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-fg">
-              <BookOpen className="size-4 text-muted" /> Knowledge
-              {knowledge.data && (
-                <span className="font-normal text-muted">
-                  · {hits.length} results in {knowledge.data.tookMs} ms
-                </span>
+          <div className="min-w-0 space-y-8">
+            <section aria-label="Company brain results">
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-fg">
+                <Brain className="size-4 text-muted" /> Company brain
+                {brain.data && brain.data.length > 0 && (
+                  <span className="font-normal text-muted">
+                    · {brain.data.length > 6 ? `6 of ${brain.data.length}` : brain.data.length} {brain.data.length === 1 ? "thing" : "things"}
+                  </span>
+                )}
+                {brain.data && brain.data.length > 0 && (
+                  <Link
+                    to={`/brain/ask?q=${encodeURIComponent(q)}`}
+                    className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
+                  >
+                    Ask the brain <ArrowRight className="size-3" />
+                  </Link>
+                )}
+              </h2>
+              {brain.isLoading && <Skeleton className="h-20" />}
+              {brain.error && <ErrorState error={brain.error} />}
+              {brain.data && brain.data.length === 0 && <p className="text-sm text-muted">Nothing in the company brain.</p>}
+              <ul className="grid gap-2 sm:grid-cols-2">
+                {brain.data?.slice(0, 6).map((thing) => (
+                  <li key={thing.id}>
+                    <Link
+                      to={brainPath(thing.id)}
+                      className="flex h-full items-start gap-3 rounded-xl border border-line bg-surface p-3 hover:border-brand-300 dark:hover:border-brand-400/40"
+                    >
+                      <KindIcon kind={thing.kind} model={model} size="sm" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-fg">{thing.name}</span>
+                        <span className="block truncate text-xs text-muted">
+                          {[kindOf(model, thing.kind)?.name, ...thing.brief.map(([, value]) => value)].filter(Boolean).join(" · ")}
+                        </span>
+                        {thing.summary && (
+                          <span className="mt-1 line-clamp-2 block text-xs text-faint">
+                            <Highlighted text={thing.summary} query={q} max={160} />
+                          </span>
+                        )}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+            <section aria-label="Knowledge results">
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-fg">
+                <BookOpen className="size-4 text-muted" /> Knowledge
+                {knowledge.data && (
+                  <span className="font-normal text-muted">
+                    · {hits.length} results in {knowledge.data.tookMs} ms
+                  </span>
+                )}
+              </h2>
+              {knowledge.isLoading && (
+                <div className="space-y-3">
+                  {[0, 1, 2].map((i) => (
+                    <Skeleton key={i} className="h-24" />
+                  ))}
+                </div>
               )}
-            </h2>
-            {knowledge.isLoading && (
+              {knowledge.error && <ErrorState error={knowledge.error} />}
+              {knowledge.data && hits.length === 0 && (
+                <EmptyState
+                  compact
+                  icon={SearchIcon}
+                  title="Nothing in the knowledge base"
+                  description="Try other words, or add the document to a collection."
+                  action={
+                    <Link to="/settings/knowledge" className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-300">
+                      Open the knowledge base
+                    </Link>
+                  }
+                />
+              )}
               <div className="space-y-3">
-                {[0, 1, 2].map((i) => (
-                  <Skeleton key={i} className="h-24" />
+                {hits.map(({ hit: h, collections }) => (
+                  <Card key={h.chunkId} className="p-4 transition-colors hover:border-brand-300 dark:hover:border-brand-400/40">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Link
+                        to={`/settings/knowledge?collection=${encodeURIComponent(h.collectionKey)}&doc=${encodeURIComponent(h.documentId)}`}
+                        className="text-[15px] font-semibold text-brand-700 hover:underline dark:text-brand-300"
+                      >
+                        {h.title}
+                      </Link>
+                      {collections.slice(0, 3).map((c) => (
+                        <Badge key={c} size="xs">
+                          {c}
+                        </Badge>
+                      ))}
+                      {collections.length > 3 && <span className="text-[11px] text-faint">+{collections.length - 3} collections</span>}
+                      <span className="ml-auto text-xs text-faint tabular-nums" title="Relevance (fused vector + full-text score)">
+                        {Math.round(h.score * 100)}% match
+                      </span>
+                    </div>
+                    <p className="mt-2 text-[13px] leading-relaxed text-muted">
+                      <Highlighted text={h.content} query={q} />
+                    </p>
+                  </Card>
                 ))}
               </div>
-            )}
-            {knowledge.error && <ErrorState error={knowledge.error} />}
-            {knowledge.data && hits.length === 0 && (
-              <EmptyState
-                compact
-                icon={SearchIcon}
-                title="Nothing in the knowledge base"
-                description="Try other words, or add the document to a collection."
-                action={
-                  <Link to="/settings/knowledge" className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-300">
-                    Open the knowledge base
-                  </Link>
-                }
-              />
-            )}
-            <div className="space-y-3">
-              {hits.map(({ hit: h, collections }) => (
-                <Card key={h.chunkId} className="p-4 transition-colors hover:border-brand-300 dark:hover:border-brand-400/40">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Link
-                      to={`/settings/knowledge?collection=${encodeURIComponent(h.collectionKey)}&doc=${encodeURIComponent(h.documentId)}`}
-                      className="text-[15px] font-semibold text-brand-700 hover:underline dark:text-brand-300"
-                    >
-                      {h.title}
-                    </Link>
-                    {collections.slice(0, 3).map((c) => (
-                      <Badge key={c} size="xs">
-                        {c}
-                      </Badge>
-                    ))}
-                    {collections.length > 3 && <span className="text-[11px] text-faint">+{collections.length - 3} collections</span>}
-                    <span className="ml-auto text-xs text-faint tabular-nums" title="Relevance (fused vector + full-text score)">
-                      {Math.round(h.score * 100)}% match
-                    </span>
-                  </div>
-                  <p className="mt-2 text-[13px] leading-relaxed text-muted">
-                    <Highlighted text={h.content} query={q} />
-                  </p>
-                </Card>
-              ))}
-            </div>
-          </section>
+            </section>
+          </div>
 
           <aside className="space-y-8">
             <section aria-label="AI employees">
               <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-fg">
-                <Bot className="size-4 text-muted" /> Your agents
+                <Bot className="size-4 text-muted" /> AI employees
               </h2>
               {agentHits.length === 0 ? (
                 <p className="text-sm text-muted">No AI employee matches.</p>
@@ -243,7 +297,7 @@ export default function Search() {
                     return (
                       <li key={a.id}>
                         <Link
-                          to={`/ai/${a.slug}/app`}
+                          to={`/ai/${a.slug}`}
                           className="flex items-start gap-3 rounded-xl border border-line bg-surface p-3 hover:border-brand-300 dark:hover:border-brand-400/40"
                         >
                           <Icon className="mt-0.5 size-4 shrink-0 text-brand-600 dark:text-brand-300" />

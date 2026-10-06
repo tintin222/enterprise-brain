@@ -415,41 +415,46 @@ export default function Inbox() {
                 </button>
               </li>
               {mailboxes.isLoading && <Skeleton className="m-2 h-24" />}
-              {(mailboxes.data ?? []).map((m) => (
-                <li key={m.mailbox}>
-                  <button
-                    type="button"
-                    onClick={() => set("mailbox", m.mailbox)}
-                    className={clsx("w-full rounded-lg px-3 py-2 text-left", mailbox === m.mailbox ? "bg-brand-50 dark:bg-brand-400/15" : "hover:bg-subtle")}
-                  >
-                    <span className="flex items-center gap-2">
-                      <Mail className="size-4 shrink-0 text-muted" />
-                      <span
-                        className={clsx(
-                          "min-w-0 flex-1 truncate text-sm font-medium",
-                          mailbox === m.mailbox ? "text-brand-700 dark:text-brand-200" : "text-fg",
+              {(mailboxes.data ?? []).map((m) => {
+                // "careers@" reads at a glance; the domain goes on the line under it.
+                const [local, domain] = m.mailbox.split("@");
+                return (
+                  <li key={m.mailbox}>
+                    <button
+                      type="button"
+                      onClick={() => set("mailbox", m.mailbox)}
+                      title={m.mailbox}
+                      className={clsx("w-full rounded-lg px-3 py-2 text-left", mailbox === m.mailbox ? "bg-brand-50 dark:bg-brand-400/15" : "hover:bg-subtle")}
+                    >
+                      <span className="flex items-center gap-2">
+                        <Mail className="size-4 shrink-0 text-muted" />
+                        <span
+                          className={clsx(
+                            "min-w-0 flex-1 truncate text-sm font-medium",
+                            mailbox === m.mailbox ? "text-brand-700 dark:text-brand-200" : "text-fg",
+                          )}
+                        >
+                          {domain ? `${local}@` : m.mailbox}
+                        </span>
+                        {m.unprocessed > 0 && (
+                          <span className="rounded-full bg-subtle px-1.5 text-[11px] leading-[18px] font-semibold text-muted">{m.unprocessed}</span>
                         )}
-                      >
-                        {m.mailbox}
                       </span>
-                      {m.unprocessed > 0 && (
-                        <span className="rounded-full bg-subtle px-1.5 text-[11px] leading-[18px] font-semibold text-muted">{m.unprocessed}</span>
+                      <span className="mt-0.5 block truncate pl-6 text-xs text-faint">{[domain, plural(m.total, "message")].filter(Boolean).join(" · ")}</span>
+                      {m.agents.length > 0 && (
+                        <span className="mt-1 flex flex-wrap gap-1 pl-6">
+                          {m.agents.map((a) => (
+                            <span key={a.id} className="inline-flex items-center gap-1 text-[11px] text-muted">
+                              <span className={clsx("size-1.5 rounded-full", a.status === "active" ? "bg-emerald-500" : "bg-slate-400")} />
+                              {a.name}
+                            </span>
+                          ))}
+                        </span>
                       )}
-                    </span>
-                    <span className="mt-0.5 block pl-6 text-xs text-faint">{plural(m.total, "message")}</span>
-                    {m.agents.length > 0 && (
-                      <span className="mt-1 flex flex-wrap gap-1 pl-6">
-                        {m.agents.map((a) => (
-                          <span key={a.id} className="inline-flex items-center gap-1 text-[11px] text-muted">
-                            <span className={clsx("size-1.5 rounded-full", a.status === "active" ? "bg-emerald-500" : "bg-slate-400")} />
-                            {a.name}
-                          </span>
-                        ))}
-                      </span>
-                    )}
-                  </button>
-                </li>
-              ))}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </nav>
 
