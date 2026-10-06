@@ -7,7 +7,9 @@ import {
   Bot,
   Building2,
   CalendarClock,
+  ChartColumn,
   Database,
+  FileSpreadsheet,
   FileText,
   FolderOpen,
   Gavel,
@@ -22,6 +24,8 @@ import {
   Package,
   Scale,
   Server,
+  Table,
+  Table2,
   Target,
   Truck,
   User,
@@ -62,9 +66,9 @@ export function useBrainEntities(kind: string | undefined, q = "", options: { li
   });
 }
 
-/** A kind's name inside a sentence: "people", but "AI employees". */
+/** A kind's name inside a sentence: "people", but "AI employees" and "BI reports". */
 export function lowerName(name: string): string {
-  return /^AI\b/.test(name) ? name : name.toLowerCase();
+  return /^[A-Z]{2,}\b/.test(name) ? name : name.toLowerCase();
 }
 
 export function useBrainEntity(id: string | undefined) {
@@ -118,6 +122,9 @@ export const KIND_ICONS: Record<string, LucideIcon> = {
   database: Database,
   data_store: FolderOpen,
   infrastructure: Server,
+  data_table: Table2,
+  dataset: FileSpreadsheet,
+  report: ChartColumn,
   client: Handshake,
   deal: BadgeDollarSign,
   case: MessageSquareWarning,
@@ -135,6 +142,7 @@ export const DIMENSION_ICONS: Record<string, LucideIcon> = {
   organization: Users,
   processes: Workflow,
   systems: Server,
+  data: Table,
   market: Handshake,
   work: Kanban,
   knowhow: Lightbulb,
@@ -169,6 +177,14 @@ export const DIMENSION_COLORS: Record<string, { chip: string; icon: string; dot:
     fill: "fill-emerald-500",
     stroke: "stroke-emerald-500",
     soft: "fill-emerald-50 dark:fill-emerald-950",
+  },
+  data: {
+    chip: "bg-fuchsia-50 text-fuchsia-800 ring-fuchsia-600/15 dark:bg-fuchsia-400/10 dark:text-fuchsia-200 dark:ring-fuchsia-400/25",
+    icon: "bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-400/15 dark:text-fuchsia-300",
+    dot: "bg-fuchsia-500",
+    fill: "fill-fuchsia-500",
+    stroke: "stroke-fuchsia-500",
+    soft: "fill-fuchsia-50 dark:fill-fuchsia-950",
   },
   market: {
     chip: "bg-amber-50 text-amber-900 ring-amber-600/20 dark:bg-amber-400/10 dark:text-amber-200 dark:ring-amber-400/25",
@@ -281,11 +297,15 @@ export const ORIGIN_NAMES: Record<string, string> = {
   erp: "ERP",
   itsm: "IT service desk",
   projects: "Project tool",
+  catalog: "Data catalog",
+  bi: "Power BI",
   teams: "Teams",
   slack: "Slack",
   email: "Email",
 };
 
 export function originName(origin: string): string {
+  // Tables read from a database come in under "schema:<database id>".
+  if (origin.startsWith("schema:")) return "the database";
   return ORIGIN_NAMES[origin] ?? origin;
 }

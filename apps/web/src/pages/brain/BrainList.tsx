@@ -1,5 +1,5 @@
 import { clsx } from "clsx";
-import { Plus, Search } from "lucide-react";
+import { LayoutGrid, List, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { Badge } from "../../components/Badge.tsx";
@@ -9,7 +9,9 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { Page } from "../../components/Layout.tsx";
 import { ErrorState, Skeleton } from "../../components/Spinner.tsx";
 import { timeAgo } from "../../lib/format.ts";
+import { useStoredFlag } from "../../lib/preferences.ts";
 import { KindIcon, ThingChip, brainPath, kindIcon, kindOf, lowerName, useBrainEntities, useBrainModel, useMayEditBrain } from "./brain.tsx";
+import { ReportCards } from "./data.tsx";
 import { EntityForm } from "./EntityForm.tsx";
 import { TellTheBrain } from "./TellTheBrain.tsx";
 import { toneOf } from "./values.tsx";
@@ -25,6 +27,9 @@ export default function BrainList() {
   const [adding, setAdding] = useState(false);
   const list = useBrainEntities(kindKey, q, { links: true });
   const rows = list.data ?? [];
+  // Reports show as cards with their first screenshot, or as a list.
+  const [asList, setAsList] = useStoredFlag("eb.brain.reports.list", () => false);
+  const cards = kindKey === "report" && !asList;
 
   // The first status-like field (status, stage, health…) filters the list.
   const choiceField = kind?.fields.find((f) => f.brief && f.type === "choice");
@@ -68,6 +73,28 @@ export default function BrainList() {
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
+        {kindKey === "report" && (
+          <div className="flex rounded-lg ring-1 ring-line-strong ring-inset" role="group" aria-label="Show as">
+            {[
+              { list: false, icon: LayoutGrid, label: "Cards" },
+              { list: true, icon: List, label: "List" },
+            ].map((option) => (
+              <button
+                key={option.label}
+                type="button"
+                onClick={() => setAsList(option.list)}
+                aria-pressed={asList === option.list}
+                title={option.label}
+                className={clsx(
+                  "flex h-9 w-9 items-center justify-center first:rounded-l-lg last:rounded-r-lg",
+                  asList === option.list ? "bg-subtle text-fg" : "text-faint hover:text-fg",
+                )}
+              >
+                <option.icon className="size-4" />
+              </button>
+            ))}
+          </div>
+        )}
         {choiceValues.length > 1 && (
           <div className="flex flex-wrap gap-1.5">
             <button
@@ -113,6 +140,8 @@ export default function BrainList() {
             ) : undefined
           }
         />
+      ) : cards ? (
+        <ReportCards reports={shown} model={model} />
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">

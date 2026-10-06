@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import { eq } from "drizzle-orm";
-import { BRAIN_SOURCES, BrainService, BrainSources, sourceName, sourcePriority } from "@enterprise-brain/brain";
+import { BRAIN_SOURCES, BrainCatalog, BrainService, BrainSources, sourceName, sourcePriority } from "@enterprise-brain/brain";
 import { loadCatalog } from "@enterprise-brain/catalog";
 import { createDefaultRegistry, type ConnectorRegistry, type ScreenOperator } from "@enterprise-brain/connectors";
 import type { Catalog } from "@enterprise-brain/core";
@@ -10,7 +10,7 @@ import { createEmbedderFromEnv, createLlmFromEnv, type Embedder, type LlmClient 
 import { createScreensFromEnv } from "@enterprise-brain/screens";
 import { ActivityService } from "./activity.ts";
 import { AgentService } from "./agents.ts";
-import { brainSourceDeps } from "./brain-deps.ts";
+import { brainCatalogDeps, brainSourceDeps } from "./brain-deps.ts";
 import { ChannelAccounts } from "./channel-accounts.ts";
 import { ChatChannelSender } from "./chat-channels.ts";
 import { CatalogService } from "./catalog-service.ts";
@@ -111,6 +111,8 @@ export class Platform {
   readonly brain: BrainService;
   /** The systems the company brain learns from. */
   readonly brainSources: BrainSources;
+  /** The company's tables in the brain, read from its databases through their connections. */
+  readonly brainCatalog: BrainCatalog;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -172,6 +174,7 @@ export class Platform {
       brainSourceDeps({ handle: this.handle, catalog: this.catalog, people: this.people, agents: this.agents, connectors: this.connectors }),
       BRAIN_SOURCES,
     );
+    this.brainCatalog = new BrainCatalog(this.brain, brainCatalogDeps(this.connectors));
     this.triggers = new TriggerService(this.handle, this.agents, this.engine, this.mail, this.tasks, this.people);
     this.triggers.onTick((now) => this.calculations.runDue(now));
     this.recurring = new RecurringWorkService(this.handle, this.agents, this.engine);

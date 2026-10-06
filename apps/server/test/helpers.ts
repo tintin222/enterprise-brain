@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { BuilderService } from "@enterprise-brain/builder";
+import type { ConnectorRegistry } from "@enterprise-brain/connectors";
 import { LocalHashEmbedder, UnavailableLlm, type LlmClient } from "@enterprise-brain/llm";
 import { Platform } from "@enterprise-brain/runtime";
 import { AuthService } from "../src/auth/service.ts";
@@ -21,12 +22,27 @@ export interface TestApp {
 }
 
 export async function createTestApp(
-  options: { llm?: LlmClient; coachLlm?: LlmClient; seed?: boolean; config?: Partial<ServerConfig>; oidcProviders?: OidcProvider[] } = {},
+  options: {
+    llm?: LlmClient;
+    coachLlm?: LlmClient;
+    seed?: boolean;
+    config?: Partial<ServerConfig>;
+    oidcProviders?: OidcProvider[];
+    /** Connector implementations to use instead of the built-in ones (a database the test brings). */
+    registry?: ConnectorRegistry;
+  } = {},
 ): Promise<TestApp> {
   const dataDir = mkdtempSync(join(tmpdir(), "eb-test-"));
   // The browser for screen connections, when the machine names its own.
   const env = process.env.EB_BROWSER_PATH ? { EB_BROWSER_PATH: process.env.EB_BROWSER_PATH } : {};
-  const platform = await Platform.create({ dataDir, inMemory: true, llm: options.llm ?? new UnavailableLlm(), embedder: new LocalHashEmbedder(), env });
+  const platform = await Platform.create({
+    dataDir,
+    inMemory: true,
+    llm: options.llm ?? new UnavailableLlm(),
+    embedder: new LocalHashEmbedder(),
+    env,
+    registry: options.registry,
+  });
   const company = await platform.ensureCompany({ slug: "acme", name: "Acme Endüstri A.Ş.", settings: { mailDomain: "acme.com.tr" } });
   if (options.seed ?? true) await seedDemo(platform, company.id);
   const config: ServerConfig = {

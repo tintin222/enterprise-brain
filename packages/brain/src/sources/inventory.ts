@@ -1,11 +1,12 @@
-import type { BrainApi, BrainTable } from "@enterprise-brain/core";
+import type { BrainApi } from "@enterprise-brain/core";
 import type { SourceEntity, SourceLink } from "../types.ts";
 import type { BrainSourceDefinition } from "./types.ts";
 
 /**
  * A made-up IT inventory (standing in for a CMDB) of the demo company: its systems with what they
- * do, who owns and looks after them, their APIs, their databases and tables, where documents are
- * kept, where everything runs, and which data flows between them.
+ * do, who owns and looks after them, their APIs, their databases, where documents are kept, where
+ * everything runs, and which data flows between them. The databases' tables come from the databases
+ * themselves and the data catalog (data.ts).
  */
 
 interface System {
@@ -417,6 +418,25 @@ const SYSTEMS: System[] = [
     ],
   },
   {
+    key: "data-warehouse",
+    name: "Data warehouse",
+    aliases: ["DWH", "ACME_DWH"],
+    summary: "Copies of SAP and MES data, cleaned and joined each night, that the Power BI reports read.",
+    category: "BI & reporting",
+    vendor: "Azure SQL Database, loaded by Azure Data Factory",
+    hosting: "Public cloud",
+    location: "Azure West Europe",
+    users: 5,
+    criticality: "High",
+    features: ["Nightly copies of SAP and MES tables", "Facts and dimensions for reports", "One version of revenue, OEE and on-time delivery"],
+    data: ["Sales", "Purchasing", "Production", "Quality", "General ledger"],
+    owner: "hande.ozkan",
+    itContact: ["can.ozturk"],
+    usedBy: [["finance", "Reports and the monthly close"]],
+    runsOn: "azure-acme-prod",
+    database: "dwh",
+  },
+  {
     key: "uyumsoft-e-fatura",
     name: "Uyumsoft e-Fatura",
     aliases: ["Uyumsoft", "e-Fatura portal"],
@@ -499,7 +519,6 @@ const DATABASES: {
   system: string;
   summary: string;
   data: Record<string, unknown>;
-  tables?: BrainTable[];
   runsOn: string;
   contact: string;
 }[] = [
@@ -520,66 +539,6 @@ const DATABASES: {
       personal_data: "Some",
       size: "1.2 TB",
     },
-    tables: [
-      {
-        name: "VBAK",
-        description: "Sales order headers",
-        columns: [
-          { name: "VBELN", type: "CHAR(10)", key: "PK", description: "Sales order number" },
-          { name: "ERDAT", type: "DATS", key: "", description: "Created on" },
-          { name: "KUNNR", type: "CHAR(10)", key: "FK → KNA1.KUNNR", description: "Customer" },
-          { name: "NETWR", type: "CURR(15,2)", key: "", description: "Net value" },
-          { name: "WAERK", type: "CUKY(5)", key: "", description: "Currency" },
-        ],
-      },
-      {
-        name: "VBAP",
-        description: "Sales order items",
-        columns: [
-          { name: "VBELN", type: "CHAR(10)", key: "PK, FK → VBAK.VBELN", description: "Sales order number" },
-          { name: "POSNR", type: "NUMC(6)", key: "PK", description: "Item" },
-          { name: "MATNR", type: "CHAR(40)", key: "FK → MARA.MATNR", description: "Material (e.g. FG-20001)" },
-          { name: "KWMENG", type: "QUAN(15,3)", key: "", description: "Quantity" },
-        ],
-      },
-      {
-        name: "EKKO",
-        description: "Purchase order headers",
-        columns: [
-          { name: "EBELN", type: "CHAR(10)", key: "PK", description: "Purchase order number" },
-          { name: "LIFNR", type: "CHAR(10)", key: "FK → LFA1.LIFNR", description: "Supplier" },
-          { name: "BEDAT", type: "DATS", key: "", description: "Order date" },
-        ],
-      },
-      {
-        name: "RBKP",
-        description: "Supplier invoice headers",
-        columns: [
-          { name: "BELNR", type: "CHAR(10)", key: "PK", description: "Invoice document number" },
-          { name: "LIFNR", type: "CHAR(10)", key: "FK → LFA1.LIFNR", description: "Supplier" },
-          { name: "XBLNR", type: "CHAR(16)", key: "", description: "The supplier's invoice number" },
-          { name: "RMWWR", type: "CURR(13,2)", key: "", description: "Gross amount" },
-        ],
-      },
-      {
-        name: "LFA1",
-        description: "Suppliers",
-        columns: [
-          { name: "LIFNR", type: "CHAR(10)", key: "PK", description: "Supplier number" },
-          { name: "NAME1", type: "CHAR(35)", key: "", description: "Name" },
-          { name: "STCD1", type: "CHAR(16)", key: "", description: "Tax number" },
-        ],
-      },
-      {
-        name: "KNA1",
-        description: "Customers",
-        columns: [
-          { name: "KUNNR", type: "CHAR(10)", key: "PK", description: "Customer number (CUST-…)" },
-          { name: "NAME1", type: "CHAR(35)", key: "", description: "Name" },
-          { name: "LAND1", type: "CHAR(3)", key: "", description: "Country" },
-        ],
-      },
-    ],
   },
   {
     key: "mes-db",
@@ -598,59 +557,6 @@ const DATABASES: {
       personal_data: "Some",
       size: "180 GB",
     },
-    tables: [
-      {
-        name: "work_orders",
-        description: "Production orders released from SAP",
-        columns: [
-          { name: "wo_id", type: "int", key: "PK", description: "Work order id" },
-          { name: "sap_order", type: "varchar(12)", key: "", description: "SAP production order number" },
-          { name: "material", type: "varchar(18)", key: "", description: "What is made, e.g. FG-20001 (ACP-80)" },
-          { name: "quantity", type: "int", key: "", description: "Pumps to make" },
-          { name: "status", type: "varchar(12)", key: "", description: "released, running or done" },
-          { name: "planned_start", type: "datetime2", key: "", description: "Planned start" },
-          { name: "planned_end", type: "datetime2", key: "", description: "Planned end" },
-        ],
-      },
-      {
-        name: "operations",
-        description: "Each step of a work order on the shop floor",
-        columns: [
-          { name: "op_id", type: "int", key: "PK", description: "Operation id" },
-          { name: "wo_id", type: "int", key: "FK → work_orders.wo_id", description: "Work order" },
-          { name: "step", type: "varchar(40)", key: "", description: "machining, assembly, test or packing" },
-          { name: "workstation", type: "varchar(20)", key: "", description: "Where, e.g. ASM-2, TB1" },
-          { name: "operator", type: "varchar(60)", key: "", description: "Who did it" },
-          { name: "finished_at", type: "datetime2", key: "", description: "When it was confirmed" },
-        ],
-      },
-      {
-        name: "test_results",
-        description: "Final test of each pump, from PumpTest Pro",
-        columns: [
-          { name: "test_id", type: "bigint", key: "PK", description: "Test id" },
-          { name: "serial_no", type: "varchar(20)", key: "", description: "Pump serial number" },
-          { name: "wo_id", type: "int", key: "FK → work_orders.wo_id", description: "Work order" },
-          { name: "bench_id", type: "varchar(10)", key: "", description: "TB1 or TB2" },
-          { name: "flow_m3h", type: "decimal(8,2)", key: "", description: "Flow (m³/h)" },
-          { name: "head_m", type: "decimal(8,2)", key: "", description: "Head (m)" },
-          { name: "vibration_mm_s", type: "decimal(6,2)", key: "", description: "Vibration (mm/s); above 4.5 fails (ISO 10816)" },
-          { name: "passed", type: "bit", key: "", description: "1 when the pump passed" },
-          { name: "tested_at", type: "datetime2", key: "", description: "When it was tested" },
-        ],
-      },
-      {
-        name: "machine_downtime",
-        description: "When machines stood still, and why",
-        columns: [
-          { name: "event_id", type: "int", key: "PK", description: "Downtime id" },
-          { name: "workstation", type: "varchar(20)", key: "", description: "Machine or station" },
-          { name: "reason", type: "varchar(80)", key: "", description: "Why" },
-          { name: "started_at", type: "datetime2", key: "", description: "Since when" },
-          { name: "minutes", type: "int", key: "", description: "How long" },
-        ],
-      },
-    ],
   },
   {
     key: "portal-db",
@@ -669,38 +575,24 @@ const DATABASES: {
       personal_data: "Some",
       size: "6 GB",
     },
-    tables: [
-      {
-        name: "orders",
-        description: "Customers' orders as the portal shows them",
-        columns: [
-          { name: "order_number", type: "varchar(12)", key: "PK", description: "SAP sales order number" },
-          { name: "customer_id", type: "int", key: "FK → customers.customer_id", description: "Customer" },
-          { name: "status", type: "varchar(20)", key: "", description: "confirmed, in production, tested, shipped" },
-          { name: "promised_date", type: "date", key: "", description: "Delivery date promised" },
-          { name: "tracking_no", type: "varchar(40)", key: "", description: "Carrier tracking number" },
-        ],
-      },
-      {
-        name: "customers",
-        description: "Customer companies with portal access",
-        columns: [
-          { name: "customer_id", type: "int", key: "PK", description: "Portal customer id" },
-          { name: "sap_customer", type: "varchar(10)", key: "", description: "SAP customer number (CUST-…)" },
-          { name: "name", type: "nvarchar(120)", key: "", description: "Name" },
-        ],
-      },
-      {
-        name: "documents",
-        description: "Documents shared with customers",
-        columns: [
-          { name: "doc_id", type: "int", key: "PK", description: "Document id" },
-          { name: "order_number", type: "varchar(12)", key: "FK → orders.order_number", description: "Order" },
-          { name: "type", type: "varchar(20)", key: "", description: "certificate, delivery note or invoice" },
-          { name: "file_url", type: "nvarchar(400)", key: "", description: "Where the file is" },
-        ],
-      },
-    ],
+  },
+  {
+    key: "dwh",
+    name: "ACME_DWH (Azure SQL)",
+    system: "data-warehouse",
+    summary: "The data warehouse Power BI reads: facts and dimensions copied each night from SAP and the MES. The best place for questions about numbers.",
+    runsOn: "azure-acme-prod",
+    contact: "can.ozturk",
+    data: {
+      engine: "Azure SQL Database (General Purpose, 8 vCores)",
+      connectable: "Read-only",
+      host: "acme-dwh.database.windows.net",
+      port: 1433,
+      database: "ACME_DWH",
+      access: "Entra ID; Can Öztürk gives the read-only role eb_reader.",
+      personal_data: "Some",
+      size: "240 GB",
+    },
   },
   {
     key: "payroll-db",
@@ -851,7 +743,12 @@ const INFRASTRUCTURE: {
     type: "Cloud subscription",
     provider: "Microsoft Azure",
     region: "West Europe (Netherlands)",
-    details: ["Customer portal (App Service and Azure SQL)", "Backup copies (Blob storage)", "VPN gateway to Gebze"],
+    details: [
+      "Customer portal (App Service and Azure SQL)",
+      "Data warehouse (Azure SQL and Data Factory)",
+      "Backup copies (Blob storage)",
+      "VPN gateway to Gebze",
+    ],
     contacts: ["ozan.kurt", "mehmet.oz"],
   },
   {
@@ -884,8 +781,9 @@ const FLOWS: [string, string, string][] = [
   ["sap-s4hana", "opcenter-mes", "Production orders, every 15 minutes"],
   ["opcenter-mes", "sap-s4hana", "Confirmations and goods receipts of finished pumps"],
   ["pumptest-pro", "opcenter-mes", "Test results per serial number"],
-  ["sap-s4hana", "power-bi", "Finance and sales data, nightly"],
-  ["opcenter-mes", "power-bi", "On-time delivery and scrap, nightly"],
+  ["sap-s4hana", "data-warehouse", "Sales, purchasing, quality and ledger tables, nightly at 02:00"],
+  ["opcenter-mes", "data-warehouse", "Work orders, downtime and test results, nightly at 02:00"],
+  ["data-warehouse", "power-bi", "Facts and dimensions for the reports, each morning"],
   ["sap-s4hana", "customer-portal", "Order status, every hour"],
   ["salesforce", "sap-s4hana", "Won deals, keyed into SAP by hand (no interface yet)"],
   ["successfactors", "logo-bordro", "Employee changes, monthly, by file"],
@@ -899,8 +797,8 @@ export const inventorySource: BrainSourceDefinition = {
   name: "IT inventory (demo)",
   system: "ServiceNow CMDB",
   description:
-    "Every system: what it does, who uses and owns it, where it runs, its APIs, its databases and their tables, where documents are kept, and the data flowing between systems.",
-  brings: ["Systems and their APIs", "Databases and tables", "Document stores", "Servers and cloud", "Data flows"],
+    "Every system: what it does, who uses and owns it, where it runs, its APIs, its databases, where documents are kept, and the data flowing between systems.",
+  brings: ["Systems and their APIs", "Databases", "Document stores", "Servers and cloud", "Data flows"],
   icon: "server",
   demo: true,
   priority: 50,
@@ -957,7 +855,9 @@ export const inventorySource: BrainSourceDefinition = {
         key: database.key,
         name: database.name,
         summary: database.summary,
-        data: { ...database.data, tables: database.tables ?? [] },
+        // The tables are things of their own now (read from the database, described in the catalog):
+        // an empty value takes back the table notes this source wrote before.
+        data: { ...database.data, tables: null },
       });
       links.push({ from: { kind: "database", key: database.key }, relation: "runs_on", to: { kind: "infrastructure", key: database.runsOn } });
       links.push({ from: email(database.contact), relation: "looks_after", to: { kind: "database", key: database.key } });

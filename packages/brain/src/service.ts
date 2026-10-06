@@ -3,6 +3,7 @@ import {
   BRAIN_DIMENSIONS,
   BRAIN_KINDS,
   BRAIN_RELATIONS,
+  BrainDataColumn,
   brainData,
   brainKind,
   brainRelation,
@@ -22,6 +23,7 @@ import {
   type BrainRelationKey,
 } from "@enterprise-brain/core";
 import { brainEntities, brainEvents, brainLinks, type DatabaseHandle } from "@enterprise-brain/db";
+import { z } from "zod";
 import { overviewOf } from "./insights.ts";
 import {
   emptyResult,
@@ -29,12 +31,36 @@ import {
   type BrainEntityView,
   type BrainEventView,
   type BrainGraph,
+  type BrainLineage,
   type BrainLinkView,
   type BrainOverview,
   type SourceBatch,
   type SourceRef,
   type SyncResult,
 } from "./types.ts";
+
+/** What a database says about a column (the business part is people's). */
+export type TechnicalColumn = Pick<BrainDataColumn, "name" | "type" | "key" | "comment"> & { nullable?: boolean };
+
+/** What people write about a table's columns (see defineColumns). */
+export const ColumnDefinitions = z.object({
+  business_name: z.string().trim().max(200).optional(),
+  definition: z.string().trim().max(20_000).optional(),
+  status: z.enum(["Certified", "Documented", "Needs definitions", "Deprecated"]).optional(),
+  columns: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(200),
+        business_name: z.string().trim().max(200).optional(),
+        definition: z.string().trim().max(2000).optional(),
+        personal: z.boolean().optional(),
+        example: z.string().trim().max(300).optional(),
+      }),
+    )
+    .max(2000)
+    .optional(),
+});
+export type ColumnDefinitions = z.infer<typeof ColumnDefinitions>;
 
 export type EntityRow = typeof brainEntities.$inferSelect;
 export type LinkRow = typeof brainLinks.$inferSelect;
@@ -82,10 +108,25 @@ const NAME_IDENTIFIES = new Set<string>([
   "project",
   "goal",
   "term",
+  "dataset",
+  "report",
 ]);
 
 /** Kinds found by name in messages and emails: the ones people talk about by name. */
-const MENTIONED = new Set<string>(["person", "client", "supplier", "project", "system", "product", "site", "ai_employee", "process", "database", "data_store"]);
+const MENTIONED = new Set<string>([
+  "person",
+  "client",
+  "supplier",
+  "project",
+  "system",
+  "product",
+  "site",
+  "ai_employee",
+  "process",
+  "database",
+  "data_store",
+  "report",
+]);
 
 const STOP_WORDS = new Set(
   (
@@ -149,6 +190,15 @@ const KEY_LINKS: Record<string, { relation: string; direction: "out" | "in"; lab
   goal: [{ relation: "leads", direction: "in", label: "Owner" }],
   decision: [{ relation: "decided_by", direction: "out", label: "Decided by" }],
   knowhow: [{ relation: "shared_by", direction: "out", label: "From" }],
+  data_table: [
+    { relation: "table_of", direction: "out", label: "Database" },
+    { relation: "owns", direction: "in", label: "Owner" },
+  ],
+  dataset: [{ relation: "owns", direction: "in", label: "Owner" }],
+  report: [
+    { relation: "owns", direction: "in", label: "Owner" },
+    { relation: "built_on", direction: "out", label: "Data" },
+  ],
 };
 
 /** The labels of a kind's key links, in order: the columns of its list. */
@@ -200,6 +250,27 @@ function canonical(value: unknown): unknown {
   return value ?? null;
 }
 
+/** A table's columns as the database has them, with the business words another source knows for them. */
+function withBusinessWords(current: unknown, incoming: unknown): BrainDataColumn[] {
+  const known = new Map((Array.isArray(incoming) ? (incoming as BrainDataColumn[]) : []).map((c) => [c.name.toLowerCase(), c]));
+  return (Array.isArray(current) ? (current as BrainDataColumn[]) : []).map((column) => {
+    const words = known.get(column.name.toLowerCase());
+    if (!words) return column;
+    return {
+      ...column,
+      business_name: words.business_name || column.business_name,
+      definition: words.definition || column.definition,
+      example: words.example || column.example,
+      personal: column.personal || words.personal,
+    };
+  });
+}
+
+/** At most 60 things in a lineage: the walk stops adding once it has that many. */
+function capped(next: string[], size: number): string[] {
+  return size >= 60 ? [] : next;
+}
+
 function sameValue(a: unknown, b: unknown): boolean {
   return JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 }
@@ -232,13 +303,20 @@ export function formatValue(field: BrainField, value: unknown, data: Record<stri
       return (value as { name: string }[]).map((c) => c.name).join(", ");
     case "milestones":
       return (value as { name: string }[]).map((m) => m.name).join(", ");
+    case "columns":
+      return `${(value as unknown[]).length} columns`;
+    case "measures":
+    case "dimensions":
+      return (value as { name: string }[]).map((m) => m.name).join(", ");
+    case "images":
+      return `${(value as unknown[]).length} pictures`;
     default:
       return String(value);
   }
 }
 
 function searchTextOf(kind: BrainKind, name: string, aliases: string[], summary: string, data: Record<string, unknown>): string {
-  const values = kind.fields.filter((f) => !f.hidden).flatMap((f) => valueWords(data[f.key]));
+  const values = kind.fields.filter((f) => !f.hidden && f.type !== "images").flatMap((f) => valueWords(data[f.key]));
   return foldText([name, ...aliases, summary, kind.name, ...values].join(" \n")).slice(0, 50_000);
 }
 
@@ -330,9 +408,9 @@ class EntityIndex {
       if (row.status !== "active" || !MENTIONED.has(row.kind)) continue;
       for (const name of [row.name, ...row.aliases]) {
         const term = foldText(name).trim();
-        // A person by their full name only; a process or project by more than one word ("Purchasing" is any purchasing).
+        // A person by their full name only; a process, project or report by more than one word ("Purchasing" is any purchasing).
         const oneWord = !/[\s-]/.test(term);
-        if (term.length < 3 || (oneWord && (row.kind === "person" || row.kind === "process" || row.kind === "project"))) continue;
+        if (term.length < 3 || (oneWord && (row.kind === "person" || row.kind === "process" || row.kind === "project" || row.kind === "report"))) continue;
         if (!owners.has(term)) owners.set(term, new Set());
         owners.get(term)!.add(row.id);
       }
@@ -389,6 +467,15 @@ export class BrainService {
     if (!current || current === origin) return true;
     if (current === "manual") return false;
     return this.priority(origin) > this.priority(current);
+  }
+
+  /** A table's own facts (its size, its schema) come from the database itself over any other source. */
+  private mayField(field: BrainField | undefined, current: string | undefined, origin: string): boolean {
+    if (field?.technical && current !== "manual") {
+      if (origin.startsWith("schema:")) return true;
+      if (current?.startsWith("schema:")) return false;
+    }
+    return this.may(current, origin);
   }
 
   // -------------------------------------------------------------------------
@@ -770,6 +857,145 @@ export class BrainService {
     return this.get(companyId, row!.id);
   }
 
+  /**
+   * The things of a kind as stored, each with a fingerprint of its name, summary and details: to
+   * tell what a reading changed.
+   */
+  async stored(companyId: string, kind: string): Promise<{ id: string; key: string; name: string; refs: Record<string, string>; fingerprint: string }[]> {
+    const rows = await this.rows(companyId, eq(brainEntities.kind, kind));
+    return rows.map((row) => ({
+      id: row.id,
+      key: row.key,
+      name: row.name,
+      refs: row.refs,
+      fingerprint: JSON.stringify(canonical({ name: row.name, summary: row.summary, data: row.data })),
+    }));
+  }
+
+  /**
+   * Where a report's, data set's or table's data comes from (what it is built on, back to the
+   * database tables, and the work that writes them) and where it goes (what is built on it, and the
+   * work that reads it), a few steps each way.
+   */
+  async lineage(companyId: string, id: string): Promise<BrainLineage> {
+    const root = await this.row(companyId, id);
+    const links = await this.db
+      .select()
+      .from(brainLinks)
+      .where(and(eq(brainLinks.companyId, companyId), ne(brainLinks.origin, "removed"), inArray(brainLinks.relation, ["built_on", "uses_data", "table_of"])));
+    const rows = new Map((await this.rows(companyId)).map((r) => [r.id, r]));
+    const layer = new Map<string, number>([[root.id, 0]]);
+    const edges = new Map<string, BrainLineage["edges"][number]>();
+    const flow = (from: string, to: string, relation: BrainRelationKey, detail: string) => edges.set(`${from}|${to}`, { from, to, relation, detail });
+    const writes = (detail: string) => detail === "Writes" || detail === "Reads and writes";
+    // Upstream: what it is built on, and the work that writes the data.
+    let frontier = [root.id];
+    for (let depth = 1; depth <= 4 && frontier.length; depth++) {
+      const next: string[] = [];
+      for (const at of frontier) {
+        for (const link of links) {
+          const source =
+            link.relation === "built_on" && link.fromId === at
+              ? link.toId
+              : link.relation === "uses_data" && link.toId === at && writes(link.detail)
+                ? link.fromId
+                : null;
+          if (!source || !rows.has(source) || layer.get(source) === 0) continue;
+          flow(source, at, link.relation as BrainRelationKey, link.detail);
+          if (!layer.has(source)) next.push(source);
+          layer.set(source, Math.min(layer.get(source) ?? 0, -depth));
+        }
+      }
+      frontier = capped(next, layer.size);
+    }
+    // Downstream: what is built on it, and the work that reads it.
+    frontier = [root.id];
+    for (let depth = 1; depth <= 3 && frontier.length; depth++) {
+      const next: string[] = [];
+      for (const at of frontier) {
+        for (const link of links) {
+          if (link.toId !== at || !rows.has(link.fromId) || layer.get(link.fromId) === 0) continue;
+          const reads = link.relation === "built_on" || (link.relation === "uses_data" && link.detail !== "Writes");
+          if (!reads) continue;
+          flow(at, link.fromId, link.relation as BrainRelationKey, link.detail);
+          if (layer.has(link.fromId)) continue;
+          layer.set(link.fromId, depth);
+          // Work that reads the data ends the line; data built on data carries it on.
+          if (link.relation === "built_on") next.push(link.fromId);
+        }
+      }
+      frontier = capped(next, layer.size);
+    }
+    const databaseOf = new Map(links.filter((l) => l.relation === "table_of").map((l) => [l.fromId, rows.get(l.toId)?.name ?? null]));
+    const placeOf = (row: EntityRow): string | null => {
+      if (row.kind === "data_table") return databaseOf.get(row.id) ?? null;
+      if (row.kind === "report") return typeof row.data.tool === "string" ? row.data.tool : null;
+      if (row.kind === "dataset") return typeof row.data.type === "string" ? row.data.type : null;
+      return brainKind(row.kind)?.name ?? null;
+    };
+    const nodes = [...layer].flatMap(([nodeId, at]) => {
+      const row = rows.get(nodeId);
+      return row ? [{ ...this.summaryOf(row), layer: at, place: placeOf(row) }] : [];
+    });
+    const kept = new Set(nodes.map((n) => n.id));
+    return { root: root.id, nodes, edges: [...edges.values()].filter((e) => kept.has(e.from) && kept.has(e.to)) };
+  }
+
+  /**
+   * A table's columns as its database describes them now, keeping what people wrote about each
+   * (business name, definition, personal data, example) by the column's name. The technical part
+   * (type, keys, the database's comment) always follows the database; columns it no longer has go.
+   */
+  async mergeColumns(companyId: string, id: string, technical: TechnicalColumn[], origin: string): Promise<boolean> {
+    const row = await this.row(companyId, id);
+    const kind = brainKind(row.kind)!;
+    const existing = Array.isArray(row.data.columns) ? (row.data.columns as BrainDataColumn[]) : [];
+    const byName = new Map(existing.map((c) => [c.name.toLowerCase(), c]));
+    const merged = technical.map((column) => {
+      const known = byName.get(column.name.toLowerCase());
+      return BrainDataColumn.parse({
+        ...column,
+        business_name: known?.business_name ?? "",
+        definition: known?.definition ?? "",
+        personal: known?.personal ?? false,
+        example: known?.example ?? "",
+      });
+    });
+    if (sameValue(existing, merged)) return false;
+    const data = { ...row.data, columns: merged };
+    const origins = { ...row.origins };
+    if (origins["data.columns"] !== "manual") origins["data.columns"] = origin;
+    await this.db
+      .update(brainEntities)
+      .set({ data, origins, searchText: searchTextOf(kind, row.name, row.aliases, row.summary, data), updatedBy: origin, updatedAt: new Date() })
+      .where(eq(brainEntities.id, row.id));
+    return true;
+  }
+
+  /**
+   * What people say a table's or data set's columns mean, by column name: business names,
+   * definitions, personal data and examples (and the table's own words). The technical part of each
+   * column (its type and keys) stays as the database has it.
+   */
+  async defineColumns(companyId: string, id: string, input: ColumnDefinitions, actor: string): Promise<BrainEntityView> {
+    const row = await this.row(companyId, id);
+    if (row.kind !== "data_table" && row.kind !== "dataset") throw new BrainError("Only tables and data sets have columns to define", 400);
+    const existing = Array.isArray(row.data.columns) ? (row.data.columns as BrainDataColumn[]) : [];
+    const unknown = (input.columns ?? []).filter((c) => !existing.some((e) => e.name.toLowerCase() === c.name.toLowerCase())).map((c) => c.name);
+    if (unknown.length) throw new BrainError(`${row.name} has no column ${unknown.join(", ")}`, 400);
+    const changes = new Map((input.columns ?? []).map((c) => [c.name.toLowerCase(), c]));
+    const columns = existing.map((column) => {
+      const change = changes.get(column.name.toLowerCase());
+      if (!change) return column;
+      const { name: _, ...words } = change;
+      return BrainDataColumn.parse({ ...column, ...Object.fromEntries(Object.entries(words).filter(([, v]) => v !== undefined)) });
+    });
+    const data: Record<string, unknown> = {};
+    if (changes.size) data.columns = columns;
+    for (const key of ["business_name", "definition", "status"] as const) if (input[key] !== undefined) data[key] = input[key];
+    return this.update(companyId, id, { data }, actor);
+  }
+
   async update(companyId: string, id: string, patch: BrainEntityPatch, actor: string): Promise<BrainEntityView> {
     const row = await this.row(companyId, id);
     const kind = brainKind(row.kind)!;
@@ -1005,9 +1231,32 @@ export class BrainService {
       }
       const aliases = uniqueStrings([...existing.aliases, ...(input.aliases ?? [])]);
       if (aliases.length !== existing.aliases.length) changed = true;
+      // A value the source itself set and now leaves empty is taken back (a field it no longer fills).
+      for (const key of Object.keys(data)) {
+        if (key in values || origins[`data.${key}`] !== origin || isBlankValue(next[key])) continue;
+        delete next[key];
+        delete origins[`data.${key}`];
+        changed = true;
+      }
       for (const [key, value] of Object.entries(values)) {
         const at = `data.${key}`;
-        if (!this.may(origins[at], origin)) continue;
+        // Columns the database itself described: a source brings only what they mean in business words.
+        if (kind.fields.find((f) => f.key === key)?.type === "columns" && origins[at]?.startsWith("schema:") && !origin.startsWith("schema:")) {
+          const merged = withBusinessWords(next[key], value);
+          if (!sameValue(next[key], merged)) {
+            next[key] = merged;
+            changed = true;
+          }
+          continue;
+        }
+        if (
+          !this.mayField(
+            kind.fields.find((f) => f.key === key),
+            origins[at],
+            origin,
+          )
+        )
+          continue;
         if (sameValue(existing.data[key], value)) {
           // The same value from a source that counts more (the HR system over the app): it knows it now.
           if (origins[at] !== origin && origins[at] !== "manual") {

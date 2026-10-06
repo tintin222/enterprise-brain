@@ -85,7 +85,7 @@ describe("the company brain", () => {
     expect(results.teams?.events).toBe(22);
     const overview = (await call("deniz.aydin", "GET", "/brain/overview")).json() as { counts: Record<string, number>; company: { name: string } };
     expect(overview.company.name).toBe("Acme Endüstri A.Ş.");
-    expect(overview.counts).toMatchObject({ person: 29, system: 18, database: 4, client: 15, project: 9, policy: 5, site: 3 });
+    expect(overview.counts).toMatchObject({ person: 29, system: 19, database: 5, client: 15, project: 9, policy: 5, site: 3, data_table: 31, report: 13 });
     expect(overview.counts.process).toBeGreaterThanOrEqual(18);
   });
 
@@ -111,8 +111,12 @@ describe("the company brain", () => {
     expect(sap.data.connection).toBe("AI employees use the demo ERP until IT connects SAP S/4HANA");
     const mes = await thing("MES_PROD (SQL Server)", "database");
     expect(mes.data.connectable).toBe("Read-only");
-    const tables = mes.data.tables as { name: string; columns: { name: string }[] }[];
-    expect(tables.find((x) => x.name === "test_results")?.columns.map((c) => c.name)).toContain("vibration_mm_s");
+    // Each table is a thing of its own, with what its columns mean.
+    expect(linked(mes, "Tables")).toContain("test_results");
+    const tests = await thing("test_results", "data_table");
+    expect((tests.data.columns as { name: string; definition: string }[]).find((c) => c.name === "vibration_mm_s")?.definition).toBe(
+      "Above 4.5 fails (ISO 10816).",
+    );
     const mail = await thing("Exchange Online", "system");
     expect(mail.data.category).toBe("Mail");
   });

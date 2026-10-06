@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, Link2, Lightbulb, MessageCircleQuestion, NotebookPen, Pencil, Plus, Share2, Trash2, X } from "lucide-react";
+import { Bot, DatabaseZap, Link2, Lightbulb, MessageCircleQuestion, NotebookPen, Pencil, Plus, Share2, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, qs } from "../../api.ts";
@@ -15,6 +15,7 @@ import { useDocumentTitle } from "../../lib/title.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { BrainEntity, BrainEntitySummary, BrainLink, BrainModel, BrainRef, BrainRelation } from "../../types.ts";
 import { KindIcon, ThingChip, brainKeys, kindOf, originName, useBrainEntities, useBrainEntity, useBrainModel, useMayEditBrain } from "./brain.tsx";
+import { ColumnsCard, DatabaseTablesCard, LineageCard, ReadTablesDialog, ScreenshotsCard } from "./data.tsx";
 import { EntityForm } from "./EntityForm.tsx";
 import { EventItem } from "./EventItem.tsx";
 import { TellTheBrain } from "./TellTheBrain.tsx";
@@ -240,6 +241,7 @@ export default function BrainEntityPage() {
   const [telling, setTelling] = useState(false);
   const [linking, setLinking] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [reading, setReading] = useState(false);
   useDocumentTitle(entity.data?.name ?? "Company brain");
 
   if (entity.error) {
@@ -260,11 +262,38 @@ export default function BrainEntityPage() {
   }
   const kind = kindOf(model, thing.kind);
   const dimension = model?.dimensions.find((d) => d.key === kind?.dimension);
-  const fields = (kind?.fields ?? []).filter((f) => !f.hidden && thing.data[f.key] !== undefined && thing.data[f.key] !== null && thing.data[f.key] !== "");
-  const wide = new Set(["steps", "apis", "tables", "contacts", "milestones", "long_text"]);
-  const sources = [...new Set([...Object.values(thing.origins), ...Object.keys(thing.refs)])];
-  const groups = groupLinks(thing.links);
+  // Columns and pictures have cards of their own.
+  const own = new Set(["columns", "images"]);
+  const fields = (kind?.fields ?? []).filter(
+    (f) => !f.hidden && !own.has(f.type) && thing.data[f.key] !== undefined && thing.data[f.key] !== null && thing.data[f.key] !== "",
+  );
+  const wide = new Set(["steps", "apis", "tables", "contacts", "milestones", "long_text", "measures", "dimensions"]);
+  const sources = [...new Map([...Object.values(thing.origins), ...Object.keys(thing.refs)].map((origin) => [originName(origin), origin])).values()];
+  const isDatabase = thing.kind === "database";
+  // A database's tables have their own card.
+  const groups = groupLinks(thing.links).filter((g) => !(isDatabase && g.key === "table_of:in"));
+  const pictures = kind?.fields.find((f) => f.type === "images");
+  const hasColumns = kind?.fields.some((f) => f.type === "columns");
+  const dataKind = thing.kind === "report" || thing.kind === "dataset" || thing.kind === "data_table";
   const slug = typeof thing.data.slug === "string" ? thing.data.slug : null;
+
+  const timeline = (
+    <Card>
+      <CardHeader title="Timeline" subtitle="Messages, emails, updates and changes about it" />
+      <CardBody>
+        <AddNote entity={thing} />
+        {thing.events.length ? (
+          <ul className="divide-y divide-line/70">
+            {thing.events.map((event) => (
+              <EventItem key={event.id} event={event} model={model} hide={thing.id} />
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm text-muted">Nothing has happened around it yet.</p>
+        )}
+      </CardBody>
+    </Card>
+  );
 
   const unlink = async (link: BrainLink) => {
     try {
@@ -326,6 +355,11 @@ export default function BrainEntityPage() {
           <Button icon={Lightbulb} size="sm" onClick={() => setTelling(true)}>
             Tell the brain
           </Button>
+          {mayEdit && isDatabase && (
+            <Button icon={DatabaseZap} size="sm" onClick={() => setReading(true)}>
+              Read tables
+            </Button>
+          )}
           {mayEdit && (
             <>
               <Button icon={Pencil} size="sm" variant="primary" onClick={() => setEditing(true)}>
@@ -337,6 +371,11 @@ export default function BrainEntityPage() {
         </div>
       </div>
 
+      {pictures && (
+        <div className="mb-6">
+          <ScreenshotsCard thing={thing} field={pictures} mayEdit={mayEdit} />
+        </div>
+      )}
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <div className="min-w-0 space-y-6">
           <Card>
@@ -373,21 +412,8 @@ export default function BrainEntityPage() {
               )}
             </CardBody>
           </Card>
-          <Card>
-            <CardHeader title="Timeline" subtitle="Messages, emails, updates and changes about it" />
-            <CardBody>
-              <AddNote entity={thing} />
-              {thing.events.length ? (
-                <ul className="divide-y divide-line/70">
-                  {thing.events.map((event) => (
-                    <EventItem key={event.id} event={event} model={model} hide={thing.id} />
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-sm text-muted">Nothing has happened around it yet.</p>
-              )}
-            </CardBody>
-          </Card>
+          {isDatabase && <DatabaseTablesCard thing={thing} mayEdit={mayEdit} onRead={() => setReading(true)} />}
+          {!dataKind && timeline}
         </div>
         <div className="min-w-0 space-y-6">
           <Card>
@@ -451,9 +477,20 @@ export default function BrainEntityPage() {
           </Card>
         </div>
       </div>
+      {/* Data: its columns and where it comes from need the page's whole width. */}
+      {dataKind && (
+        <div className="mt-6 space-y-6">
+          {hasColumns && <ColumnsCard thing={thing} mayEdit={mayEdit} />}
+          <LineageCard thing={thing} />
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+            <div className="min-w-0">{timeline}</div>
+          </div>
+        </div>
+      )}
       {editing && <EntityForm open onClose={() => setEditing(false)} entity={thing} />}
       <TellTheBrain open={telling} onClose={() => setTelling(false)} about={{ id: thing.id, name: thing.name }} />
       {linking && <AddLink entity={thing} open onClose={() => setLinking(false)} />}
+      {isDatabase && <ReadTablesDialog thing={thing} open={reading} onClose={() => setReading(false)} />}
       <Dialog
         open={removing}
         onClose={() => setRemoving(false)}

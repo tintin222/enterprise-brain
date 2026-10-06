@@ -4,6 +4,9 @@ import {
   isBlankValue,
   type BrainApi,
   type BrainContact,
+  type BrainDataColumn,
+  type BrainDataDimension,
+  type BrainMeasure,
   type BrainMilestone,
   type BrainStep,
   type BrainTable,
@@ -50,6 +53,23 @@ function contacts(value: BrainContact[]): string[] {
   return value.map((c) => `  - ${c.name}${c.title ? `, ${c.title}` : ""}${c.email ? ` <${c.email}>` : ""}${c.phone ? `, ${c.phone}` : ""}`);
 }
 
+/** "  - KUNNR CHAR(10) [FK → KNA1.KUNNR] — Customer number: the customer who ordered (personal data)". */
+function columns(value: BrainDataColumn[]): string[] {
+  return value.map((c) => {
+    const meaning = [c.business_name, c.definition].filter(Boolean).join(": ") || c.comment;
+    const flags = [c.personal ? "personal data" : "", c.example ? `e.g. ${c.example}` : ""].filter(Boolean).join(", ");
+    return `  - ${c.name}${c.type ? ` ${c.type}` : ""}${c.key ? ` [${c.key}]` : ""}${meaning ? ` — ${meaning}` : " — (no definition yet)"}${flags ? ` (${flags})` : ""}`;
+  });
+}
+
+function measures(value: BrainMeasure[]): string[] {
+  return value.map((m) => `  - ${m.name}${m.definition ? `: ${m.definition}` : ""}${m.formula ? ` = ${m.formula}` : ""}${m.format ? ` (${m.format})` : ""}`);
+}
+
+function dimensions(value: BrainDataDimension[]): string[] {
+  return value.map((d) => `  - ${d.name}${d.levels ? ` (${d.levels})` : ""}${d.source ? ` from ${d.source}` : ""}${d.description ? `: ${d.description}` : ""}`);
+}
+
 function milestones(value: BrainMilestone[]): string[] {
   return value.map((m) => `  - ${m.name}${m.due ? ` (due ${m.due})` : ""}${m.status ? `: ${m.status}` : ""}`);
 }
@@ -87,6 +107,19 @@ export function describeEntity(view: BrainEntityView, options: { events?: number
         break;
       case "milestones":
         values.push(`${field.label}:`, ...milestones(value as BrainMilestone[]));
+        break;
+      case "columns":
+        values.push(`${field.label}:`, ...columns(value as BrainDataColumn[]));
+        break;
+      case "measures":
+        values.push(`${field.label}:`, ...measures(value as BrainMeasure[]));
+        break;
+      case "dimensions":
+        values.push(`${field.label}:`, ...dimensions(value as BrainDataDimension[]));
+        break;
+      case "images":
+        // Pictures stay out of the words; the page shows them.
+        values.push(`${field.label}: ${(value as unknown[]).length} on its page`);
         break;
       case "list":
         values.push(`${field.label}:`, ...(value as string[]).map((item) => `  - ${item}`));

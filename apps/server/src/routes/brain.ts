@@ -1,7 +1,16 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { LearnChange, applyLearning, proposeLearning } from "@enterprise-brain/brain";
-import { BRAIN_KIND_KEYS, BRAIN_RELATION_KEYS, BrainEntityInput, BrainEntityPatch, BrainEventInput, BrainLinkInput } from "@enterprise-brain/core";
+import { ColumnDefinitions, LearnChange, applyLearning, proposeLearning, suggestDefinitions } from "@enterprise-brain/brain";
+import {
+  BRAIN_KIND_KEYS,
+  BRAIN_RELATION_KEYS,
+  BrainEntityInput,
+  BrainEntityPatch,
+  BrainEventInput,
+  BrainLinkInput,
+  brainKind,
+  type BrainImage,
+} from "@enterprise-brain/core";
 import { actorOf, requireAnyManager, viewerOf, type Viewer } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf } from "../http.ts";
@@ -19,6 +28,19 @@ export async function brainRoutes(app: FastifyInstance, ctx: AppContext) {
     const viewer = viewerOf(request);
     if (!editor(viewer)) throw new HttpError(403, "Only a manager or an admin can change this; you can add know-how and notes");
     return viewer;
+  };
+
+  /** Pictures people add (a report's screenshots) are uploaded pictures: PNG, JPEG, GIF or WebP. */
+  const checkPictures = async (companyId: string, kindKey: string, data: Record<string, unknown> | undefined) => {
+    for (const field of brainKind(kindKey)?.fields ?? []) {
+      const pictures = data?.[field.key];
+      if (field.type !== "images" || !Array.isArray(pictures)) continue;
+      for (const picture of pictures as { file?: unknown }[]) {
+        if (typeof picture?.file !== "string") continue;
+        const meta = await platform.files.meta(companyId, picture.file).catch(() => undefined);
+        if (!meta || !/^image\/(png|jpeg|gif|webp)$/.test(meta.mimeType)) throw new HttpError(400, `${field.label}: upload a PNG, JPEG, GIF or WebP picture`);
+      }
+    }
   };
 
   app.get(`${base}/model`, async () => platform.brain.model());
@@ -61,6 +83,7 @@ export async function brainRoutes(app: FastifyInstance, ctx: AppContext) {
     }).parse(request.body);
     // Everyone may write down know-how and tie it to what it is about; the rest is for managers.
     if (body.kind !== "knowhow") requireEditor(request);
+    await checkPictures(company.id, body.kind, body.data);
     const actor = actorOf(viewer);
     const created = await platform.brain.create(company.id, body, actor);
     for (const link of body.links ?? []) {
@@ -89,7 +112,9 @@ export async function brainRoutes(app: FastifyInstance, ctx: AppContext) {
     const company = await companyOf(platform, request);
     const viewer = requireEditor(request);
     const { id } = request.params as { id: string };
-    return platform.brain.update(company.id, id, BrainEntityPatch.parse(request.body), actorOf(viewer));
+    const patch = BrainEntityPatch.parse(request.body);
+    if (patch.data) await checkPictures(company.id, (await platform.brain.get(company.id, id)).kind, patch.data);
+    return platform.brain.update(company.id, id, patch, actorOf(viewer));
   });
 
   app.delete(`${base}/entities/:id`, async (request) => {
@@ -169,6 +194,76 @@ export async function brainRoutes(app: FastifyInstance, ctx: AppContext) {
     const viewer = viewerOf(request);
     const body = z.object({ changes: z.array(LearnChange).min(1).max(50) }).parse(request.body);
     return applyLearning(platform.brain, company.id, body.changes, { name: viewer.name, email: viewer.email, mayEdit: editor(viewer) });
+  });
+
+  /** How a database's tables can be read: through which connections, or its demo. */
+  app.get(`${base}/entities/:id/read-tables`, async (request) => {
+    const company = await companyOf(platform, request);
+    requireEditor(request);
+    const { id } = request.params as { id: string };
+    return platform.brainCatalog.readOptions(company.id, id);
+  });
+
+  /** Reads a database's tables and views into the brain (only the catalog, never a row of data). */
+  app.post(`${base}/entities/:id/read-tables`, async (request) => {
+    const company = await companyOf(platform, request);
+    const viewer = requireEditor(request);
+    const { id } = request.params as { id: string };
+    const body = z.object({ connectionId: z.string().uuid().optional(), schema: z.string().trim().max(128).optional() }).parse(request.body ?? {});
+    return platform.brainCatalog.readTables(company.id, id, { ...body, actor: actorOf(viewer) });
+  });
+
+  /** Where a report's, data set's or table's data comes from, and what is built on it. */
+  app.get(`${base}/entities/:id/lineage`, async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    return platform.brain.lineage(company.id, id);
+  });
+
+  /** Business names and definitions for a table's columns, for the person to review; nothing is kept yet. */
+  app.post(`${base}/entities/:id/suggest-definitions`, async (request) => {
+    const company = await companyOf(platform, request);
+    requireEditor(request);
+    const { id } = request.params as { id: string };
+    const body = z.object({ all: z.boolean().optional() }).parse(request.body ?? {});
+    return suggestDefinitions(platform.brain, platform.llm, company.id, id, body);
+  });
+
+  /** What people say a table's columns mean, by column name; the columns' types and keys stay as the database has them. */
+  app.post(`${base}/entities/:id/definitions`, async (request) => {
+    const company = await companyOf(platform, request);
+    const viewer = requireEditor(request);
+    const { id } = request.params as { id: string };
+    return platform.brain.defineColumns(company.id, id, ColumnDefinitions.parse(request.body), actorOf(viewer));
+  });
+
+  /**
+   * A thing's picture (a report's screenshot), as an image: what the brain keeps, an uploaded file,
+   * or a link. Served so it can never run as a page of the app.
+   */
+  app.get(`${base}/entities/:id/pictures/:field/:index`, async (request, reply) => {
+    const company = await companyOf(platform, request);
+    const { id, field, index } = z.object({ id: z.string(), field: z.string().max(60), index: z.coerce.number().int().min(0).max(100) }).parse(request.params);
+    const thing = await platform.brain.get(company.id, id);
+    const kind = brainKind(thing.kind);
+    if (kind?.fields.find((f) => f.key === field)?.type !== "images") throw new HttpError(404, "No such picture");
+    const picture = (thing.data[field] as BrainImage[] | undefined)?.[index];
+    if (!picture) throw new HttpError(404, "No such picture");
+    reply
+      .header("x-content-type-options", "nosniff")
+      .header("content-security-policy", "default-src 'none'; style-src 'unsafe-inline'; sandbox")
+      .header("cache-control", "private, max-age=300");
+    if (picture.file) {
+      const file = await platform.files.get(company.id, picture.file).catch(() => {
+        throw new HttpError(404, "No such picture");
+      });
+      if (!/^image\/(png|jpeg|gif|webp)$/.test(file.mimeType)) throw new HttpError(415, "Not a picture");
+      return reply.header("content-type", file.mimeType).send(file.data);
+    }
+    const data = /^data:(image\/[a-z+]+);base64,(.*)$/s.exec(picture.src ?? "");
+    if (data) return reply.header("content-type", data[1]!).send(Buffer.from(data[2]!, "base64"));
+    if (picture.src?.startsWith("https://")) return reply.redirect(picture.src);
+    throw new HttpError(404, "No such picture");
   });
 
   app.get(`${base}/sources`, async (request) => {

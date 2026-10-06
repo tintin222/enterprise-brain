@@ -113,6 +113,14 @@ export {
   type SqlDialect,
   type SqlQueryResult,
 } from "./connectors/sql-database.ts";
+export {
+  MAX_SCHEMA_TABLES,
+  readSchema,
+  type DatabaseSchema,
+  type SchemaColumn,
+  type SchemaForeignKey,
+  type SchemaTable,
+} from "./connectors/sql-schema.ts";
 export { signWebhookPayload, SUBMISSION_EVENT, verifyWebhookSignature, webhookInboundConnector } from "./connectors/webhook-inbound.ts";
 
 // Named actions: IT's own actions on web services and databases

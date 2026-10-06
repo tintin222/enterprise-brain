@@ -12,7 +12,8 @@ export const COMPANY_TOOLS: ToolDefinition[] = [
     name: "company_search",
     description:
       "Search the company brain: people (titles, skills, what they know), departments, roles, processes (steps, rules, who does them), " +
-      "systems (what they do, APIs, databases and their tables), document stores, clients, deals, customer issues, suppliers, products, " +
+      "systems (what they do, APIs, databases), database tables and data sets (what they and their columns mean in business words), " +
+      "BI reports (purpose, measures, dimensions), document stores, clients, deals, customer issues, suppliers, products, " +
       "projects, tasks, goals, decisions, know-how and company words. Returns matches with their addresses; open one with company_open.",
     inputSchema: {
       type: "object",
@@ -26,8 +27,9 @@ export const COMPANY_TOOLS: ToolDefinition[] = [
   {
     name: "company_open",
     description:
-      "Everything the company brain knows about one thing: its details (a process's steps and rules, a system's APIs and database tables, " +
-      "a project's state), who and what it is linked to (who knows it, who does it, which systems it uses…) and the latest of what happened.",
+      "Everything the company brain knows about one thing: its details (a process's steps and rules, a system's APIs, a table's columns " +
+      "in business words, a report's purpose, measures and dimensions, a project's state), who and what it is linked to (who knows it, " +
+      "who does it, which systems and data it uses, which reports are built on it…) and the latest of what happened.",
     inputSchema: {
       type: "object",
       properties: {
@@ -126,7 +128,9 @@ export async function runCompanyTool(
 /** How Claude should use the company brain: added to the instructions of whoever has the tools. */
 export const COMPANY_GUIDANCE = [
   "The company brain knows the company: its people (who does what, who knows what, who is responsible for what), departments and roles,",
-  "processes (steps, rules, inputs and outputs, systems and documents), IT systems (purpose, APIs, databases and tables, where documents are kept),",
+  "processes (steps, rules, inputs and outputs, systems and documents), IT systems (purpose, APIs, databases, where documents are kept),",
+  "its data (database tables and data sets with what they and their columns mean, how to use them, and which processes use them) and its BI reports",
+  "(what each is for, who reads it, its measures and dimensions, the data behind it),",
   "clients, deals, customer issues, suppliers, products, projects and tasks (who works on what now), goals, decisions, know-how and company words,",
   "and what has been happening (messages, emails, updates). Use company_search, then company_open on what you find, rather than guessing.",
   "When you name something from the brain in an answer, link it with its address, like [Kerem Yıldız](/brain/e/<id>).",
@@ -137,7 +141,8 @@ export const COMPANY_GUIDANCE = [
 export const BUILDING_GUIDANCE = [
   "The company brain (company_search, company_open, company_list, company_activity) knows how the company really works.",
   "Before you design, look up the work the person describes: the process with its steps, rules, inputs and outputs; who does each step and who",
-  "is responsible; the systems it uses (their APIs, databases and tables, and whether AI employees can reach them); the documents, policies",
+  "is responsible; the systems it uses (their APIs and databases, and whether AI employees can reach them); the tables and data it reads or",
+  "writes, with what their columns mean and how to use them; the documents, policies",
   "and know-how about it. Build the AI employee to follow the company's real steps and rules, in its systems, and to hand work to the people",
   "the brain names. Say what you found in a sentence or two. Where the brain doesn't know something, ask the person, and suggest they add",
   "it to the brain. An AI employee that needs to know who does what at work can have the company ability.",

@@ -4,6 +4,7 @@ import { defineConnector, defineManifest } from "../define.ts";
 import { readOp, str } from "../schema.ts";
 import { ConnectorError, type ConnectorContext, type ConnectorImplementation } from "../types.ts";
 import { configNumber, configString, errorMessage, isRecord, optString, reqString, requireSecret, type Rec } from "../util.ts";
+import { MAX_SCHEMA_TABLES, readSchema } from "./sql-schema.ts";
 
 /**
  * SQL databases: PostgreSQL, SQL Server, MySQL and Oracle. Ad-hoc queries are read-only, with defence in depth:
@@ -493,6 +494,12 @@ const manifest = defineManifest({
       table: str("Table or view name"),
       schema: str("Schema (default public)"),
     }, ["table"]),
+    readOp(
+      "read_schema",
+      "Read the schema",
+      `Every table and view of a schema with its columns and types, primary and foreign keys, about how many rows, and the database's comments (at most ${MAX_SCHEMA_TABLES} tables). Reads only the catalog, never data.`,
+      { schema: str("Only this schema (default: every schema the login sees; MySQL and Oracle: the one it works in)") },
+    ),
   ],
   itRequirements: [
     "A connection string (host, port, database) with TLS: PostgreSQL, SQL Server, MySQL or Oracle (12c or later; no Oracle client software is needed)",
@@ -646,6 +653,11 @@ export function createSqlDatabaseConnector(deps: Partial<SqlDatabaseDeps> = {}):
         );
         if (result.rows.length === 0) throw new ConnectorError(`Table ${schema}.${table} not found or not visible`, "not_found");
         return { schema, table, columns: toResult(result).rows };
+      },
+
+      async read_schema(input, ctx) {
+        const dialect = dialectOf(ctx);
+        return readOnly(ctx, (client) => readSchema(client, dialect, optString(input, "schema") ?? null));
       },
     },
   });

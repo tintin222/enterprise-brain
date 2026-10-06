@@ -29,10 +29,41 @@ function day(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
+/** How many days old a report's numbers may be, from how it is refreshed ("Daily at 06:00"). */
+function refreshAllowance(refresh: string | null): number | undefined {
+  if (!refresh) return undefined;
+  if (/\b(hour|hourly|minutes?)\b/i.test(refresh)) return 0;
+  if (/\b(daily|nightly|every day|each (day|morning))\b/i.test(refresh)) return 1;
+  if (/\b(weekly|every (week|monday|tuesday|wednesday|thursday|friday))\b/i.test(refresh)) return 7;
+  if (/\b(monthly|every month)\b/i.test(refresh)) return 31;
+  return undefined;
+}
+
+/** A table by its business name and its name in the database: "Quality notifications (QMEL)". */
+function dataLabel(row: EntityRow): string {
+  const business = text(row.data.business_name);
+  return row.kind === "data_table" && business && business !== row.name ? `${business} (${row.name})` : row.name;
+}
+
+/** "A and B", "A, B and 3 more". */
+function some(names: string[]): string {
+  if (names.length <= 2) return names.join(" and ");
+  return `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+}
+
+/** Data people work with though no one wrote down what it means. */
+function lacksDefinitions(row: EntityRow): boolean {
+  const status = text(row.data.status);
+  if (status === "Needs definitions") return true;
+  if (status) return false;
+  const columns = Array.isArray(row.data.columns) ? (row.data.columns as { definition?: string; business_name?: string }[]) : [];
+  return columns.length >= 3 && columns.filter((c) => c.definition || c.business_name).length < columns.length / 2;
+}
+
 /**
  * What a CEO looks at first: projects and how they go, what needs attention (projects at risk, urgent
- * customer issues, late tasks, deals about to close, goals slipping), where know-how sits with one
- * person only, and who is busy with what.
+ * customer issues, late tasks, deals about to close, goals slipping, reports showing old numbers),
+ * where know-how sits with one person only, data no one explained, and who is busy with what.
  */
 export function overviewOf({ rows, links, recent, eventStats, now, summaryOf }: OverviewInput): BrainOverview {
   const byId = new Map(rows.map((r) => [r.id, r]));
@@ -135,7 +166,22 @@ export function overviewOf({ rows, links, recent, eventStats, now, summaryOf }: 
       severity: status === "Off track" ? "high" : "medium",
     });
   }
-  const typeOrder = ["risk", "issue", "goal", "deal", "overdue"];
+  for (const report of of("report")) {
+    const last = text(report.data.last_refreshed);
+    const refresh = text(report.data.refresh);
+    const allowed = refreshAllowance(refresh);
+    if (text(report.data.status) !== "Live" || !last || allowed === undefined) continue;
+    const age = Math.round((Date.parse(today) - Date.parse(last)) / 86_400_000);
+    if (age <= allowed) continue;
+    attention.push({
+      type: "data",
+      title: `${report.name} shows old numbers`,
+      detail: `Last refreshed ${last}, ${age} days ago; it should refresh ${refresh!.charAt(0).toLowerCase()}${refresh!.slice(1)}.`,
+      entity: ref(report),
+      severity: "medium",
+    });
+  }
+  const typeOrder = ["risk", "issue", "goal", "deal", "overdue", "data"];
   attention.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "high" ? -1 : 1) || typeOrder.indexOf(a.type) - typeOrder.indexOf(b.type));
 
   // Know-how that sits with one person, and things no one is responsible for.
@@ -170,7 +216,38 @@ export function overviewOf({ rows, links, recent, eventStats, now, summaryOf }: 
       gaps.push({ type: "no-steps", title: `${thing.name} has no steps written down`, detail: "Write down how it is done, step by step.", entity: ref(thing) });
     }
   }
-  const gapOrder = ["on-leave-expert", "single-expert", "no-owner", "no-steps"];
+  // Data and reports: what only someone away knows, what no one owns, and what no one explained.
+  for (const thing of rows.filter((r) => r.kind === "data_table" || r.kind === "dataset" || r.kind === "report")) {
+    const status = text(thing.data.status);
+    if (status === "Deprecated" || status === "Retired") continue;
+    const kindName = brainKind(thing.kind)!.name.toLowerCase();
+    const owners = incoming(thing, "owns");
+    const people = new Map<string, EntityRow>();
+    for (const person of [...owners, ...incoming(thing, "knows")]) if (person.kind === "person" && person.data.status !== "Left") people.set(person.id, person);
+    const only = people.size === 1 ? [...people.values()][0]! : undefined;
+    if (only?.data.status === "On leave") {
+      gaps.push({
+        type: "on-leave-expert",
+        title: `Only ${only.name} knows ${dataLabel(thing)}, and they are on leave`,
+        detail: `No one else is known to look after this ${kindName}. Ask who covers it, and add them.`,
+        entity: ref(thing),
+      });
+    }
+    // Work and reports built on it: a report always matters; a table or data set once something uses it.
+    const users = [...incoming(thing, "uses_data"), ...incoming(thing, "built_on")];
+    if (!owners.length && (thing.kind === "report" || users.length)) {
+      gaps.push({ type: "no-owner", title: `No one is responsible for ${dataLabel(thing)}`, detail: `Add the ${kindName}'s owner.`, entity: ref(thing) });
+    }
+    if (thing.kind !== "report" && users.length && lacksDefinitions(thing)) {
+      gaps.push({
+        type: "no-definitions",
+        title: `No one wrote down what ${dataLabel(thing)} means`,
+        detail: `${some(users.map((u) => u.name))} ${users.length === 1 ? "uses" : "use"} it. Describe it and its columns in business words.`,
+        entity: ref(thing),
+      });
+    }
+  }
+  const gapOrder = ["on-leave-expert", "single-expert", "no-owner", "no-definitions", "no-steps"];
   gaps.sort((a, b) => gapOrder.indexOf(a.type) - gapOrder.indexOf(b.type) || a.entity.name.localeCompare(b.entity.name));
 
   const busyBy = new Map<string, { person: EntityRow; tasks: EntityRow[] }>();

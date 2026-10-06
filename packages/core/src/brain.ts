@@ -11,6 +11,12 @@ export const BRAIN_DIMENSIONS = [
   { key: "processes", name: "Processes", icon: "workflow", description: "How work is done: the steps, who does them, systems, rules and documents" },
   { key: "systems", name: "IT & systems", icon: "server", description: "Software and what it is for, APIs, databases, where documents live, hosting" },
   {
+    key: "data",
+    name: "Data & reports",
+    icon: "table",
+    description: "Database tables and other data sets with what they mean in business words, and the BI reports built on them",
+  },
+  {
     key: "market",
     name: "Clients & partners",
     icon: "handshake",
@@ -43,6 +49,10 @@ export const BRAIN_FIELD_TYPES = [
   "tables",
   "contacts",
   "milestones",
+  "columns",
+  "measures",
+  "dimensions",
+  "images",
 ] as const;
 export type BrainFieldType = (typeof BRAIN_FIELD_TYPES)[number];
 
@@ -58,6 +68,8 @@ export interface BrainField {
   tracked?: boolean;
   /** Kept for the system, not shown in forms. */
   hidden?: boolean;
+  /** A fact the database knows about itself (a table's size): its own reading wins over other sources. */
+  technical?: boolean;
 }
 
 export interface BrainKind {
@@ -291,7 +303,13 @@ export const BRAIN_KINDS = [
       { key: "access", label: "How to connect", type: "text" },
       { key: "personal_data", label: "Personal data", type: "choice", choices: ["None", "Some", "Sensitive"] },
       { key: "size", label: "Size", type: "text" },
-      { key: "tables", label: "Tables", type: "tables", hint: "Each table with its columns: name, type, key and what it holds." },
+      {
+        key: "tables",
+        label: "Tables (notes)",
+        type: "tables",
+        hint: "Read the tables from the database instead, where you can: each becomes a table of its own.",
+      },
+      { key: "connection_id", label: "Connection its tables are read through", type: "text", hidden: true },
     ],
   },
   {
@@ -333,6 +351,107 @@ export const BRAIN_KINDS = [
       { key: "provider", label: "Provider", type: "text", brief: true },
       { key: "region", label: "Where", type: "text" },
       { key: "details", label: "Details", type: "list" },
+    ],
+  },
+  // Data & reports
+  {
+    key: "data_table",
+    dimension: "data",
+    name: "Table",
+    plural: "Tables",
+    icon: "table-2",
+    description: "A table or view in a database: what it and each column mean in business words, and the work and reports that use it",
+    fields: [
+      { key: "business_name", label: "Business name", type: "text", brief: true },
+      {
+        key: "status",
+        label: "Definitions",
+        type: "choice",
+        choices: ["Certified", "Documented", "Needs definitions", "Deprecated"],
+        brief: true,
+        tracked: true,
+      },
+      { key: "definition", label: "What it holds", type: "long_text", hint: "One row per … : what a row is, in business words." },
+      { key: "type", label: "Type", type: "choice", choices: ["Table", "View"], technical: true },
+      { key: "schema", label: "Schema", type: "text", technical: true },
+      { key: "rows", label: "Rows (about)", type: "number", technical: true },
+      { key: "refresh", label: "Kept up to date", type: "text", hint: "As work happens, nightly from SAP, monthly…" },
+      { key: "personal_data", label: "Personal data", type: "choice", choices: ["None", "Some", "Sensitive"] },
+      {
+        key: "columns",
+        label: "Columns",
+        type: "columns",
+        hint: "Each column: its name and type in the database, and what it means in business words.",
+      },
+      { key: "usage", label: "How to use it", type: "long_text", hint: "Joins, filters and traps for whoever queries it, an AI employee too." },
+      { key: "issues", label: "Known data issues", type: "list" },
+    ],
+  },
+  {
+    key: "dataset",
+    dimension: "data",
+    name: "Data set",
+    plural: "Data sets",
+    icon: "file-spreadsheet",
+    description:
+      "Data kept outside a database table: a BI semantic model, an Excel workbook, an export, a SharePoint list, a data lake folder or an API resource",
+    fields: [
+      {
+        key: "type",
+        label: "Type",
+        type: "choice",
+        choices: ["Semantic model", "Excel workbook", "CSV export", "SharePoint list", "Data lake folder", "API resource", "Cube", "Other"],
+        brief: true,
+      },
+      {
+        key: "status",
+        label: "Definitions",
+        type: "choice",
+        choices: ["Certified", "Documented", "Needs definitions", "Deprecated"],
+        brief: true,
+        tracked: true,
+      },
+      { key: "definition", label: "What it holds", type: "long_text" },
+      { key: "location", label: "Where", type: "text" },
+      { key: "refresh", label: "Kept up to date", type: "text" },
+      { key: "rows", label: "Rows (about)", type: "number" },
+      { key: "personal_data", label: "Personal data", type: "choice", choices: ["None", "Some", "Sensitive"] },
+      { key: "columns", label: "Columns", type: "columns" },
+      { key: "measures", label: "Measures", type: "measures", hint: "Each measure: its name, what it means, and how it is calculated." },
+      { key: "usage", label: "How to use it", type: "long_text" },
+      { key: "issues", label: "Known data issues", type: "list" },
+    ],
+  },
+  {
+    key: "report",
+    dimension: "data",
+    name: "BI report",
+    plural: "BI reports",
+    icon: "chart-column",
+    description: "A BI report or dashboard: what it is for, who reads it, its measures and dimensions, and the data behind it",
+    fields: [
+      {
+        key: "tool",
+        label: "Tool",
+        type: "choice",
+        choices: ["Power BI", "Tableau", "Qlik Sense", "SAP Analytics Cloud", "Excel", "SSRS", "Looker", "Other"],
+        brief: true,
+      },
+      { key: "status", label: "Status", type: "choice", choices: ["Live", "In development", "Retired"], brief: true, tracked: true },
+      { key: "purpose", label: "What it is for", type: "long_text", hint: "The questions it answers and the decisions it supports." },
+      { key: "audience", label: "Who reads it", type: "list" },
+      { key: "screenshots", label: "Screenshots", type: "images" },
+      { key: "measures", label: "Measures", type: "measures", hint: "Each measure: its name, what it means, and how it is calculated." },
+      { key: "dimensions", label: "Dimensions", type: "dimensions", hint: "Each way to slice the numbers: its name, where it comes from, its levels." },
+      { key: "filters", label: "Filters", type: "list" },
+      { key: "pages", label: "Pages", type: "list" },
+      { key: "url", label: "Address", type: "url" },
+      { key: "workspace", label: "Workspace", type: "text" },
+      { key: "refresh", label: "Refreshed", type: "text" },
+      { key: "last_refreshed", label: "Last refreshed", type: "date" },
+      { key: "views", label: "Views in the last 30 days", type: "number" },
+      { key: "personal_data", label: "Personal data", type: "choice", choices: ["None", "Some", "Sensitive"] },
+      { key: "issues", label: "Known issues", type: "list" },
     ],
   },
   // Clients & partners
@@ -557,8 +676,12 @@ const OWNED = [
   "goal",
   "site",
   "project",
+  "data_table",
+  "dataset",
+  "report",
 ] as const;
-const IT = ["system", "database", "data_store", "infrastructure"] as const;
+const IT = ["system", "database", "data_store", "infrastructure", "data_table", "dataset"] as const;
+const DATA = ["data_table", "dataset"] as const;
 
 export const BRAIN_RELATIONS = [
   { key: "works_in", label: "Works in", inverse: "Who works here", from: ["person", "ai_employee", "role"], to: ["department"] },
@@ -610,6 +733,24 @@ export const BRAIN_RELATIONS = [
   { key: "about", label: "About", inverse: "Notes, decisions and know-how", from: ["decision", "knowhow", "term", "goal", "document"], to: "any" },
   { key: "decided_by", label: "Decided by", inverse: "Decisions", from: ["decision"], to: ["person", "department"] },
   { key: "shared_by", label: "From", inverse: "Know-how shared", from: ["knowhow"], to: ["person"] },
+  { key: "table_of", label: "Table in", inverse: "Tables", from: ["data_table"], to: ["database"] },
+  {
+    key: "uses_data",
+    label: "Uses data from",
+    inverse: "Used in",
+    from: ["process", "ai_employee", "department", "project", "system"],
+    to: DATA,
+    detail: { label: "How", choices: ["Reads", "Writes", "Reads and writes"] },
+  },
+  { key: "built_on", label: "Built on", inverse: "Feeds", from: ["report", "dataset", "data_table"], to: DATA, detail: { label: "How" } },
+  { key: "references", label: "Refers to", inverse: "Referred to by", from: ["data_table"], to: ["data_table"], detail: { label: "Through" } },
+  {
+    key: "reports_on",
+    label: "Reports on",
+    inverse: "Reports",
+    from: ["report"],
+    to: ["process", "goal", "department", "project", "client", "supplier", "product", "system", "site"],
+  },
 ] as const satisfies readonly BrainRelation[];
 
 export type BrainRelationKey = (typeof BRAIN_RELATIONS)[number]["key"];
@@ -694,12 +835,71 @@ export const BrainMilestone = z.object({
 });
 export type BrainMilestone = z.infer<typeof BrainMilestone>;
 
+/** A column of a table or data set: how the database names it, and what it means in business words. */
+export const BrainDataColumn = z.object({
+  name: z.string().trim().min(1).max(200),
+  type: z.string().trim().max(100).default(""),
+  /** "PK", "FK → KNA1.KUNNR". */
+  key: z.string().trim().max(300).default(""),
+  nullable: z.boolean().optional(),
+  /** The database's own comment on it, as found. */
+  comment: z.string().trim().max(1000).default(""),
+  business_name: z.string().trim().max(200).default(""),
+  definition: z.string().trim().max(2000).default(""),
+  /** It holds personal data (a name, an email, a salary). */
+  personal: z.boolean().default(false),
+  example: z.string().trim().max(300).default(""),
+});
+export type BrainDataColumn = z.infer<typeof BrainDataColumn>;
+
+/** A number a report or semantic model shows: "Net revenue", what it means, how it is calculated. */
+export const BrainMeasure = z.object({
+  name: z.string().trim().min(1).max(200),
+  definition: z.string().trim().max(2000).default(""),
+  formula: z.string().trim().max(2000).default(""),
+  format: z.string().trim().max(60).default(""),
+});
+export type BrainMeasure = z.infer<typeof BrainMeasure>;
+
+/** A way to slice a report's numbers: "Customer", where it comes from, its levels. */
+export const BrainDataDimension = z.object({
+  name: z.string().trim().min(1).max(200),
+  /** "KNA1.LAND1", "Customer › Country". */
+  source: z.string().trim().max(300).default(""),
+  /** "Year › Quarter › Month". */
+  levels: z.string().trim().max(300).default(""),
+  description: z.string().trim().max(1000).default(""),
+});
+export type BrainDataDimension = z.infer<typeof BrainDataDimension>;
+
+const IMAGE_DATA = /^data:image\/(png|jpeg|gif|webp|svg\+xml);base64,[A-Za-z0-9+/=]+$/;
+
+/** A picture of something, such as a report page: a file kept by the app, or the picture itself. */
+export const BrainImage = z
+  .object({
+    /** A file kept by the app (an uploaded screenshot). */
+    file: z.string().uuid().optional(),
+    /** The picture itself, as a data: address (what a source brings), or an https address. */
+    src: z
+      .string()
+      .max(2_000_000)
+      .refine((value) => IMAGE_DATA.test(value) || /^https:\/\/\S+$/.test(value), "a picture must be a data:image address or an https address")
+      .optional(),
+    caption: z.string().trim().max(300).default(""),
+  })
+  .refine((image) => Boolean(image.file || image.src), "a picture needs a file or a source");
+export type BrainImage = z.infer<typeof BrainImage>;
+
 const STRUCTURED: Partial<Record<BrainFieldType, z.ZodType>> = {
   steps: z.array(BrainStep).max(200),
   apis: z.array(BrainApi).max(100),
   tables: z.array(BrainTable).max(1000),
   contacts: z.array(BrainContact).max(200),
   milestones: z.array(BrainMilestone).max(200),
+  columns: z.array(BrainDataColumn).max(2000),
+  measures: z.array(BrainMeasure).max(500),
+  dimensions: z.array(BrainDataDimension).max(200),
+  images: z.array(BrainImage).max(30),
 };
 
 /** Is a stored value empty (nothing to show, nothing to keep)? */
@@ -775,12 +975,14 @@ export function foldText(text: string): string {
   return text.normalize("NFKD").replace(/[̀-ͯ]/g, "").replace(/ı/g, "i").replace(/İ/g, "i").toLowerCase();
 }
 
-/** The words of a value, for search: lists, steps, APIs and tables flattened. */
+/** The words of a value, for search: lists, steps, APIs and tables flattened; pictures left out. */
 export function valueWords(value: unknown): string[] {
   if (isBlankValue(value)) return [];
   if (Array.isArray(value)) return value.flatMap(valueWords);
   if (typeof value === "object") return Object.values(value as Record<string, unknown>).flatMap(valueWords);
-  return [String(value)];
+  if (typeof value === "boolean") return [];
+  const text = String(value);
+  return text.startsWith("data:") ? [] : [text];
 }
 
 /** Where a thing lives in the web app. */

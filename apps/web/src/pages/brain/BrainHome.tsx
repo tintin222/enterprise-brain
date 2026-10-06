@@ -145,7 +145,7 @@ function Empty({ onFilled }: { onFilled: () => void }) {
 function Areas({ overview }: { overview: BrainOverview }) {
   const { data: model } = useBrainModel();
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 2xl:grid-cols-7">
       {model?.dimensions.map((dimension) => {
         const Icon = DIMENSION_ICONS[dimension.key] ?? Brain;
         const colors = DIMENSION_COLORS[dimension.key]!;
@@ -239,7 +239,7 @@ function Attention({ overview }: { overview: BrainOverview }) {
     <Card>
       <CardHeader
         title="Needs attention"
-        subtitle="Projects at risk, urgent customer issues, late tasks, deals about to close, goals slipping"
+        subtitle="Projects at risk, urgent customer issues, late tasks, deals about to close, goals slipping, reports with old numbers"
         icon={TriangleAlert}
       />
       <ul className="divide-y divide-line">
@@ -296,6 +296,7 @@ const GAP_LABELS: Record<string, string> = {
   "single-expert": "Only one person",
   "no-owner": "No one responsible",
   "no-steps": "Not written down",
+  "no-definitions": "Data no one explained",
 };
 
 function Gaps({ overview }: { overview: BrainOverview }) {
@@ -304,7 +305,7 @@ function Gaps({ overview }: { overview: BrainOverview }) {
   const shown = all ? overview.gaps : overview.gaps.slice(0, 6);
   return (
     <Card>
-      <CardHeader title="Know-how at risk" subtitle="What only one person knows, and what no one owns" icon={Lightbulb} />
+      <CardHeader title="Know-how at risk" subtitle="What only one person knows, what no one owns, and data no one explained" icon={Lightbulb} />
       <ul className="divide-y divide-line">
         {shown.map((gap) => (
           <li key={`${gap.type}-${gap.entity.id}`} className="px-5 py-2.5">

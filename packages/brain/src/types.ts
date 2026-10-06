@@ -130,7 +130,7 @@ export function emptyResult(): SyncResult {
 // Overview
 
 export interface BrainAttention {
-  /** risk · issue · overdue · deal · goal */
+  /** risk · issue · overdue · deal · goal · data (a report showing old numbers) */
   type: string;
   title: string;
   detail: string;
@@ -139,7 +139,7 @@ export interface BrainAttention {
 }
 
 export interface BrainGap {
-  /** single-expert · on-leave-expert · no-owner · no-steps · no-one */
+  /** single-expert · on-leave-expert · no-owner · no-definitions · no-steps · no-one */
   type: string;
   title: string;
   detail: string;
@@ -172,6 +172,18 @@ export interface BrainOverview {
   /** Who has the most open tasks, and on what. */
   busy: { person: { id: string; name: string; title: string | null }; open: number; tasks: string[] }[];
   goals: BrainEntitySummary[];
+}
+
+/**
+ * Where data comes from and where it goes, around a report, data set or table: what each is built
+ * on, back to the database tables, and the reports and work built on it. Data flows from lower
+ * layers to higher ones; the thing itself is layer 0.
+ */
+export interface BrainLineage {
+  root: string;
+  nodes: (BrainEntitySummary & { layer: number; /** Where it lives: a table's database, a report's tool. */ place: string | null })[];
+  /** From the data to what is built on it. */
+  edges: { from: string; to: string; relation: BrainRelationKey; detail: string }[];
 }
 
 export interface BrainGraph {

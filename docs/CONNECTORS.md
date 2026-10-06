@@ -40,7 +40,7 @@ operation  erp.post_supplier_invoice (write)   waits for human approval (guardra
 | `sap-successfactors` | SAP SuccessFactors Employee Central (OData v2) | hris | search/get users, employment | preview |
 | `workday` | Workday HCM (REST) | hris | search/get workers, direct reports | preview |
 | `rest-api` | Any REST API (API key, bearer, basic, OAuth 2.0, client certificates) | other | GET, POST, PUT, PATCH, DELETE | preview |
-| `sql-database` | PostgreSQL, SQL Server, MySQL and Oracle (12c or later, no Oracle client software) | database | run query (guarded, read-only), list tables, describe table; named queries and changes | preview |
+| `sql-database` | PostgreSQL, SQL Server, MySQL and Oracle (12c or later, no Oracle client software) | database | run query (guarded, read-only), list tables, describe table, read the schema (every table's columns, keys, size and comments, for the company brain); named queries and changes | preview |
 | `mcp-server` | Any MCP server over Streamable HTTP (bearer, API key header, OAuth 2.0 client credentials, client certificates) | other | its tools, imported as named actions | preview |
 | `screen` | Any system without an API, through its screens: web pages (Claude's browser use) or a desktop program in a remote desktop page (computer use) | other | its named actions, written in plain words | preview |
 | `webhook-inbound` | Web forms and system webhooks (HMAC-signed) | web | `submission` event | stable |

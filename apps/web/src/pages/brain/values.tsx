@@ -1,22 +1,35 @@
 import { clsx } from "clsx";
-import { ChevronRight, ExternalLink, KeyRound, Mail, Phone } from "lucide-react";
+import { ChevronRight, ExternalLink, KeyRound, Layers, Mail, Phone, Sigma } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Badge, type Tone } from "../../components/Badge.tsx";
 import { formatDate } from "../../lib/format.ts";
-import type { BrainApi, BrainContact, BrainField, BrainMilestone, BrainModel, BrainRef, BrainStep, BrainTable } from "../../types.ts";
+import type {
+  BrainApi,
+  BrainContact,
+  BrainDataColumn,
+  BrainDataDimension,
+  BrainField,
+  BrainImage,
+  BrainMeasure,
+  BrainMilestone,
+  BrainModel,
+  BrainRef,
+  BrainStep,
+  BrainTable,
+} from "../../types.ts";
 import { ThingChip } from "./brain.tsx";
 
 /** How a value of a status-like field reads: green when fine, amber when at risk, red when not. */
 export function toneOf(value: unknown): Tone {
   const text = String(value ?? "").toLowerCase();
-  if (/^(on track|active|live|done|won|documented|approved|customer|achieved|in force|resolved|closed|expert|yes)$/.test(text)) return "green";
+  if (/^(on track|active|live|done|won|documented|certified|approved|customer|achieved|in force|resolved|closed|expert|yes)$/.test(text)) return "green";
   if (
-    /^(at risk|waiting|on hold|planned|draft|needs review|being replaced|prospect|proposal|negotiation|qualification|waiting on customer|high|read-only|on leave|in progress|open|new|can do it|moved)$/.test(
+    /^(at risk|waiting|on hold|planned|draft|needs review|needs definitions|being replaced|prospect|proposal|negotiation|qualification|waiting on customer|high|read-only|on leave|in progress|in development|open|new|can do it|moved)$/.test(
       text,
     )
   )
-    return text === "in progress" || text === "open" || text === "new" || text === "planned" ? "blue" : "amber";
-  if (/^(off track|blocked|lost|urgent|left|retired|cancelled|no|critical|sensitive)$/.test(text)) return "red";
+    return ["in progress", "in development", "open", "new", "planned"].includes(text) ? "blue" : "amber";
+  if (/^(off track|blocked|lost|urgent|left|retired|deprecated|cancelled|no|critical|sensitive)$/.test(text)) return "red";
   return "neutral";
 }
 
@@ -251,6 +264,57 @@ export function MilestonesView({ milestones }: { milestones: BrainMilestone[] })
   );
 }
 
+/** A report's or semantic model's measures: what each number means and how it is calculated. */
+export function MeasuresView({ measures }: { measures: BrainMeasure[] }) {
+  return (
+    <ul className="divide-y divide-line/70 overflow-hidden rounded-lg border border-line">
+      {measures.map((m) => (
+        <li key={m.name} className="px-3 py-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <Sigma className="size-3.5 shrink-0 text-fuchsia-600 dark:text-fuchsia-300" />
+            <span className="text-sm font-medium text-fg">{m.name}</span>
+            {m.format && <code className="rounded bg-subtle px-1.5 py-px font-mono text-[11px] text-muted">{m.format}</code>}
+          </div>
+          {m.definition && <p className="mt-0.5 text-[13px] text-muted">{m.definition}</p>}
+          {m.formula && <code className="mt-1 block font-mono text-[11px] break-all whitespace-pre-wrap text-faint">{m.formula}</code>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The ways a report's numbers are sliced: each with its levels and where it comes from. */
+export function DimensionsView({ dimensions }: { dimensions: BrainDataDimension[] }) {
+  return (
+    <ul className="space-y-2">
+      {dimensions.map((d) => (
+        <li key={d.name} className="flex gap-2">
+          <Layers className="mt-0.5 size-3.5 shrink-0 text-fuchsia-600 dark:text-fuchsia-300" />
+          <div className="min-w-0">
+            <p className="flex flex-wrap items-center gap-1.5 text-sm">
+              <span className="font-medium text-fg">{d.name}</span>
+              {d.levels &&
+                d.levels.split(/\s*›\s*/).map((level, i) => (
+                  <span key={level} className="inline-flex items-center gap-1.5 text-xs text-muted">
+                    {i > 0 && <ChevronRight className="size-3 text-faint" />}
+                    <span className="rounded bg-subtle px-1.5 py-px">{level}</span>
+                  </span>
+                ))}
+            </p>
+            {(d.source || d.description) && (
+              <p className="mt-0.5 text-xs text-muted">
+                {d.source && <code className="font-mono text-[11px] text-faint">{d.source}</code>}
+                {d.source && d.description ? " · " : ""}
+                {d.description}
+              </p>
+            )}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function Progress({ value }: { value: number }) {
   const width = Math.max(0, Math.min(100, value));
   return (
@@ -290,6 +354,20 @@ export function FieldValue({
       return <ContactsView contacts={value as BrainContact[]} />;
     case "milestones":
       return <MilestonesView milestones={value as BrainMilestone[]} />;
+    case "measures":
+      return <MeasuresView measures={value as BrainMeasure[]} />;
+    case "dimensions":
+      return <DimensionsView dimensions={value as BrainDataDimension[]} />;
+    case "columns": {
+      const columns = value as BrainDataColumn[];
+      return (
+        <span className="text-sm text-fg">
+          {columns.length} columns, {columns.filter((c) => c.business_name || c.definition).length} described
+        </span>
+      );
+    }
+    case "images":
+      return <span className="text-sm text-fg">{(value as BrainImage[]).length} pictures</span>;
     case "percent":
       return <Progress value={Number(value)} />;
     case "money":

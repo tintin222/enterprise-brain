@@ -1,5 +1,5 @@
 import { and, desc, eq, gte, isNotNull } from "drizzle-orm";
-import type { BrainSourceDeps } from "@enterprise-brain/brain";
+import { demoSchema, type BrainSourceDeps, type CatalogDeps, type SchemaInput } from "@enterprise-brain/brain";
 import { companies, mailMessages, tasks, type DatabaseHandle } from "@enterprise-brain/db";
 import type { AgentService } from "./agents.ts";
 import type { CatalogService } from "./catalog-service.ts";
@@ -101,5 +101,22 @@ export function brainSourceDeps(services: {
     async connections(companyId) {
       return (await connectors.list(companyId)).filter((c) => !c.sandbox).map((c) => ({ id: c.id, type: c.type, name: c.name, category: c.category }));
     },
+  };
+}
+
+const DIALECTS: Record<string, string> = { postgres: "PostgreSQL", sqlserver: "Microsoft SQL Server", mysql: "MySQL", oracle: "Oracle" };
+
+/** What the brain's data catalog reads through the platform: the SQL connections and their schemas. */
+export function brainCatalogDeps(connectors: ConnectorService): CatalogDeps {
+  return {
+    async connections(companyId) {
+      return (await connectors.list(companyId))
+        .filter((c) => c.type === "sql-database" && !c.sandbox)
+        .map((c) => ({ id: c.id, name: c.name, detail: DIALECTS[String(c.config.dialect ?? "postgres")] ?? String(c.config.dialect) }));
+    },
+    async readSchema(companyId, connectionId, schema) {
+      return (await connectors.executeInstance(companyId, connectionId, "read_schema", schema ? { schema } : {})) as SchemaInput;
+    },
+    demoSchema,
   };
 }

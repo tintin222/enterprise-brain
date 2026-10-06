@@ -7,7 +7,20 @@ import { Button, IconButton } from "../../components/Button.tsx";
 import { Drawer } from "../../components/Dialog.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { useToast } from "../../lib/toast.tsx";
-import type { BrainApi, BrainContact, BrainEntity, BrainField, BrainKind, BrainMilestone, BrainStep, BrainTable } from "../../types.ts";
+import type {
+  BrainApi,
+  BrainContact,
+  BrainDataColumn,
+  BrainDataDimension,
+  BrainEntity,
+  BrainField,
+  BrainImage,
+  BrainKind,
+  BrainMeasure,
+  BrainMilestone,
+  BrainStep,
+  BrainTable,
+} from "../../types.ts";
 import { brainKeys, brainPath, lowerName, useBrainEntities, useBrainModel } from "./brain.tsx";
 
 type Values = Record<string, unknown>;
@@ -380,7 +393,148 @@ function MilestonesEditor({ value, onChange }: { value: BrainMilestone[]; onChan
   );
 }
 
-function FieldInput({ field, value, onChange }: { field: BrainField; value: unknown; onChange: (value: unknown) => void }) {
+/** A data set's columns by hand (a table's come from its database, and are described on its page). */
+function ColumnsEditor({ value, onChange, existing }: { value: BrainDataColumn[]; onChange: (columns: BrainDataColumn[]) => void; existing: boolean }) {
+  if (existing && value.length > 30) {
+    return (
+      <p className="text-sm text-muted">{value.length} columns. Describe them on the page, in the Columns card: each in business words, or with suggestions.</p>
+    );
+  }
+  const set = (i: number, patch: Partial<BrainDataColumn>) => onChange(value.map((c, j) => (j === i ? { ...c, ...patch } : c)));
+  const blank: BrainDataColumn = { name: "", type: "", key: "", comment: "", business_name: "", definition: "", personal: false, example: "" };
+  return (
+    <div className="space-y-2">
+      {value.map((column, i) => (
+        <div key={i} className="grid gap-2 rounded-lg border border-line p-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+          <input className="input h-8 py-1 font-mono text-[13px]" placeholder="Column" value={column.name} onChange={(e) => set(i, { name: e.target.value })} />
+          <input
+            className="input h-8 py-1 text-[13px]"
+            placeholder="Business name"
+            value={column.business_name}
+            onChange={(e) => set(i, { business_name: e.target.value })}
+          />
+          <ItemTools index={i} count={value.length} onMove={(by) => onChange(move(value, i, by))} onRemove={() => onChange(value.filter((_, j) => j !== i))} />
+          <input
+            className="input h-8 py-1 text-[13px] sm:col-span-2"
+            placeholder="What it means"
+            value={column.definition}
+            onChange={(e) => set(i, { definition: e.target.value })}
+          />
+          <label className="flex items-center gap-1.5 text-xs text-muted">
+            <input type="checkbox" checked={column.personal} onChange={(e) => set(i, { personal: e.target.checked })} /> Personal
+          </label>
+        </div>
+      ))}
+      <Button size="sm" variant="soft" icon={Plus} onClick={() => onChange([...value, blank])}>
+        Add a column
+      </Button>
+    </div>
+  );
+}
+
+function MeasuresEditor({ value, onChange }: { value: BrainMeasure[]; onChange: (measures: BrainMeasure[]) => void }) {
+  const set = (i: number, patch: Partial<BrainMeasure>) => onChange(value.map((m, j) => (j === i ? { ...m, ...patch } : m)));
+  return (
+    <div className="space-y-2">
+      {value.map((measure, i) => (
+        <div key={i} className="space-y-2 rounded-lg border border-line p-2.5">
+          <div className="flex gap-2">
+            <input
+              className="input h-8 min-w-0 flex-1 py-1 text-[13px]"
+              placeholder="Measure"
+              value={measure.name}
+              onChange={(e) => set(i, { name: e.target.value })}
+            />
+            <input
+              className="input h-8 w-28 py-1 font-mono text-[12px]"
+              placeholder="Format"
+              value={measure.format}
+              onChange={(e) => set(i, { format: e.target.value })}
+            />
+            <ItemTools
+              index={i}
+              count={value.length}
+              onMove={(by) => onChange(move(value, i, by))}
+              onRemove={() => onChange(value.filter((_, j) => j !== i))}
+            />
+          </div>
+          <input
+            className="input h-8 py-1 text-[13px]"
+            placeholder="What it means"
+            value={measure.definition}
+            onChange={(e) => set(i, { definition: e.target.value })}
+          />
+          <textarea
+            className="input min-h-12 py-1.5 font-mono text-[12px]"
+            placeholder="How it is calculated (DAX, SQL or words)"
+            value={measure.formula}
+            onChange={(e) => set(i, { formula: e.target.value })}
+          />
+        </div>
+      ))}
+      <Button size="sm" variant="soft" icon={Plus} onClick={() => onChange([...value, { name: "", definition: "", formula: "", format: "" }])}>
+        Add a measure
+      </Button>
+    </div>
+  );
+}
+
+function DimensionsEditor({ value, onChange }: { value: BrainDataDimension[]; onChange: (dimensions: BrainDataDimension[]) => void }) {
+  const set = (i: number, patch: Partial<BrainDataDimension>) => onChange(value.map((d, j) => (j === i ? { ...d, ...patch } : d)));
+  return (
+    <div className="space-y-2">
+      {value.map((dimension, i) => (
+        <div key={i} className="grid gap-2 rounded-lg border border-line p-2.5 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+          <input className="input h-8 py-1 text-[13px]" placeholder="Dimension" value={dimension.name} onChange={(e) => set(i, { name: e.target.value })} />
+          <input
+            className="input h-8 py-1 text-[13px]"
+            placeholder="Levels: Year › Quarter › Month"
+            value={dimension.levels}
+            onChange={(e) => set(i, { levels: e.target.value })}
+          />
+          <ItemTools index={i} count={value.length} onMove={(by) => onChange(move(value, i, by))} onRemove={() => onChange(value.filter((_, j) => j !== i))} />
+          <input
+            className="input h-8 py-1 font-mono text-[12px]"
+            placeholder="From: dim_customer.country"
+            value={dimension.source}
+            onChange={(e) => set(i, { source: e.target.value })}
+          />
+          <input
+            className="input h-8 py-1 text-[13px] sm:col-span-2"
+            placeholder="What it is"
+            value={dimension.description}
+            onChange={(e) => set(i, { description: e.target.value })}
+          />
+        </div>
+      ))}
+      <Button size="sm" variant="soft" icon={Plus} onClick={() => onChange([...value, { name: "", source: "", levels: "", description: "" }])}>
+        Add a dimension
+      </Button>
+    </div>
+  );
+}
+
+/** Pictures are added on the page; here they get their captions, or go. */
+function ImagesEditor({ value, onChange }: { value: BrainImage[]; onChange: (images: BrainImage[]) => void }) {
+  if (!value.length) return <p className="text-sm text-muted">Add pictures on the page, with Add screenshot.</p>;
+  return (
+    <div className="space-y-2">
+      {value.map((image, i) => (
+        <div key={image.file ?? i} className="flex gap-2">
+          <input
+            className="input h-8 min-w-0 flex-1 py-1 text-[13px]"
+            placeholder="Caption"
+            value={image.caption}
+            onChange={(e) => onChange(value.map((x, j) => (j === i ? { ...x, caption: e.target.value } : x)))}
+          />
+          <ItemTools index={i} count={value.length} onMove={(by) => onChange(move(value, i, by))} onRemove={() => onChange(value.filter((_, j) => j !== i))} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function FieldInput({ field, value, onChange, existing }: { field: BrainField; value: unknown; onChange: (value: unknown) => void; existing: boolean }) {
   switch (field.type) {
     case "long_text":
       return <textarea className="input min-h-20" value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} />;
@@ -412,6 +566,14 @@ function FieldInput({ field, value, onChange }: { field: BrainField; value: unkn
       return <ContactsEditor value={(value as BrainContact[] | null) ?? []} onChange={onChange} />;
     case "milestones":
       return <MilestonesEditor value={(value as BrainMilestone[] | null) ?? []} onChange={onChange} />;
+    case "columns":
+      return <ColumnsEditor value={(value as BrainDataColumn[] | null) ?? []} onChange={onChange} existing={existing} />;
+    case "measures":
+      return <MeasuresEditor value={(value as BrainMeasure[] | null) ?? []} onChange={onChange} />;
+    case "dimensions":
+      return <DimensionsEditor value={(value as BrainDataDimension[] | null) ?? []} onChange={onChange} />;
+    case "images":
+      return <ImagesEditor value={(value as BrainImage[] | null) ?? []} onChange={onChange} />;
     default: {
       const type =
         field.type === "date"
@@ -446,6 +608,14 @@ function cleaned(field: BrainField, value: unknown): unknown {
       return (value as BrainContact[]).filter((c) => c.name.trim());
     case "milestones":
       return (value as BrainMilestone[]).filter((m) => m.name.trim());
+    case "columns":
+      return (value as BrainDataColumn[]).filter((c) => c.name.trim());
+    case "measures":
+      return (value as BrainMeasure[]).filter((m) => m.name.trim());
+    case "dimensions":
+      return (value as BrainDataDimension[]).filter((d) => d.name.trim());
+    case "images":
+      return (value as BrainImage[]).filter((i) => i.file || i.src);
     default:
       return value;
   }
@@ -555,7 +725,12 @@ export function EntityForm({ open, onClose, kind: initialKind, entity }: { open:
               .filter((f) => !f.hidden)
               .map((field) => (
                 <Row key={field.key} label={field.label} hint={field.hint}>
-                  <FieldInput field={field} value={values[field.key]} onChange={(value) => setValues((v) => ({ ...v, [field.key]: value }))} />
+                  <FieldInput
+                    field={field}
+                    value={values[field.key]}
+                    existing={Boolean(entity)}
+                    onChange={(value) => setValues((v) => ({ ...v, [field.key]: value }))}
+                  />
                 </Row>
               ))}
           </>

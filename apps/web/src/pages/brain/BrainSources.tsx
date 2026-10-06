@@ -4,6 +4,7 @@ import {
   BookOpen,
   Bot,
   Cable,
+  ChartColumn,
   CircleAlert,
   Factory,
   Handshake,
@@ -16,6 +17,7 @@ import {
   RefreshCw,
   Server,
   Sparkles,
+  Table,
   Unplug,
   Users,
   type LucideIcon,
@@ -45,6 +47,8 @@ const SOURCE_ICONS: Record<string, LucideIcon> = {
   "message-square": MessageSquare,
   hash: Hash,
   mail: Mail,
+  table: Table,
+  "chart-column": ChartColumn,
 };
 
 function resultWords(result: BrainSyncResult, kindName: (kind: string, n: number) => string): string {

@@ -1987,7 +1987,11 @@ export type BrainFieldType =
   | "apis"
   | "tables"
   | "contacts"
-  | "milestones";
+  | "milestones"
+  | "columns"
+  | "measures"
+  | "dimensions"
+  | "images";
 
 export interface BrainField {
   key: string;
@@ -1998,6 +2002,7 @@ export interface BrainField {
   brief?: boolean;
   tracked?: boolean;
   hidden?: boolean;
+  technical?: boolean;
 }
 
 export interface BrainKind {
@@ -2126,6 +2131,69 @@ export interface BrainRef {
   id: string;
   kind: string;
   name: string;
+}
+
+/** A column of a table or data set: as the database names it, and what it means in business words. */
+export interface BrainDataColumn {
+  name: string;
+  type: string;
+  key: string;
+  nullable?: boolean;
+  comment: string;
+  business_name: string;
+  definition: string;
+  personal: boolean;
+  example: string;
+}
+
+export interface BrainMeasure {
+  name: string;
+  definition: string;
+  formula: string;
+  format: string;
+}
+
+export interface BrainDataDimension {
+  name: string;
+  source: string;
+  levels: string;
+  description: string;
+}
+
+/** A picture (a report's screenshot): an uploaded file, or the picture itself (data: or https). */
+export interface BrainImage {
+  file?: string;
+  src?: string;
+  caption: string;
+}
+
+export interface BrainLineage {
+  root: string;
+  nodes: (BrainEntitySummary & { layer: number; place: string | null })[];
+  edges: { from: string; to: string; relation: string; detail: string }[];
+}
+
+export interface BrainReadOptions {
+  connections: { id: string; name: string; detail?: string }[];
+  connectionId: string | null;
+  demo: boolean;
+}
+
+export interface BrainReadTablesResult {
+  tables: number;
+  added: number;
+  changed: number;
+  gone: string[];
+  links: number;
+  from: string;
+  truncated: boolean;
+  notes: string[];
+}
+
+export interface BrainDefinitionSuggestions {
+  table: { business_name: string; definition: string } | null;
+  columns: { name: string; business_name: string; definition: string; personal: boolean }[];
+  by: "ai" | "names";
 }
 
 export interface BrainOverview {
