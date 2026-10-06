@@ -16,7 +16,6 @@ RUN if [ "$SCREENS" != "off" ]; then \
       cd /app/packages/screens && node node_modules/playwright-core/cli.js install --with-deps --only-shell chromium && rm -rf /var/lib/apt/lists/*; \
     fi
 WORKDIR /app/apps/server
-VOLUME ["/data"]
 EXPOSE 3200
 # Plain node with the tsx loader: nothing is downloaded when the container starts.
 CMD ["node", "--import", "tsx", "src/main.ts"]
