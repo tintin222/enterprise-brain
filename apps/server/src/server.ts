@@ -14,7 +14,7 @@ import { brainRoutes } from "./routes/brain.ts";
 import { builderRoutes } from "./routes/builder.ts";
 import { catalogRoutes } from "./routes/catalog.ts";
 import { channelRoutes } from "./routes/channels.ts";
-import { chatRoutes } from "./routes/chat.ts";
+import { conversationRoutes } from "./routes/conversations.ts";
 import { coachingRoutes } from "./routes/coaching.ts";
 import { connectionSignInRoutes } from "./routes/connection-signin.ts";
 import { connectorRoutes } from "./routes/connectors.ts";
@@ -128,7 +128,7 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   await connectorRoutes(app, ctx);
   await connectionSignInRoutes(app, ctx);
   await mailRoutes(app, ctx);
-  await chatRoutes(app, ctx);
+  await conversationRoutes(app, ctx);
   await builderRoutes(app, ctx);
   await studioRoutes(app, ctx);
   await brainRoutes(app, ctx);

@@ -171,6 +171,7 @@ export const RUN_TRIGGER_LABELS: Record<string, string> = {
   paperclip: "Paperclip",
   test: "Test",
   chat: "Chat",
+  conversation: "Conversation",
   "connector-event": "System event",
 };
 

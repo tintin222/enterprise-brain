@@ -332,15 +332,25 @@ Managers and IT read every shared mailbox; the people of a department read the o
 | POST | `/api/companies/:company/mail/messages` | Managers and IT. Deliver a message to a (sandbox) mailbox: JSON `{ mailbox, from, fromName?, subject, body, route?: true, attachmentFileIds? }` or multipart with attachments (and `attachmentFileIds`, comma-separated, for stored files such as the demo samples). Matching active agents start automatically. → `{ message, runs[] }` |
 | POST | `/api/companies/:company/mail/messages/:id/process` | Managers and IT. `{ agent, wait? }` — process with a specific agent |
 
-## Conversational AI
+## Conversations
+
+People, AI employees and (later) outside guests in one thread. Everything that talks is a conversation: a free *topic*, a *task*'s conversation (one per task; people comment there and the AI employee reads the comments on its next step), a person's *talk* with an AI employee (the company brain included: it is a hidden system AI employee, slug `company-brain`), and the conversation *about a thing* of the brain. A message names people, AI employees and assets with tokens `@[Name](kind:id)` (kinds `person`, `ai_employee`, `guest`, `thing`, `table`, `app`, `calculation`, `file`, `document`, `task`); a token to something its author may not see is stored with `allowed: false` and stays plain text, so nobody reaches through an AI employee what they could not open themselves. Each AI employee's answer is a run (`trigger: "conversation"`, `triggerRef` the conversation), so levels, approvals, costs and audit apply as always; its approvals and questions appear in the conversation as *cards* (the work-queue items), updated wherever they are decided. Who answers: the AI employees a person names (at most 3 per message); the AI employee a talk or a task is about when nobody is named; the AI employee a person replies to; an AI employee named by another only when the person's message named both, and never a third time; at most 20 AI turns per conversation per hour. Visibility: `participants` (only its participants), `department` (one department's people), `company` (everyone signed in); admins see everything.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/companies/:company/chat/conversations?agent=` | The viewer's own conversations (a signed-in person sees only theirs) |
-| POST | `/api/companies/:company/chat/conversations` | `{ agent?, title? }` (no agent = company assistant, which looks things up in the company brain and the knowledge base). The conversation belongs to the person who starts it; people talk only to the AI employees of their departments (404 otherwise) |
-| GET | `/api/companies/:company/chat/conversations/:id/messages` | `{ id, role (user/assistant), content (markdown), citations[] {n, title, collection, documentId, snippet}, createdAt }` |
-| POST | `/api/companies/:company/chat/conversations/:id/messages` | `{ text }` → assistant message |
-| POST | `/api/companies/:company/chat/conversations/:id/messages/stream` | *SSE* `{ text }` → `delta` events, then `message` |
+| GET | `/api/companies/:company/conversations?scope=mine\|department\|all&kind=&unread=1&limit=` | The viewer's conversations (`mine`, the default), their departments' (`department`) or every one they may see (`all`), newest first: `{ conversation, participants[], unread, mentionsMe, me, lastMessage {id, seq, kind, author, createdAt, text} }` |
+| POST | `/api/companies/:company/conversations` | A topic: `{ title?, text?, fileIds?, participants?[] {kind: person\|ai_employee, id}, visibility?, departmentId? }`. The first message names it when it has no title; the author and the people and AI employees named join it |
+| GET | `/api/companies/:company/conversations/for/:kind/:about` | The conversation about a `task` (its ref), a `thing` (its id) or the viewer's talk with an `ai_employee` (its slug; `company-brain` for the company brain), made on first use → `{ conversation, participants[], me, canInvite, about {href, label} }` |
+| GET | `/api/companies/:company/conversations/:id` | One conversation (404 when the viewer may not see it) |
+| GET | `/api/companies/:company/conversations/:id/messages?before=&after=&limit=` | Its messages, oldest first (the newest `limit` ones; `before` a seq pages back): `{ id, seq, kind (text\|system\|card), author {kind, id, name}, text, mentions[] {kind, id, name, allowed, href}, files[] {id, name, mimeType, size}, card (a work item like `/work`, with `forMe`, `canHandle`, `status`), runId, replyToId, data, createdAt, plain }` |
+| POST | `/api/companies/:company/conversations/:id/messages` | `{ text, fileIds?, replyToId? }` → the message. Mentions are checked against what the author may see; the AI employees it calls for answer afterwards (their messages arrive on the stream) |
+| POST | `/api/companies/:company/conversations/:id/read` | `{ seq }`: read up to here (unread counts, mention emails) |
+| POST | `/api/companies/:company/conversations/:id/participants` | `{ kind: person\|ai_employee, id }`: bring someone in (participants, the owner, department managers and admins) |
+| DELETE | `/api/companies/:company/conversations/:id/participants/:kind/:actor` | Leave, or (the owner, managers, admins) remove someone |
+| GET | `/api/companies/:company/conversations/:id/stream?after=` | *SSE*: `message` and `card` (`{ message }`, as above), `working` (`{ actor, on }`: an AI employee is answering), `participants`. With `after`, the messages since that seq come first |
+| GET | `/api/companies/:company/mention?q=&conversation=&kinds=` | The "@" picker: `{ kind, id, name, detail, group (People\|AI employees\|Things\|Data\|Files\|Tasks), href }[]`, at most 25, what the viewer may see only; the conversation's participants first |
+
+Mentions reach the people named by email (once per unread stretch of the conversation, and not while they have it open); an approval or question asked in a conversation opens in Chat from its email or card.
 
 ## The company brain
 

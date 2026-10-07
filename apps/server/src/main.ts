@@ -19,6 +19,8 @@ async function main() {
   if (config.seedDemo && isDemo && (config.auth?.mode ?? "open") === "accounts" && (await platform.people.count(company.id)) === 0) {
     await seedDemoPeople(platform, (await platform.company(company.id)) ?? company);
   }
+  // Every company: the company brain as a participant, and older chats as conversations.
+  for (const each of await platform.companies()) await platform.prepareCompany(each.id).catch((error) => console.warn(`  [start] ${each.slug}: ${error instanceof Error ? error.message : String(error)}`));
   const builder = new BuilderService(platform, { publicBaseUrl: config.publicUrl });
   const app = await buildServer({ platform, builder, config }, { logger: true });
   const resumed = await platform.engine.resumeInterrupted();

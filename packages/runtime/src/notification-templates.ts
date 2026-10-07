@@ -324,3 +324,40 @@ export function taskNewsEmail(message: TaskNewsMessage): RenderedEmail {
   );
   return { subject, text: [message.text, "", message.task.outcome ?? "", "", `Open the task: ${message.link}`].join("\n"), html };
 }
+
+/** Someone named the person in a conversation they are not reading right now. */
+export interface MentionMessage {
+  companyId: string;
+  companyName: string;
+  person: Person;
+  author: string;
+  conversationTitle: string;
+  /** The message as plain text, with "@Name" for what it names. */
+  text: string;
+  link: string;
+  preferences: string;
+}
+
+/** The email for a mention: who wrote what, where, and a button to the conversation. */
+export function mentionEmail(message: MentionMessage): RenderedEmail {
+  const subject = `${message.author} mentioned you: ${truncate(message.conversationTitle, 80)}`;
+  const html = layout(
+    message.companyName,
+    [
+      `<p style="margin:0 0 4px;color:#64748b;font-size:12px">Chat · ${escapeHtml(message.conversationTitle)}</p>`,
+      `<h1 style="margin:0 0 12px;font-size:18px;line-height:1.3">${escapeHtml(message.author)} mentioned you</h1>`,
+      `<div style="margin:0 0 16px;padding:10px 14px;border-left:3px solid #c7d2fe;background:#f8fafc;border-radius:8px">${markdownToHtml(truncate(message.text, 3000))}</div>`,
+      linkButton(message.link, "Open the conversation"),
+    ].join(""),
+    `Sent to ${escapeHtml(message.person.name)}. <a href="${escapeHtml(message.preferences)}" style="color:#475569">Change what reaches you</a>.`,
+  );
+  const text = [
+    `${message.author} mentioned you in "${message.conversationTitle}":`,
+    "",
+    truncate(message.text, 3000),
+    "",
+    `Open the conversation: ${message.link}`,
+    `Change what reaches you: ${message.preferences}`,
+  ].join("\n");
+  return { subject, text, html };
+}

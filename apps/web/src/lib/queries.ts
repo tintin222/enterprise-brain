@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, qs } from "../api.ts";
 import type {
   AgentDetail,
@@ -8,6 +8,8 @@ import type {
   CatalogResponse,
   ConnectorInstance,
   ConnectorManifest,
+  ConversationSummary,
+  ConversationView,
   AgentPerformance,
   CostOverview,
   HomeData,
@@ -54,7 +56,7 @@ export const keys = {
   knowledge: (company: string) => [company, "knowledge"] as const,
   connectors: (company: string) => [company, "connectors"] as const,
   mail: (company: string) => [company, "mail"] as const,
-  chat: (company: string) => [company, "chat"] as const,
+  conversations: (company: string) => [company, "conversations"] as const,
   files: (company: string) => [company, "files"] as const,
   activity: (company: string) => [company, "activity"] as const,
   people: (company: string) => [company, "people"] as const,
@@ -390,4 +392,54 @@ export function useBuilding() {
 export function useReviews() {
   const { company, path } = useCompany();
   return useQuery({ queryKey: keys.reviews(company), queryFn: () => api.get<Review[]>(path("/reviews")) });
+}
+
+// ---------------------------------------------------------------------------
+// Conversations
+// ---------------------------------------------------------------------------
+
+export type ConversationScope = "mine" | "department" | "all";
+
+/** The viewer's conversations (or their departments', or every one they may see), newest first. */
+export function useConversations(options: { scope?: ConversationScope; kind?: string; unread?: boolean; limit?: number } = {}) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.conversations(company), "list", options],
+    queryFn: () =>
+      api.get<ConversationSummary[]>(
+        path(`/conversations${qs({ scope: options.scope, kind: options.kind, unread: options.unread ? 1 : undefined, limit: options.limit })}`),
+      ),
+    refetchInterval: 20_000,
+  });
+}
+
+export function useConversation(id: string | undefined) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.conversations(company), id],
+    queryFn: () => api.get<ConversationView>(path(`/conversations/${encodeURIComponent(id ?? "")}`)),
+    enabled: Boolean(id),
+  });
+}
+
+/** The conversation about a task, a thing of the brain, or the viewer's talk with an AI employee (made on first use). */
+export function useConversationFor(kind: "task" | "thing" | "ai_employee" | undefined, about: string | undefined) {
+  const { company, path } = useCompany();
+  const queryClient = useQueryClient();
+  return useQuery({
+    queryKey: [...keys.conversations(company), "for", kind, about],
+    queryFn: async () => {
+      const view = await api.get<ConversationView>(path(`/conversations/for/${kind}/${encodeURIComponent(about ?? "")}`));
+      queryClient.setQueryData([...keys.conversations(company), view.conversation.id], view);
+      return view;
+    },
+    enabled: Boolean(kind && about),
+    staleTime: 60_000,
+  });
+}
+
+/** What is new for the viewer in Chat: conversations that mention them, and their talks with AI employees. */
+export function useChatBadge(): number {
+  const { data } = useConversations({ scope: "mine", unread: true });
+  return (data ?? []).filter((c) => c.mentionsMe > 0 || c.conversation.kind === "ai_employee").length;
 }

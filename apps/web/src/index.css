@@ -254,6 +254,10 @@
 .md a:hover {
   text-decoration-color: currentColor;
 }
+.md a.mention,
+.md a.mention:hover {
+  text-decoration: none;
+}
 .md ul {
   list-style: disc;
   padding-left: 1.35em;

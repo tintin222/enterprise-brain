@@ -18,6 +18,7 @@ import { employmentOf, type AgentRecord, type AgentService } from "./agents.ts";
 import type { CoachingNotes } from "./coaching-notes.ts";
 import type {
   ApprovalAction,
+  ConversationScope,
   ExecutionScope,
   PersistedRunState,
   RunContext,
@@ -66,6 +67,8 @@ export interface StartRunOptions {
   definition?: AgentDefinition;
   /** Test runs only: what the original task's waits found, reused instead of waiting (replays). */
   recorded?: Record<string, unknown>;
+  /** A turn in a conversation: no task is opened; `task` holds what the AI employee reads. */
+  conversation?: ConversationScope;
 }
 
 export interface Decision {
@@ -147,9 +150,9 @@ export class RunEngine {
       .map((f) => f.label ?? f.key);
     if (missing.length && trigger !== "mailbox") throw new RunError(`Missing required input: ${missing.join(", ")}`);
 
-    // Every piece of real work is a task (test runs aren't): a new one, or the one being continued.
+    // Every piece of real work is a task (test runs and turns in a conversation aren't): a new one, or the one being continued.
     let taskId = options.isTest ? null : (options.taskId ?? null);
-    if (!options.isTest && !taskId) {
+    if (!options.isTest && !options.conversation && !taskId) {
       const task = await this.deps.tasks.create(companyId, {
         agentId: agent.row.id,
         title: options.title ?? taskTitle(agent.definition, input, trigger, options.task),
@@ -171,6 +174,7 @@ export class RunEngine {
       ...(options.task ? { task: options.task } : {}),
       ...(options.definition ? { override: AgentDefinition.parse(options.definition) as unknown as Record<string, unknown> } : {}),
       ...(options.recorded ? { recorded: options.recorded } : {}),
+      ...(options.conversation ? { conversation: options.conversation } : {}),
     };
     const [run] = await this.deps.handle.db
       .insert(runs)
@@ -436,9 +440,10 @@ export class RunEngine {
       emit: (event) => this.emit(runId, event),
       onText: (delta) => this.textListeners.get(runId)?.forEach((fn) => fn(delta)),
       ...(state.recorded ? { recorded: state.recorded } : {}),
+      ...(state.conversation ? { conversation: state.conversation } : {}),
     };
     const workflow = state.task
-      ? [taskStep(definition, state.task)]
+      ? [state.conversation ? conversationStep(definition, state.task) : taskStep(definition, state.task)]
       : definition.workflow.length
         ? definition.workflow
         : [defaultAgentStep(definition)];
@@ -641,7 +646,10 @@ export class RunEngine {
     await this.followPlan(task, runId, outcome);
   }
 
-  /** A question from an AI employee to a person (its manager, or its department): the task waits for the answer. */
+  /**
+   * A question from an AI employee to a person (its manager, its department, or someone named in a
+   * conversation): the task, or the conversation, waits for the answer.
+   */
   private async askPerson(request: AskPersonRequest): Promise<{ id: string }> {
     const agent = await this.deps.agents.get(request.companyId, request.agentId);
     const item = await this.deps.work.create(request.companyId, {
@@ -650,12 +658,24 @@ export class RunEngine {
       details: request.context ?? "",
       suggestion: request.suggestion ?? null,
       options: request.options ?? null,
-      taskId: request.taskId,
+      taskId: request.taskId ?? null,
       agentId: agent.row.id,
       departmentId: agent.row.departmentId,
-      assigneeUserId: request.toManager ? agent.row.managerUserId : null,
+      assigneeUserId: request.toUserId ?? (request.toManager ? agent.row.managerUserId : null),
+      data: {
+        ...(request.conversationId ? { conversationId: request.conversationId } : {}),
+        ...(request.to ? { to: request.to } : {}),
+      },
     });
-    await this.deps.tasks.record(request.companyId, request.taskId, { type: "asked", message: `Asked: ${request.question}`, actor: `agent:${agent.row.id}`, runId: request.runId ?? null, data: { workItemId: item.id } });
+    if (request.taskId) {
+      await this.deps.tasks.record(request.companyId, request.taskId, {
+        type: "asked",
+        message: `Asked: ${request.question}`,
+        actor: `agent:${agent.row.id}`,
+        runId: request.runId ?? null,
+        data: { workItemId: item.id },
+      });
+    }
     return { id: item.id };
   }
 
@@ -710,6 +730,12 @@ export class RunEngine {
    * waiting at a wait step continues there; otherwise a new run continues from a brief of the task.
    */
   async wakeTask(companyId: string, ref: string, reason: WakeReason, options: { wait?: boolean; actor?: string } = {}): Promise<TaskRow> {
+    if (reason.kind === "message") {
+      // A comment in the task's conversation: a done or waiting task looks at it; a paused one waits for its manager.
+      const current = await this.deps.tasks.get(companyId, ref);
+      if (current.status === "paused") throw new RunError(`Task ${current.ref} is paused`, 409);
+      if (current.status === "working") throw new RunError(`Task ${current.ref} is working`, 409);
+    }
     const task = await this.deps.tasks.get(companyId, ref);
     const wait = (task.waitingFor ?? null) as (TaskWait & { pausedFrom?: string }) | null;
     await this.deps.tasks.record(companyId, task.id, { type: "woke", message: `Woke up: ${truncate(wakeText(reason, task).split("\n")[0]!, 300)}`, actor: options.actor ?? "system", data: { reason: reason.kind } });
@@ -1337,7 +1363,14 @@ function normalizeState(value: unknown): PersistedRunState {
     task: typeof record.task === "string" ? record.task : undefined,
     override: isRecord(record.override) ? record.override : undefined,
     recorded: isRecord(record.recorded) ? record.recorded : undefined,
+    conversation: isRecord(record.conversation) && typeof record.conversation.id === "string" ? (record.conversation as unknown as ConversationScope) : undefined,
   };
+}
+
+/** One turn in a conversation: the AI employee reads what was said and answers, with its tools; shorter than a task. */
+export function conversationStep(definition: AgentDefinition, brief: string): WorkflowStep {
+  const step = taskStep(definition, brief) as Extract<WorkflowStep, { type: "agent" }>;
+  return { ...step, id: "turn", name: "Answer in the conversation", maxTurns: 8 };
 }
 
 /** One autonomous step over a free-form task, with every tool and connector the agent has. */
@@ -1380,6 +1413,7 @@ const SOURCE_TEXT: Record<string, string> = {
   paperclip: "Assigned in Paperclip",
   "connector-event": "Event in a connected system",
   chat: "Asked in chat",
+  conversation: "Said in a conversation",
   teams: "Asked in Microsoft Teams",
   "google-chat": "Asked in Google Chat",
 };

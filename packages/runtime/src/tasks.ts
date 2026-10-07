@@ -40,7 +40,9 @@ export type WakeReason =
       decisions: { title: string; approved: boolean; note: string | null; decidedBy: string | null }[];
       answers?: { question: string; answer: string; by: string | null }[];
     }
-  | { kind: "resumed"; by: string };
+  | { kind: "resumed"; by: string }
+  /** People wrote in the task's conversation. */
+  | { kind: "message"; messages: { seq: number; author: string; text: string; guest?: boolean }[] };
 
 // Letters and digits people don't confuse (no 0/O, 1/I/L).
 const REF_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
@@ -77,10 +79,24 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Tasks: storage, history and reply matching. The engine moves them through their statuses. */
 export class TaskService {
+  private briefExtras?: (task: TaskRow, reason: WakeReason) => Promise<string | undefined>;
+  private readonly eventListeners = new Set<(companyId: string, task: TaskRow, event: TaskEventRow) => void | Promise<void>>();
+
   constructor(
     private readonly handle: DatabaseHandle,
     private readonly bus?: PlatformEvents,
   ) {}
+
+  /** More for every brief (the comments in the task's conversation): set once by the platform. */
+  useBriefExtras(fn: (task: TaskRow, reason: WakeReason) => Promise<string | undefined>): void {
+    this.briefExtras = fn;
+  }
+
+  /** Hears every event recorded on a task (the conversation mirrors the ones people care about). */
+  onEvent(listener: (companyId: string, task: TaskRow, event: TaskEventRow) => void | Promise<void>): () => void {
+    this.eventListeners.add(listener);
+    return () => this.eventListeners.delete(listener);
+  }
 
   async create(
     companyId: string,
@@ -154,15 +170,27 @@ export class TaskService {
   }
 
   async record(companyId: string, taskId: string, event: { type: string; message: string; actor?: string; runId?: string | null; data?: Record<string, unknown> }) {
-    await this.handle.db.insert(taskEvents).values({
-      companyId,
-      taskId,
-      type: event.type,
-      message: event.message,
-      actor: event.actor ?? "system",
-      runId: event.runId ?? null,
-      data: event.data ?? {},
-    });
+    const [row] = await this.handle.db
+      .insert(taskEvents)
+      .values({
+        companyId,
+        taskId,
+        type: event.type,
+        message: event.message,
+        actor: event.actor ?? "system",
+        runId: event.runId ?? null,
+        data: event.data ?? {},
+      })
+      .returning();
+    if (this.eventListeners.size) {
+      const task = await this.byId(taskId);
+      if (task) {
+        // Awaited: what an event starts (its line in the task's conversation) is there when the caller continues.
+        for (const listener of this.eventListeners) {
+          await Promise.resolve(listener(companyId, task, row!)).catch((error) => console.error("[tasks] listener:", error));
+        }
+      }
+    }
   }
 
   async events(taskId: string): Promise<TaskEventRow[]> {
@@ -245,6 +273,7 @@ export class TaskService {
   async brief(task: TaskRow, reason: WakeReason): Promise<string> {
     const events = (await this.events(task.id)).filter((e) => e.type !== "woke").slice(-25);
     const history = events.map((e) => `- ${e.createdAt.toISOString().slice(0, 16).replace("T", " ")} ${e.message}`).join("\n");
+    const extras = await this.briefExtras?.(task, reason).catch(() => undefined);
     const lines = [
       `You are continuing task ${task.ref}: "${task.title}".`,
       "",
@@ -256,6 +285,7 @@ export class TaskService {
       "",
       "Why you are looking at it again:",
       wakeText(reason, task),
+      ...(extras ? ["", extras] : []),
       "",
       "Decide the next step and act. When you have to wait for someone, call task_wait_for_reply; to look again later, call task_follow_up; when the work is finished, call task_complete with the outcome.",
     ];
@@ -291,5 +321,9 @@ export function wakeText(reason: WakeReason, task?: Pick<TaskRow, "waitingFor">)
       ].join("\n");
     case "resumed":
       return `${reason.by} resumed the task.`;
+    case "message":
+      return reason.messages.length === 1
+        ? `${reason.messages[0]!.author}${reason.messages[0]!.guest ? " (an outside guest)" : ""} wrote in the task's conversation: ${truncate(reason.messages[0]!.text, 400)}`
+        : `${reason.messages.length} new messages in the task's conversation, from ${[...new Set(reason.messages.map((m) => m.author))].join(", ")}.`;
   }
 }

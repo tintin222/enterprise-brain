@@ -665,33 +665,114 @@ export interface MailMessageDetail {
 }
 
 // ---------------------------------------------------------------------------
-// Chat
+// Conversations
 // ---------------------------------------------------------------------------
+
+export type ActorKind = "person" | "ai_employee" | "guest" | "system";
+
+/** Who said or did something: a person, an AI employee, an outside guest, or the app. */
+export interface Actor {
+  kind: ActorKind;
+  id: string;
+  name: string;
+}
+
+export type ConversationKind = "topic" | "task" | "ai_employee" | "thing" | "studio";
+export type ConversationVisibility = "participants" | "department" | "company";
+export type MentionKind = "person" | "ai_employee" | "guest" | "thing" | "table" | "app" | "calculation" | "file" | "document" | "task";
+export type MessageKind = "text" | "system" | "card";
 
 export interface Conversation {
   id: string;
-  agentId: string | null;
+  kind: ConversationKind;
+  aboutId: string | null;
   title: string;
+  departmentId: string | null;
+  visibility: ConversationVisibility;
+  createdBy: Actor;
+  status: "open" | "archived";
+  lastSeq: number;
+  lastMessageAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
-export interface Citation {
-  n: number;
-  title: string;
-  collection: string;
-  documentId: string;
-  snippet: string;
+export interface Participant {
+  id: string;
+  conversationId: string;
+  actorKind: ActorKind;
+  actorId: string;
+  actorName: string;
+  role: "owner" | "member" | "guest";
+  readSeq: number;
+  /** The first message a late guest may see. */
+  sinceSeq: number;
+  invitedBy: Actor | null;
+  expiresAt: string | null;
+  status: "active" | "waiting" | "revoked";
+  joinedAt: string;
+  lastSeenAt: string | null;
 }
 
-export interface ChatMessage {
+/** One conversation as its page reads it. */
+export interface ConversationView {
+  conversation: Conversation;
+  participants: Participant[];
+  /** The viewer's own participation, when they are in it. */
+  me: Participant | null;
+  canInvite: boolean;
+  /** The page it is about: its task, its AI employee, or its thing in the brain. */
+  about: { href: string; label: string } | null;
+}
+
+/** One conversation in a list: what the viewer hasn't read, and the newest message. */
+export interface ConversationSummary {
+  conversation: Conversation;
+  participants: Participant[];
+  unread: number;
+  mentionsMe: number;
+  me: Participant | null;
+  lastMessage: { id: string; seq: number; kind: MessageKind; author: Actor; createdAt: string; text: string } | null;
+}
+
+/** A name in a message's text, checked against what its author may see. */
+export interface MessageMention {
+  kind: MentionKind;
   id: string;
-  conversationId?: string;
-  role: "user" | "assistant";
-  content: string;
-  citations: Citation[];
+  name: string;
+  allowed: boolean;
+  href: string | null;
+}
+
+export interface Message {
+  id: string;
+  conversationId: string;
+  seq: number;
+  kind: MessageKind;
+  author: Actor;
+  /** Markdown, with mentions as `@[Name](kind:id)` tokens. */
+  text: string;
+  mentions: MessageMention[];
+  files: { id: string; name: string; mimeType: string; size: number }[];
+  /** A work-queue item shown in the conversation (an approval, a question, a check, a failure). */
+  card: WorkEntry | null;
+  /** The AI employee's turn that wrote it. */
+  runId: string | null;
+  replyToId: string | null;
+  data: Record<string, unknown> | null;
   createdAt: string;
-  data?: Record<string, unknown>;
+  /** The text with tokens as plain "@Name". */
+  plain: string;
+}
+
+/** What the "@" picker offers. */
+export interface MentionHit {
+  kind: MentionKind;
+  id: string;
+  name: string;
+  detail: string;
+  group: "People" | "AI employees" | "Things" | "Data" | "Files" | "Tasks";
+  href: string | null;
 }
 
 // ---------------------------------------------------------------------------

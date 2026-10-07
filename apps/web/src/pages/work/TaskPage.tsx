@@ -26,20 +26,22 @@ import { Link, useParams } from "react-router";
 import { api, isApiError } from "../../api.ts";
 import { StatusPill } from "../../components/Badge.tsx";
 import { Button, ButtonLink } from "../../components/Button.tsx";
+import { ConversationFor } from "../../components/chat/ConversationFor.tsx";
 import { Card, CardHeader } from "../../components/Card.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Field } from "../../components/Form.tsx";
 import { JsonDetails } from "../../components/JsonView.tsx";
 import { Page } from "../../components/Layout.tsx";
+import { Markdown } from "../../components/Markdown.tsx";
 import { Callout, ErrorState, LoadingBlock } from "../../components/Spinner.tsx";
 import { fromText, timeUntil, waitingText } from "../../components/TaskList.tsx";
 import { Timeline, type TimelineItem } from "../../components/Timeline.tsx";
-import { WorkItemCard } from "../../components/WorkItemCard.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { formatDateTime, formatMoney, isRecord, runDuration, timeAgo } from "../../lib/format.ts";
+import { plainText } from "../../lib/mentions.ts";
 import { runTriggerLabel } from "../../lib/labels.ts";
-import { keys, useTask, useWork } from "../../lib/queries.ts";
+import { keys, useTask } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import { useDocumentTitle } from "../../lib/title.ts";
 import type { TaskDetail, TaskEvent, TaskRow } from "../../types.ts";
@@ -88,7 +90,7 @@ function eventItem(event: TaskEvent, agentName: string): TimelineItem {
     id: event.id,
     icon: meta.icon,
     tone: meta.tone,
-    title: event.message,
+    title: plainText(event.message),
     meta: who ?? undefined,
     time: <span title={formatDateTime(event.createdAt)}>{timeAgo(event.createdAt)}</span>,
   };
@@ -237,7 +239,6 @@ export default function TaskPage() {
   const { ref = "" } = useParams();
   const { data, isLoading, error, refetch } = useTask(ref);
   useDocumentTitle(data ? `${data.task.ref} ${data.task.title}` : ref);
-  const work = useWork("all");
   const act = useTaskAction(ref);
   const [confirmStop, setConfirmStop] = useState(false);
   const [correcting, setCorrecting] = useState(false);
@@ -269,7 +270,6 @@ export default function TaskPage() {
 
   const { task, agent, events, runs, mails, canManage, canCorrect, coaching } = data;
   const open = ["working", "waiting", "needs_person", "paused"].includes(task.status);
-  const pending = (work.data ?? []).filter((w) => w.task?.ref === task.ref);
   const waiting = waitingText(task);
   const cost = runs.reduce((sum, r) => sum + (r.usage?.costUsd ?? 0), 0);
   const busy = act.isPending;
@@ -348,29 +348,31 @@ export default function TaskPage() {
             tone={task.status === "done" ? "success" : task.status === "failed" ? "danger" : "info"}
             title={task.status === "done" ? "Outcome" : "Why it stopped"}
           >
-            {task.outcome}
+            <Markdown compact breaks>
+              {task.outcome}
+            </Markdown>
           </Callout>
         )}
-        {pending.length > 0 && (
-          <section>
-            <h2 className="mb-3 text-sm font-semibold text-fg">Needs a person</h2>
-            <div className="space-y-3">
-              {pending.map((entry) => (
-                <WorkItemCard key={`${entry.type}-${entry.id}`} entry={entry} />
-              ))}
-            </div>
-          </section>
-        )}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <Card>
-            <CardHeader title="History" icon={ListChecks} subtitle="Every step, newest last." />
-            <div className="px-5 pt-5">
-              {events.length ? <Timeline items={events.map((e) => eventItem(e, agent.name))} /> : <p className="pb-5 text-sm text-muted">Nothing yet.</p>}
-            </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+          <Card className="flex h-[min(72dvh,56rem)] min-h-[480px] flex-col overflow-hidden">
+            <ConversationFor
+              kind="task"
+              about={task.ref}
+              embedded
+              className="min-h-0 flex-1"
+              emptyTitle="Nothing said yet"
+              emptyDescription={`Write to colleagues or to ${agent.name} here. ${agent.name} reads it on its next step; its notes, questions and approvals appear here too.`}
+            />
           </Card>
           <div className="space-y-6">
-            <Corrections coaching={coaching ?? []} />
             <Request task={task} />
+            <Card>
+              <CardHeader title="History" icon={ListChecks} subtitle="Every step, newest last." />
+              <div className="px-5 pt-5">
+                {events.length ? <Timeline items={events.map((e) => eventItem(e, agent.name))} /> : <p className="pb-5 text-sm text-muted">Nothing yet.</p>}
+              </div>
+            </Card>
+            <Corrections coaching={coaching ?? []} />
             <Emails mails={mails} />
             {runs.length > 0 && (
               <Card className="overflow-hidden">

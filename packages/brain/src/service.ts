@@ -1105,7 +1105,17 @@ export class BrainService {
   }
 
   /** A note or an update someone writes: on the timeline of what it is about. */
-  async addEvent(companyId: string, input: BrainEventInput, actor: string, actorEmail?: string | null): Promise<BrainEventView> {
+  /**
+   * An event someone adds (a note on a thing's timeline), or one another part of the app records about
+   * things (a conversation's message naming them): with `origin` and `ref`, adding it twice keeps one.
+   */
+  async addEvent(
+    companyId: string,
+    input: BrainEventInput,
+    actor: string,
+    actorEmail?: string | null,
+    options: { origin?: string; ref?: string; place?: string; data?: Record<string, unknown> } = {},
+  ): Promise<BrainEventView> {
     const about = input.about?.length
       ? (
           await this.rows(
@@ -1120,20 +1130,36 @@ export class BrainService {
     const person = actorEmail
       ? (await this.rows(companyId, and(eq(brainEntities.kind, "person"), sql`lower(${brainEntities.data}->>'email') = ${actorEmail.toLowerCase()}`)))[0]
       : undefined;
-    const [row] = await this.db
-      .insert(brainEvents)
-      .values({
-        companyId,
-        at: input.at ? new Date(input.at) : new Date(),
-        kind: input.kind,
-        origin: "manual",
-        title: input.title,
-        body: input.body ?? "",
-        actor: actorName(actor),
-        actorId: person?.id ?? null,
-        about,
-      })
-      .returning();
+    const origin = options.origin ?? "manual";
+    const values = {
+      companyId,
+      at: input.at ? new Date(input.at) : new Date(),
+      kind: input.kind,
+      origin,
+      ref: options.ref ?? null,
+      title: input.title,
+      body: input.body ?? "",
+      actor: actorName(actor),
+      actorId: person?.id ?? null,
+      place: options.place ?? null,
+      about,
+      data: options.data ?? {},
+    };
+    const inserted = options.ref
+      ? await this.db
+          .insert(brainEvents)
+          .values(values)
+          .onConflictDoNothing({ target: [brainEvents.companyId, brainEvents.origin, brainEvents.ref] })
+          .returning()
+      : await this.db.insert(brainEvents).values(values).returning();
+    const row =
+      inserted[0] ??
+      (
+        await this.db
+          .select()
+          .from(brainEvents)
+          .where(and(eq(brainEvents.companyId, companyId), eq(brainEvents.origin, origin), eq(brainEvents.ref, options.ref!)))
+      )[0];
     return (await this.eventViews(companyId, [row!]))[0]!;
   }
 

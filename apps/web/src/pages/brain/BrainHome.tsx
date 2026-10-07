@@ -39,11 +39,11 @@ const QUESTIONS = [
   "Who should I ask about SAP invoice errors?",
 ];
 
-/** The question box: asks the company assistant, which looks in the brain. */
+/** The question box: asks the company brain, in Chat. */
 function AskBox() {
   const navigate = useNavigate();
   const [text, setText] = useState("");
-  const ask = (question: string) => question.trim() && navigate(`/brain/ask?q=${encodeURIComponent(question.trim())}`);
+  const ask = (question: string) => question.trim() && navigate(`/chat/for/ai_employee/company-brain?q=${encodeURIComponent(question.trim())}`);
   return (
     <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-violet-50 p-4 dark:border-brand-400/25 dark:from-brand-400/10 dark:to-violet-400/10">
       <form

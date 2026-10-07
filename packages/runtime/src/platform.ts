@@ -14,8 +14,11 @@ import { brainCatalogDeps, brainSourceDeps } from "./brain-deps.ts";
 import { ChannelAccounts } from "./channel-accounts.ts";
 import { ChatChannelSender } from "./chat-channels.ts";
 import { CatalogService } from "./catalog-service.ts";
-import { ChatService } from "./chat.ts";
 import { CoachingNotes } from "./coaching-notes.ts";
+import { ensureCompanyBrain } from "./company-brain.ts";
+import { TurnPlanner } from "./conversation-turns.ts";
+import { ConversationService } from "./conversations.ts";
+import { MentionCards } from "./mentions.ts";
 import { ConnectorService } from "./connectors.ts";
 import { EmploymentService } from "./employment.ts";
 import { RunEngine } from "./engine.ts";
@@ -73,7 +76,12 @@ export class Platform {
   readonly coachingNotes: CoachingNotes;
   /** Performance and cost reports. */
   readonly reports: ReportService;
-  readonly chat: ChatService;
+  /** Conversations: people, AI employees and outside guests in one thread. */
+  readonly conversations: ConversationService;
+  /** Who answers in a conversation, and when. */
+  readonly turns: TurnPlanner;
+  /** What an AI employee gets about the things a message names with "@". */
+  readonly mentionCards: MentionCards;
   readonly catalog: CatalogService;
   readonly triggers: TriggerService;
   readonly people: PeopleService;
@@ -166,7 +174,6 @@ export class Platform {
       coaching: this.coachingNotes,
       brain: this.brain,
     });
-    this.chat = new ChatService(this.handle, this.llm, this.agents, this.knowledge, this.engine.toolDeps);
     this.catalog = new CatalogService(this.handle, options.catalog, this.agents, this.knowledge, this.activity);
     this.brainSources = new BrainSources(
       this.handle,
@@ -199,6 +206,45 @@ export class Platform {
     this.notifications.register(new EmailChannel(this.mail));
     this.notifications.register(new ChatChannelSender("teams", this.channelAccounts, this.teams));
     this.notifications.register(new ChatChannelSender("google-chat", this.channelAccounts, this.googleChat));
+    this.mentionCards = new MentionCards({
+      brain: this.brain,
+      tables: this.tables,
+      apps: this.apps,
+      calculations: this.calculations,
+      files: this.files,
+      knowledge: this.knowledge,
+      tasks: this.tasks,
+      agents: this.agents,
+      people: this.people,
+    });
+    this.conversations = new ConversationService({
+      handle: this.handle,
+      people: this.people,
+      agents: this.agents,
+      tasks: this.tasks,
+      work: this.work,
+      queue: this.queue,
+      events: this.events,
+      activity: this.activity,
+      cards: this.mentionCards,
+      brain: this.brain,
+    });
+    this.turns = new TurnPlanner({
+      handle: this.handle,
+      conversations: this.conversations,
+      engine: this.engine,
+      agents: this.agents,
+      tasks: this.tasks,
+      people: this.people,
+      cards: this.mentionCards,
+      llm: this.llm,
+      knowledge: this.knowledge,
+      brain: this.brain,
+    });
+    this.notifications.watchConversations(this.conversations);
+    // A task's brief carries the comments people wrote in its conversation; its history shows there too.
+    this.tasks.useBriefExtras((task) => this.conversations.taskBriefExtras(task));
+    this.tasks.onEvent((companyId, task, event) => this.conversations.mirrorTaskEvent(companyId, task, event));
   }
 
   /** Create a platform from the environment: embedded Postgres under dataDir unless DATABASE_URL is set. */
@@ -238,7 +284,17 @@ export class Platform {
     const [existing] = await this.handle.db.select().from(companies).where(eq(companies.slug, input.slug));
     if (existing) return existing;
     const [row] = await this.handle.db.insert(companies).values({ slug: input.slug, name: input.name, settings: input.settings ?? {} }).returning();
+    await this.prepareCompany(row!.id);
     return row!;
+  }
+
+  /**
+   * What every company has, made or brought up to date when the app starts: the company brain as a
+   * participant, and the conversations people had before conversations existed.
+   */
+  async prepareCompany(companyId: string): Promise<void> {
+    await ensureCompanyBrain(this.agents, companyId);
+    await this.conversations.adoptLegacyChat(companyId);
   }
 
   async companies(): Promise<CompanyRow[]> {
@@ -254,6 +310,9 @@ export class Platform {
     this.triggers.stop();
     this.watchers.stop();
     await this.notifications.stop();
+    // Conversations finish what they were writing (a turn's message, a task's mirrored event) before the database closes.
+    await this.turns.idle();
+    await this.conversations.idle();
     await this.screens?.close?.();
     await this.handle.close();
   }

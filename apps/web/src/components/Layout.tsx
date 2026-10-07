@@ -11,7 +11,7 @@ import {
   LogOut,
   Mail,
   Menu,
-  MessageSquare,
+  MessagesSquare,
   Moon,
   PanelLeftClose,
   Search,
@@ -28,7 +28,7 @@ import { signOut, useViewer } from "../lib/auth.tsx";
 import { useCompany } from "../lib/company.tsx";
 import { initials } from "../lib/format.ts";
 import { isTyping, useStoredFlag } from "../lib/preferences.ts";
-import { useWork } from "../lib/queries.ts";
+import { useChatBadge, useWork } from "../lib/queries.ts";
 import { useTheme } from "../lib/theme.ts";
 import { GiveWorkDialog } from "./GiveWork.tsx";
 import { NotificationsDialog } from "./NotificationSettings.tsx";
@@ -51,6 +51,7 @@ interface Place {
 /** The places: everything else lives inside one of them. */
 const PLACES: Place[] = [
   { to: "/", label: "Home", icon: House, end: true, hint: "What needs you, and what your AI employees did today" },
+  { to: "/chat", label: "Chat", icon: MessagesSquare, hint: "Conversations with people and AI employees, naming anything of the company with @" },
   { to: "/company", label: "Company", icon: Building2, hint: "Departments, their people and AI employees" },
   {
     to: "/brain",
@@ -76,6 +77,7 @@ function Sidebar({ onNavigate, folded = false, onFold }: { onNavigate?: () => vo
   const viewer = useViewer();
   const { pathname } = useLocation();
   const needsYou = useNeedsYou();
+  const newInChat = useChatBadge();
   const [giving, setGiving] = useState(false);
   const isManager = !viewer || viewer.isAdmin || viewer.departments.some((d) => d.role === "manager");
   return (
@@ -88,7 +90,7 @@ function Sidebar({ onNavigate, folded = false, onFold }: { onNavigate?: () => vo
       <ul className={clsx("flex-1 space-y-1 overflow-y-auto py-4", folded ? "px-2" : "px-3")}>
         {PLACES.filter((place) => place.for !== "managers" || isManager).map((place) => {
           const Icon = place.icon;
-          const count = place.to === "/work" ? needsYou : 0;
+          const count = place.to === "/work" ? needsYou : place.to === "/chat" ? newInChat : 0;
           return (
             <li key={place.to}>
               <NavLink
@@ -115,10 +117,11 @@ function Sidebar({ onNavigate, folded = false, onFold }: { onNavigate?: () => vo
                       {count > 0 && (
                         <span
                           className={clsx(
-                            "rounded-full bg-amber-500 font-semibold text-white tabular-nums",
+                            "rounded-full font-semibold text-white tabular-nums",
+                            place.to === "/chat" ? "bg-brand-600" : "bg-amber-500",
                             folded ? "absolute top-1 right-1 min-w-4 px-1 text-center text-[10px] leading-4" : "px-1.5 text-[11px] leading-[18px]",
                           )}
-                          title={`${count} waiting for you`}
+                          title={place.to === "/chat" ? `${count} new in Chat` : `${count} waiting for you`}
                         >
                           {folded && count > 9 ? "9+" : count}
                         </span>
@@ -300,14 +303,6 @@ function TopBar({ onMenu }: { onMenu: () => void }) {
         <LlmBadge />
         <Link to="/search" className="rounded-lg p-2 text-muted hover:bg-subtle hover:text-fg" aria-label="Search" title="Search knowledge and AI employees">
           <Search className="size-[18px]" />
-        </Link>
-        <Link
-          to="/assistant"
-          className="rounded-lg p-2 text-muted hover:bg-subtle hover:text-fg"
-          aria-label="Ask the company assistant"
-          title="Ask the company assistant"
-        >
-          <MessageSquare className="size-[18px]" />
         </Link>
         <Link
           to="/work"

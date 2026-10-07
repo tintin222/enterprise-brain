@@ -190,7 +190,7 @@ export default function Search() {
                 )}
                 {brain.data && brain.data.length > 0 && (
                   <Link
-                    to={`/brain/ask?q=${encodeURIComponent(q)}`}
+                    to={`/chat/for/ai_employee/company-brain?q=${encodeURIComponent(q)}`}
                     className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
                   >
                     Ask the brain <ArrowRight className="size-3" />

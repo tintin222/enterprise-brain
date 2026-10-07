@@ -346,8 +346,8 @@ export default function BrainEntityPage() {
               Open AI employee
             </ButtonLink>
           )}
-          <ButtonLink to={`/brain/ask?q=${encodeURIComponent(`Tell me about ${thing.name}`)}`} icon={MessageCircleQuestion} size="sm">
-            Ask about it
+          <ButtonLink to={`/chat/for/thing/${thing.id}`} icon={MessageCircleQuestion} size="sm" title="Its conversation: colleagues and the company brain">
+            Discuss
           </ButtonLink>
           <ButtonLink to={`/brain/map?focus=${thing.id}`} icon={Share2} size="sm">
             Map

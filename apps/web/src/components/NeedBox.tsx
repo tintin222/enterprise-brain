@@ -26,8 +26,8 @@ import type {
   CalculationProposal,
   CalculationSchedule,
   CalculationView,
-  ChatMessage,
-  Conversation,
+  ConversationView as ConversationData,
+  Message,
   CoachingProposal,
   NeedKind,
   NeedReading,
@@ -44,7 +44,7 @@ import { ResultView } from "./calculations/ResultView.tsx";
 import { FillFromEmail } from "./FillFromEmail.tsx";
 import { Chip, Field } from "./Form.tsx";
 import { useGiveWork } from "./GiveWork.tsx";
-import { Markdown } from "./Markdown.tsx";
+import { ConversationView } from "./chat/ConversationView.tsx";
 import { Callout, ErrorState, Skeleton } from "./Spinner.tsx";
 import { NewTableDialog, useTableDepartments } from "./tables/NewTableDialog.tsx";
 
@@ -393,38 +393,31 @@ function RecurringReading({ reading, text, onDone }: { reading: NeedReading; tex
   );
 }
 
-/** The company assistant answers it at once, in a conversation the person can go on with. */
+/** The company brain answers it in the person's talk with it, which goes on in Chat. */
 function AnswerReading({ question }: { question: string }) {
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
   const ask = useMutation({
     mutationFn: async () => {
-      const conversation = await api.post<Conversation>(path("/chat/conversations"), { title: question.slice(0, 80) });
-      const message = await api.post<ChatMessage>(path(`/chat/conversations/${conversation.id}/messages`), { text: question });
-      return { conversation, message };
+      const found = await api.get<ConversationData>(path("/conversations/for/ai_employee/company-brain"));
+      await api.post<Message>(path(`/conversations/${found.conversation.id}/messages`), { text: question });
+      return found.conversation.id;
     },
-    onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.chat(company) }),
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.conversations(company) }),
   });
   useEffect(() => {
     ask.mutate();
     // Once, for the question it was opened with.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  if (ask.error) return <ErrorState error={ask.error} title="It couldn't be answered" />;
+  if (ask.error) return <ErrorState error={ask.error} title="It couldn't be asked" />;
   if (!ask.data) return <Skeleton className="h-20" />;
-  const { conversation, message } = ask.data;
   return (
     <div className="space-y-2">
-      <div className="rounded-lg border border-line bg-surface p-3 text-sm">
-        <Markdown compact>{message.content}</Markdown>
-      </div>
-      {message.citations.length > 0 && <p className="text-xs text-muted">From: {[...new Set(message.citations.map((c) => c.title))].join(" · ")}</p>}
+      <ConversationView id={ask.data} embedded className="h-96 overflow-hidden rounded-lg border border-line" />
       <div className="flex justify-end">
-        <Link
-          to={`/assistant?c=${conversation.id}`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline dark:text-brand-300"
-        >
-          <MessageSquare className="size-4" /> Go on in the Assistant
+        <Link to={`/chat/${ask.data}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline dark:text-brand-300">
+          <MessageSquare className="size-4" /> Go on in Chat
         </Link>
       </div>
     </div>

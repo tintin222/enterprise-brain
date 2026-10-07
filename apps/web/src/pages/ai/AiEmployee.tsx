@@ -1,4 +1,3 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import {
   BookOpen,
@@ -19,7 +18,6 @@ import {
   ListChecks,
   Lock,
   MessageSquare,
-  MessageSquarePlus,
   Pause,
   PencilLine,
   Play,
@@ -37,8 +35,7 @@ import { api, isApiError, qs } from "../../api.ts";
 import { Badge, StatusPill } from "../../components/Badge.tsx";
 import { Button, ButtonLink } from "../../components/Button.tsx";
 import { Card, CardHeader } from "../../components/Card.tsx";
-import { ChatPanel } from "../../components/Chat.tsx";
-import { Dialog, Drawer } from "../../components/Dialog.tsx";
+import { Dialog } from "../../components/Dialog.tsx";
 import { EmploymentPanel, PROBATION } from "../../components/Employment.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Field } from "../../components/Form.tsx";
@@ -59,7 +56,7 @@ import { archetypeIcon, categoryIcon } from "../../lib/icons.tsx";
 import { approvalRuleLabel, categoryLabel, describeTrigger, PERSONAL_DATA_LABELS } from "../../lib/labels.ts";
 import { keys, useAgent, useAgentPerformance, useCollections, useConnectors, useDepartments, useTasks, useWork } from "../../lib/queries.ts";
 import { useDocumentTitle } from "../../lib/title.ts";
-import type { AgentDefinition, AgentDetail, Conversation, RunRow, TaskRow } from "../../types.ts";
+import type { AgentDefinition, AgentDetail, RunRow, TaskRow } from "../../types.ts";
 import { useAgentMutations } from "./actions.ts";
 import { ChangeRequest, CoachingTab, useCoaching } from "./Coaching.tsx";
 
@@ -693,62 +690,6 @@ function VersionsTab({ detail, editing, setEditing }: { detail: AgentDetail; edi
   );
 }
 
-function TalkDrawer({ detail, open, onClose }: { detail: AgentDetail; open: boolean; onClose: () => void }) {
-  const { company, path } = useCompany();
-  const queryClient = useQueryClient();
-  const slug = detail.agent.slug;
-  const conversations = useQuery({
-    queryKey: [...keys.chat(company), "conversations", { agent: slug }],
-    queryFn: () => api.get<Conversation[]>(path(`/chat/conversations${qs({ agent: slug })}`)),
-    enabled: open,
-  });
-  const [selected, setSelected] = useState<string | null | undefined>(undefined);
-  const conversationId = selected === undefined ? (conversations.data?.[0]?.id ?? null) : selected;
-  return (
-    <Drawer
-      open={open}
-      onClose={onClose}
-      width="lg"
-      title={`Talk to ${detail.definition.name}`}
-      description="Ask about its work, or ask it to do something. Only you see this conversation."
-    >
-      <div className="-mx-5 -my-4 flex h-[calc(100dvh-5.5rem)] flex-col">
-        <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2">
-          <select
-            className="input h-8 max-w-xs py-1 text-[13px]"
-            value={conversationId ?? ""}
-            onChange={(e) => setSelected(e.target.value || null)}
-            aria-label="Conversation"
-          >
-            {!conversationId && <option value="">New conversation</option>}
-            {(conversations.data ?? []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.title} · {timeAgo(c.updatedAt)}
-              </option>
-            ))}
-          </select>
-          <Button size="sm" variant="ghost" icon={MessageSquarePlus} onClick={() => setSelected(null)} className="ml-auto">
-            New
-          </Button>
-        </div>
-        <ChatPanel
-          key={conversationId ?? "new"}
-          className="min-h-0 flex-1"
-          conversationId={conversationId}
-          agent={slug}
-          assistantName={detail.definition.name}
-          emptyTitle={`Talk to ${detail.definition.name}`}
-          emptyDescription={detail.definition.summary}
-          onConversationCreated={(id) => {
-            setSelected(id);
-            void queryClient.invalidateQueries({ queryKey: [...keys.chat(company), "conversations"] });
-          }}
-        />
-      </div>
-    </Drawer>
-  );
-}
-
 function TryDialog({ detail, open, onClose }: { detail: AgentDetail; open: boolean; onClose: () => void }) {
   const [run, setRun] = useState<RunRow | null>(null);
   useEffect(() => {
@@ -788,7 +729,6 @@ export default function AiEmployee() {
   const coaching = useCoaching(slug ?? "");
   const departments = useDepartments();
   const { setStatus, remove } = useAgentMutations();
-  const [talking, setTalking] = useState(false);
   const [giving, setGiving] = useState(false);
   const [trying, setTrying] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -865,9 +805,9 @@ export default function AiEmployee() {
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          <Button icon={MessageSquare} onClick={() => setTalking(true)}>
+          <ButtonLink to={`/chat/for/ai_employee/${agent.slug}`} icon={MessageSquare}>
             Talk to it
-          </Button>
+          </ButtonLink>
           <Button variant="primary" icon={Send} onClick={() => setGiving(true)} disabled={!working && agent.status !== "testing"}>
             Give work
           </Button>
@@ -945,7 +885,6 @@ export default function AiEmployee() {
         )}
       </div>
 
-      <TalkDrawer detail={data} open={talking} onClose={() => setTalking(false)} />
       <GiveWorkDialog open={giving} onClose={() => setGiving(false)} agent={agent.slug} />
       <TryDialog detail={data} open={trying} onClose={() => setTrying(false)} />
       <Dialog

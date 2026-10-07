@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Clock, FlaskConical, Inbox, MessageSquarePlus, Paperclip, Play, Rocket, Settings2, Sparkles } from "lucide-react";
+import { Clock, FlaskConical, Inbox, Paperclip, Play, Rocket, Settings2, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { api, qs } from "../api.ts";
@@ -10,11 +10,11 @@ import { archetypeIcon } from "../lib/icons.tsx";
 import { describeTrigger } from "../lib/labels.ts";
 import { keys, useMailboxes, useRuns } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
-import type { AgentDetail, Conversation, MailMessage, RunRow } from "../types.ts";
+import type { AgentDetail, MailMessage, RunRow } from "../types.ts";
 import { StatusPill } from "./Badge.tsx";
 import { Button, ButtonLink } from "./Button.tsx";
 import { Card, CardHeader } from "./Card.tsx";
-import { ChatPanel } from "./Chat.tsx";
+import { ConversationFor } from "./chat/ConversationFor.tsx";
 import { Dialog } from "./Dialog.tsx";
 import { EmptyState } from "./EmptyState.tsx";
 import { CellValue } from "./OutputView.tsx";
@@ -128,47 +128,15 @@ function FormResults({ detail }: { detail: AgentDetail }) {
 }
 
 function ChatLayout({ detail }: { detail: AgentDetail }) {
-  const { company, path } = useCompany();
-  const queryClient = useQueryClient();
-  const slug = detail.agent.slug;
-  const conversations = useQuery({
-    queryKey: [...keys.chat(company), "conversations", { agent: slug }],
-    queryFn: () => api.get<Conversation[]>(path(`/chat/conversations${qs({ agent: slug })}`)),
-  });
-  const [selected, setSelected] = useState<string | null | undefined>(undefined);
-  const conversationId = selected === undefined ? (conversations.data?.[0]?.id ?? null) : selected;
   return (
     <Card className="flex h-[calc(100dvh-16rem)] min-h-[480px] flex-col overflow-hidden">
-      <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2.5">
-        <select
-          className="input h-8 max-w-xs py-1 text-[13px]"
-          value={conversationId ?? ""}
-          onChange={(e) => setSelected(e.target.value || null)}
-          aria-label="Conversation"
-        >
-          {!conversationId && <option value="">New conversation</option>}
-          {(conversations.data ?? []).map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.title} · {timeAgo(c.updatedAt)}
-            </option>
-          ))}
-        </select>
-        <Button size="sm" variant="ghost" icon={MessageSquarePlus} onClick={() => setSelected(null)} className="ml-auto">
-          New conversation
-        </Button>
-      </div>
-      <ChatPanel
-        key={conversationId ?? "new"}
-        className="flex-1"
-        conversationId={conversationId}
-        agent={slug}
-        assistantName={detail.definition.name}
+      <ConversationFor
+        kind="ai_employee"
+        about={detail.agent.slug}
+        embedded
+        className="min-h-0 flex-1"
         emptyTitle={detail.definition.ui.title ?? `Chat with ${detail.definition.name}`}
         emptyDescription={detail.definition.ui.description ?? detail.definition.summary}
-        onConversationCreated={(id) => {
-          setSelected(id);
-          void queryClient.invalidateQueries({ queryKey: [...keys.chat(company), "conversations"] });
-        }}
       />
     </Card>
   );

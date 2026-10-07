@@ -17,7 +17,6 @@ const BrainList = lazy(() => import("./pages/brain/BrainList.tsx"));
 const BrainEntityPage = lazy(() => import("./pages/brain/BrainEntity.tsx"));
 const BrainMap = lazy(() => import("./pages/brain/BrainMap.tsx"));
 const BrainSources = lazy(() => import("./pages/brain/BrainSources.tsx"));
-const BrainAsk = lazy(() => import("./pages/brain/BrainAsk.tsx"));
 const Performance = lazy(() => import("./pages/company/Performance.tsx"));
 const AiEmployee = lazy(() => import("./pages/ai/AiEmployee.tsx"));
 const Hire = lazy(() => import("./pages/hire/Hire.tsx"));
@@ -44,7 +43,7 @@ const ActPage = lazy(() => import("./pages/ActPage.tsx"));
 const AgentApp = lazy(() => import("./pages/AgentApp.tsx"));
 const RunDetail = lazy(() => import("./pages/runs/RunDetail.tsx"));
 const Search = lazy(() => import("./pages/Search.tsx"));
-const Assistant = lazy(() => import("./pages/Assistant.tsx"));
+const Chat = lazy(() => import("./pages/chat/Chat.tsx"));
 const UseCaseApp = lazy(() => import("./pages/UseCaseApp.tsx"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 const Apps = lazy(() => import("./pages/apps/Apps.tsx"));
@@ -82,6 +81,8 @@ const MOVED: Record<string, string> = {
   "settings/mailboxes": "/mail",
   activity: "/settings/audit",
   paperclip: "/settings/paperclip",
+  assistant: "/chat",
+  "brain/ask": "/chat/for/ai_employee/company-brain",
 };
 
 /** Sends an old address to its new place, keeping its parameters, query and hash. */
@@ -163,7 +164,6 @@ const router = createBrowserRouter([
               { path: "e/:id", element: <BrainEntityPage /> },
               { path: "map", element: <BrainMap /> },
               { path: "sources", element: <BrainSources /> },
-              { path: "ask", element: <BrainAsk /> },
             ],
           },
           { path: "ai/:slug", element: <AiEmployee /> },
@@ -197,7 +197,9 @@ const router = createBrowserRouter([
           { path: "ai/:slug/app", element: <AgentApp /> },
           { path: "apps/:key", element: <AppPage /> },
           { path: "runs/:id", element: <RunDetail /> },
-          { path: "assistant", element: <Assistant /> },
+          { path: "chat", element: <Chat /> },
+          { path: "chat/:id", element: <Chat /> },
+          { path: "chat/for/:kind/:about", element: <Chat /> },
           { path: "search", element: <Search /> },
           { path: "documents", element: <UseCaseApp kind="documents" /> },
           { path: "excel", element: <UseCaseApp kind="excel" /> },

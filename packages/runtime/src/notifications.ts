@@ -1,16 +1,27 @@
 import { and, desc, eq, gte, or } from "drizzle-orm";
-import { isRecord, NotificationPreferences, NotificationPreferencesPatch, TimeZone, truncate, type NotificationChannel } from "@enterprise-brain/core";
+import {
+  isRecord,
+  NotificationPreferences,
+  NotificationPreferencesPatch,
+  plainText,
+  TimeZone,
+  truncate,
+  type NotificationChannel,
+} from "@enterprise-brain/core";
 import { companies, notifications, tasks, users, type DatabaseHandle } from "@enterprise-brain/db";
 import type { AgentRecord, AgentService } from "./agents.ts";
 import { isChatChannel, type ChannelAccounts } from "./channel-accounts.ts";
+import type { ConversationRow, ConversationService, MessageRow, ParticipantRow } from "./conversations.ts";
 import type { PlatformEventMap, PlatformEvents } from "./events.ts";
 import type { ActionLinks } from "./links.ts";
 import type { MailService } from "./mail.ts";
 import {
   itemEmail,
+  mentionEmail,
   summaryEmail,
   taskNewsEmail,
   type ItemMessage,
+  type MentionMessage,
   type RenderedEmail,
   type SummaryMessage,
   type TaskNewsMessage,
@@ -44,6 +55,8 @@ export interface ChannelSender {
   sendItem(message: ItemMessage): Promise<DeliveryRef>;
   sendSummary(message: SummaryMessage): Promise<DeliveryRef>;
   sendTaskNews?(message: TaskNewsMessage): Promise<DeliveryRef>;
+  /** Someone named the person in a conversation. */
+  sendMention?(message: MentionMessage): Promise<DeliveryRef>;
   /** Show on a delivered item that it was handled, and by whom (a card updated in place). */
   updateItem?(handled: HandledItem): Promise<void>;
 }
@@ -68,6 +81,10 @@ export class EmailChannel implements ChannelSender {
 
   sendTaskNews(message: TaskNewsMessage): Promise<DeliveryRef> {
     return this.send(message.companyId, message.person, taskNewsEmail(message));
+  }
+
+  sendMention(message: MentionMessage): Promise<DeliveryRef> {
+    return this.send(message.companyId, message.person, mentionEmail(message));
   }
 
   private async send(companyId: string, person: Person, email: RenderedEmail): Promise<DeliveryRef> {
@@ -155,6 +172,7 @@ export class NotificationService {
   private timer: NodeJS.Timeout | undefined;
   private ticking: Promise<void> | undefined;
   private readonly chains = new Map<string, Promise<void>>();
+  private conversations: ConversationService | undefined;
 
   constructor(private readonly deps: NotificationServiceDeps) {
     // Event-driven delivery runs only while the service is started (the server); tests call dispatch().
@@ -172,6 +190,14 @@ export class NotificationService {
   /** Where the app is reached from outside: links in messages point here. */
   configure(options: { publicUrl: string }): void {
     this.publicUrl = options.publicUrl.replace(/\/$/, "");
+  }
+
+  /** Mentions in conversations reach the people named, unless they are reading there; items in conversations open in Chat. */
+  watchConversations(conversations: ConversationService): void {
+    this.conversations = conversations;
+    conversations.onMessage((conversation, message, participants) => {
+      if (this.running) void this.schedule(conversation.companyId, () => this.mentioned(conversation, message, participants));
+    });
   }
 
   register(channel: ChannelSender): void {
@@ -260,18 +286,25 @@ export class NotificationService {
   linksFor(
     person: Pick<Person, "id" | "companyId">,
     entry: Pick<QueueEntry, "type" | "id" | "task">,
-    options: { now?: Date; via?: NotificationChannel } = {},
+    options: { now?: Date; via?: NotificationChannel; open?: string } = {},
   ): ItemMessage["links"] {
     const token = this.deps.links.sign(
       { companyId: person.companyId, userId: person.id, type: entry.type, id: entry.id, via: options.via },
       { now: (options.now ?? new Date()).getTime() },
     );
-    return { act: `${this.publicUrl}/act/${token}`, open: this.openUrl(entry), preferences: `${this.publicUrl}/?notifications=1` };
+    return { act: `${this.publicUrl}/act/${token}`, open: options.open ?? this.openUrl(entry), preferences: `${this.publicUrl}/?notifications=1` };
   }
 
   /** An item in the app: its task, or the work queue. */
   openUrl(entry: Pick<QueueEntry, "task">): string {
     return entry.task ? `${this.publicUrl}/work/${encodeURIComponent(entry.task.ref)}` : `${this.publicUrl}/work`;
+  }
+
+  /** Where an item is handled in the app: its task's page, else the conversation it was asked in, else the work queue. */
+  async openFor(companyId: string, entry: QueueEntry): Promise<string> {
+    if (entry.task || !this.conversations) return this.openUrl(entry);
+    const conversationId = await this.conversations.conversationOf(companyId, entry).catch(() => undefined);
+    return conversationId ? `${this.publicUrl}/chat/${conversationId}` : this.openUrl(entry);
   }
 
   /** The app's address, for links in chat messages. */
@@ -292,6 +325,7 @@ export class NotificationService {
     const company = await this.company(companyId);
     let sent = 0;
     for (const entry of entries) {
+      const open = await this.openFor(companyId, entry);
       for (const person of audienceOf(entry, people)) {
         const wants = preferencesOf(person);
         if (wants.deliver === "off" || wants.deliver === "summary" || (wants.deliver === "urgent" && !isUrgent(entry))) continue;
@@ -304,7 +338,7 @@ export class NotificationService {
           companyName: company.name,
           person,
           entry,
-          links: this.linksFor(person, entry, { now, via }),
+          links: this.linksFor(person, entry, { now, via, open }),
         });
         if (await this.deliver(row, retryOrder(row, candidates), person, (channel) => channel.sendItem(message(channel.id)))) sent++;
       }
@@ -378,6 +412,7 @@ export class NotificationService {
     const entry = await this.deps.queue.entry(event.companyId, event.type, event.id);
     if (!entry) return 0;
     const people = new Map((await this.deps.people.list(event.companyId)).map((p) => [p.id, p]));
+    const openUrl = await this.openFor(event.companyId, entry);
     let updated = 0;
     for (const row of updatable) {
       const person = people.get(row.userId);
@@ -390,7 +425,7 @@ export class NotificationService {
           ref: row.ref,
           by: event.by,
           outcome: event.outcome,
-          openUrl: this.openUrl(entry),
+          openUrl,
         });
         await this.mark(row.id, { status: "updated" });
         updated++;
@@ -432,6 +467,55 @@ export class NotificationService {
       link: `${this.publicUrl}/work/${encodeURIComponent(task.ref)}`,
     };
     return this.deliver(row, [channel], person, (c) => c.sendTaskNews!(message));
+  }
+
+  /**
+   * A person named in a message gets it by email (chat apps show nothing for it yet), once per unread
+   * stretch of the conversation, unless they are reading the conversation right now.
+   */
+  async mentioned(conversation: ConversationRow, message: MessageRow, participants: ParticipantRow[], now = new Date()): Promise<number> {
+    if (message.kind !== "text") return 0;
+    const named = new Set(
+      message.mentions.filter((m) => m.allowed && m.kind === "person" && !(message.author.kind === "person" && message.author.id === m.id)).map((m) => m.id),
+    );
+    if (!named.size) return 0;
+    const company = await this.company(conversation.companyId);
+    const preferencesOf = await this.preferencesOfAll(conversation.companyId);
+    let sent = 0;
+    for (const userId of named) {
+      if (this.conversations?.isWatched(conversation.id, { kind: "person", id: userId })) continue;
+      const person = await this.deps.people.get(conversation.companyId, userId).catch(() => undefined);
+      if (!person || person.status !== "active") continue;
+      const wants = preferencesOf(person);
+      if (wants.deliver === "off" || wants.deliver === "summary") continue;
+      const candidates = (await this.channelsFor(conversation.companyId, person, wants)).filter((c) => c.sendMention);
+      if (!candidates.length) continue;
+      const readSeq = participants.find((p) => p.actorKind === "person" && p.actorId === userId)?.readSeq ?? 0;
+      const row = await this.claim(
+        {
+          companyId: conversation.companyId,
+          userId,
+          kind: "mention",
+          itemType: "conversation",
+          itemId: `${conversation.id}:${readSeq}`,
+          channel: candidates[0]!.id,
+        },
+        now,
+      );
+      if (!row) continue;
+      const mail: MentionMessage = {
+        companyId: conversation.companyId,
+        companyName: company.name,
+        person,
+        author: message.author.name,
+        conversationTitle: conversation.title || "a conversation",
+        text: plainText(message.text),
+        link: `${this.publicUrl}/chat/${conversation.id}`,
+        preferences: `${this.publicUrl}/?notifications=1`,
+      };
+      if (await this.deliver(row, retryOrder(row, candidates), person, (channel) => channel.sendMention!(mail))) sent++;
+    }
+    return sent;
   }
 
   /** What was sent to a person, newest first. */

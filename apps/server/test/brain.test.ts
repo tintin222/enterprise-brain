@@ -38,6 +38,16 @@ async function signIn(t: TestApp, people: string[]): Promise<Record<string, stri
   return as;
 }
 
+async function until<T>(fn: () => Promise<T | undefined | false>, what: string, timeoutMs = 15_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await fn();
+    if (value) return value;
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 describe("the company brain", () => {
   let t: TestApp;
   let as: Record<string, string> = {};
@@ -175,12 +185,18 @@ describe("the company brain", () => {
   });
 
   it("answers questions from the brain, also without a model", async () => {
-    const conversation = (await call("deniz.aydin", "POST", "/chat/conversations", {})).json() as { id: string };
-    const answer = (
-      await call("deniz.aydin", "POST", `/chat/conversations/${conversation.id}/messages`, { text: "Who knows the 8D complaint process?" })
-    ).json() as { content: string };
-    expect(answer.content).toMatch(/\[Customer complaints and 8D\]\(\/brain\/e\/[0-9a-f-]{36}\)/);
-    expect(answer.content).toMatch(/\*\*Who knows it:\*\* .*Kerem Yıldız/);
+    const talk = (await call("deniz.aydin", "GET", "/conversations/for/ai_employee/company-brain")).json() as { conversation: { id: string } };
+    const posted = await call("deniz.aydin", "POST", `/conversations/${talk.conversation.id}/messages`, { text: "Who knows the 8D complaint process?" });
+    expect(posted.statusCode, posted.body).toBe(200);
+    const answer = await until(
+      async () =>
+        ((await call("deniz.aydin", "GET", `/conversations/${talk.conversation.id}/messages`)).json() as { author: { kind: string }; text: string }[]).find(
+          (m) => m.author.kind === "ai_employee",
+        ),
+      "the brain's answer",
+    );
+    expect(answer.text).toMatch(/\[Customer complaints and 8D\]\(\/brain\/e\/[0-9a-f-]{36}\)/);
+    expect(answer.text).toMatch(/\*\*Who knows it:\*\* .*Kerem Yıldız/);
   });
 });
 
@@ -192,7 +208,7 @@ describe("Claude with the company brain", () => {
   let assistantTools: string[] = [];
 
   const llm = new ScriptedLlm({
-    "chat:": {
+    "runtime.agent:company-brain.turn": {
       tools: (request: ToolLoopRequest, turn: number, results: string[]) => {
         assistantSystem = request.system ?? "";
         assistantTools = request.tools.map((tool) => tool.name);
@@ -258,17 +274,28 @@ describe("Claude with the company brain", () => {
     await t?.close();
   });
 
-  it("gives the company assistant the brain's tools and how to use them", async () => {
-    const conversation = (
-      await t.app.inject({ method: "POST", url: `${base}/chat/conversations`, headers: { cookie: as["burak.sahin"]! }, payload: {} })
-    ).json() as { id: string };
-    const answer = await t.app.inject({
+  it("gives the company brain the brain's tools and how to use them", async () => {
+    const talk = (await t.app.inject({ url: `${base}/conversations/for/ai_employee/company-brain`, headers: { cookie: as["burak.sahin"]! } })).json() as {
+      conversation: { id: string };
+    };
+    const posted = await t.app.inject({
       method: "POST",
-      url: `${base}/chat/conversations/${conversation.id}/messages`,
+      url: `${base}/conversations/${talk.conversation.id}/messages`,
       headers: { cookie: as["burak.sahin"]! },
       payload: { text: "Who knows the 8D process?" },
     });
-    expect(answer.json()).toMatchObject({ content: "Kerem Yıldız and Selin Acar know it best." });
+    expect(posted.statusCode, posted.body).toBe(200);
+    const answer = await until(
+      async () =>
+        (
+          (await t.app.inject({ url: `${base}/conversations/${talk.conversation.id}/messages`, headers: { cookie: as["burak.sahin"]! } })).json() as {
+            author: { kind: string };
+            text: string;
+          }[]
+        ).find((m) => m.author.kind === "ai_employee"),
+      "the brain's answer",
+    );
+    expect(answer.text).toBe("Kerem Yıldız and Selin Acar know it best.");
     expect(assistantTools).toEqual(expect.arrayContaining(["knowledge_search", "company_search", "company_open", "company_list", "company_activity"]));
     expect(assistantSystem).toContain(COMPANY_GUIDANCE);
     expect(seen.chat?.[0]).toMatch(/\[Customer complaints and 8D\]\(\/brain\/e\//);

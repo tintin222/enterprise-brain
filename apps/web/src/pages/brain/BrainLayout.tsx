@@ -97,7 +97,7 @@ function BrainSearch({ className, autoFocus }: { className?: string; autoFocus?:
 
 const TOP = [
   { to: "/brain", label: "Overview", icon: LayoutDashboard, end: true },
-  { to: "/brain/ask", label: "Ask", icon: MessageCircleQuestion },
+  { to: "/chat/for/ai_employee/company-brain", label: "Ask", icon: MessageCircleQuestion },
   { to: "/brain/map", label: "Map", icon: Share2 },
   { to: "/brain/sources", label: "Sources", icon: Cable },
 ];

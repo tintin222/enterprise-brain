@@ -4,6 +4,16 @@ import { createTestApp, type TestApp } from "./helpers.ts";
 let t: TestApp;
 const base = "/api/companies/acme";
 
+async function until<T>(fn: () => Promise<T | undefined | false>, what: string, timeoutMs = 15_000): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = await fn();
+    if (value) return value;
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${what}`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 beforeAll(async () => {
   t = await createTestApp({ config: { hermesApiKey: "hermes-secret" } });
 });
@@ -40,16 +50,28 @@ describe("instance & catalog", () => {
   });
 });
 
-describe("knowledge & conversational AI", () => {
-  it("answers from the knowledge base with citations (offline retrieval mode)", async () => {
+describe("knowledge & conversations", () => {
+  it("answers from the knowledge base also without a model: the company brain shows the closest passages", async () => {
     const search = (await t.app.inject({ method: "POST", url: `${base}/knowledge/search`, payload: { query: "how many days of annual leave" } })).json();
     expect(search.hits[0].title).toMatch(/leave/i);
-    const conversation = (await t.app.inject({ method: "POST", url: `${base}/chat/conversations`, payload: {} })).json();
-    const answer = (
-      await t.app.inject({ method: "POST", url: `${base}/chat/conversations/${conversation.id}/messages`, payload: { text: "Yıllık izin hakkım kaç gün?" } })
-    ).json();
-    expect(answer.role).toBe("assistant");
-    expect(answer.citations.length).toBeGreaterThan(0);
+    const talk = (await t.app.inject(`${base}/conversations/for/ai_employee/company-brain`)).json();
+    expect(talk.conversation.kind).toBe("ai_employee");
+    const posted = await t.app.inject({
+      method: "POST",
+      url: `${base}/conversations/${talk.conversation.id}/messages`,
+      payload: { text: "Yıllık izin hakkım kaç gün?" },
+    });
+    expect(posted.statusCode, posted.body).toBe(200);
+    const answer = await until(
+      async () =>
+        (
+          (await t.app.inject(`${base}/conversations/${talk.conversation.id}/messages`)).json() as { author: { kind: string; name: string }; text: string }[]
+        ).find((m) => m.author.kind === "ai_employee"),
+      "the brain's answer",
+    );
+    expect(answer.author.name).toBe("Company brain");
+    expect(answer.text).toMatch(/Offline mode/);
+    expect(answer.text).toMatch(/leave/i);
   });
 });
 
@@ -98,7 +120,7 @@ describe("mail triage with approvals", () => {
 describe("Paperclip integration", () => {
   it("exports the installed organisation as an Agent Companies package", async () => {
     const pkg = (await t.app.inject(`${base}/paperclip/package?scope=installed`)).json();
-    expect(pkg.files["COMPANY.md"]).toContain("schema: \"agentcompanies/v1\"");
+    expect(pkg.files["COMPANY.md"]).toContain('schema: "agentcompanies/v1"');
     expect(pkg.files[".paperclip.yaml"]).toContain('type: "hermes_gateway"');
     expect(pkg.files[".paperclip.yaml"]).toContain('apiBaseUrl: "http://brain.test/api/hermes"');
     expect(Object.keys(pkg.files).some((f) => f.startsWith("agents/hr-lead/"))).toBe(true);
@@ -142,7 +164,12 @@ describe("Paperclip integration", () => {
       method: "POST",
       url: "/mcp",
       headers,
-      payload: { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } } },
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } },
+      },
     });
     expect(init.statusCode, init.body).toBe(200);
     expect(init.body).toContain("enterprise-brain");

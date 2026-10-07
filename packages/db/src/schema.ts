@@ -685,6 +685,123 @@ export const chatMessages = pgTable(
   (t) => [index("chat_messages_conversation").on(t.conversationId, t.createdAt)],
 );
 
+/** Who did or said something in a conversation: a person, an AI employee, a guest, or the app. */
+type StoredActor = { kind: string; id: string; name: string };
+
+/**
+ * A conversation: people, AI employees and outside guests in one thread, about a task, an AI employee,
+ * a thing of the brain, a Studio thread, or a free topic. One per task, thing or Studio thread; a
+ * person's talk with an AI employee is theirs (several per AI employee).
+ */
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: id(),
+    companyId: companyId(),
+    /** topic · task · ai_employee · thing · studio */
+    kind: text("kind").notNull(),
+    /** The task, AI employee, brain thing or Studio thread it is about. */
+    aboutId: text("about_id"),
+    title: text("title").notNull().default(""),
+    /** For `visibility = department`: whose people may read it. */
+    departmentId: uuid("department_id").references(() => departments.id, { onDelete: "set null" }),
+    /** participants · department · company */
+    visibility: text("visibility").notNull().default("participants"),
+    createdBy: jsonb("created_by").$type<StoredActor>().notNull(),
+    /** open · archived */
+    status: text("status").notNull().default("open"),
+    /** The newest message's number; a participant's unread count is lastSeq − their readSeq. */
+    lastSeq: integer("last_seq").notNull().default(0),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    index("conversations_company_last").on(t.companyId, t.lastMessageAt),
+    uniqueIndex("conversations_about")
+      .on(t.companyId, t.kind, t.aboutId)
+      .where(sql`${t.kind} in ('task', 'thing', 'studio')`),
+  ],
+);
+
+/** Who takes part in a conversation, and how far they have read. */
+export const conversationParticipants = pgTable(
+  "conversation_participants",
+  {
+    id: id(),
+    companyId: companyId(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    /** person · ai_employee · guest */
+    actorKind: text("actor_kind").notNull(),
+    actorId: text("actor_id").notNull(),
+    actorName: text("actor_name").notNull(),
+    /** owner · member · guest */
+    role: text("role").notNull().default("member"),
+    /** The last message they saw (people), or the last one their turn read (AI employees). */
+    readSeq: integer("read_seq").notNull().default(0),
+    /** The first message they may see: a guest invited later sees nothing before. */
+    sinceSeq: integer("since_seq").notNull().default(0),
+    invitedBy: jsonb("invited_by").$type<StoredActor>(),
+    /** Guests: when their link stops working. */
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** Guests: bumped when they are invited again, so older links die. */
+    linkVersion: integer("link_version").notNull().default(1),
+    /** active · waiting (an invitation the data protection officer must approve) · revoked */
+    status: text("status").notNull().default("active"),
+    joinedAt: createdAt(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("conversation_participants_actor").on(t.conversationId, t.actorKind, t.actorId),
+    index("conversation_participants_by_actor").on(t.companyId, t.actorKind, t.actorId),
+  ],
+);
+
+/**
+ * A message: text someone wrote (with "@" mentions as tokens), a line from the app, or a card (an
+ * approval, question, check or failure that people act on, shown live from the work queue).
+ */
+export const conversationMessages = pgTable(
+  "conversation_messages",
+  {
+    id: id(),
+    companyId: companyId(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    seq: integer("seq").notNull(),
+    /** text · system · card */
+    kind: text("kind").notNull().default("text"),
+    author: jsonb("author").$type<StoredActor>().notNull(),
+    authorKind: text("author_kind").notNull(),
+    authorId: text("author_id").notNull(),
+    /** Markdown, with mentions as `@[Name](kind:id)` tokens. Empty for a pure card. */
+    text: text("text").notNull().default(""),
+    /** The mentions in the text, with whether the author could see each asset. */
+    mentions: jsonb("mentions").$type<{ kind: string; id: string; name: string; allowed: boolean }[]>().notNull().default([]),
+    fileIds: jsonb("file_ids").$type<string[]>().notNull().default([]),
+    /** A card's work-queue item: { type: approval | question | review | failure | notice, id }. */
+    card: jsonb("card").$type<{ type: string; id: string }>(),
+    /** "approval:<id>": one card per item in a conversation. */
+    cardKey: text("card_key"),
+    /** The AI employee's turn that wrote it. */
+    runId: uuid("run_id").references(() => runs.id, { onDelete: "set null" }),
+    replyToId: uuid("reply_to_id"),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("conversation_messages_seq").on(t.conversationId, t.seq),
+    uniqueIndex("conversation_messages_card")
+      .on(t.conversationId, t.cardKey)
+      .where(sql`${t.cardKey} is not null`),
+    index("conversation_messages_mentions").using("gin", t.mentions),
+    index("conversation_messages_company").on(t.companyId, t.createdAt),
+  ],
+);
+
 /** Records kept by the built-in sandbox systems (demo ERP, CRM, HRIS, ATS, ITSM). */
 export const sandboxRecords = pgTable(
   "sandbox_records",

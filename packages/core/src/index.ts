@@ -14,3 +14,5 @@ export * from "./calculations.ts";
 export * from "./needs.ts";
 export * from "./building.ts";
 export * from "./brain.ts";
+export * from "./actor.ts";
+export * from "./conversation.ts";

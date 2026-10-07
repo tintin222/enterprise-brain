@@ -50,6 +50,19 @@ export interface PersistedRunState {
   override?: Record<string, unknown>;
   /** Replays: what the steps that waited on people found in the original task (its replies), by step id. */
   recorded?: Record<string, unknown>;
+  /** A turn in a conversation (no task): the AI employee answers what was said; `byGuest` when an outside guest asked. */
+  conversation?: ConversationScope;
+}
+
+/** The conversation a run answers in. */
+export interface ConversationScope {
+  id: string;
+  /** The newest message the turn read. */
+  upToSeq: number;
+  /** An outside guest started the turn: every change waits for an employee, whatever the AI employee's level. */
+  byGuest?: boolean;
+  /** Who is in the conversation, so the AI employee can ask one of them. */
+  participants?: { kind: string; id: string; name: string }[];
 }
 
 export interface RunEventInput {
@@ -85,4 +98,6 @@ export interface ExecutionScope {
   onText?: (delta: string) => void;
   /** Replays: what the original task's waits found, by step id. */
   recorded?: Record<string, unknown>;
+  /** The conversation the run answers in (a turn, not a task). */
+  conversation?: ConversationScope;
 }

@@ -9,7 +9,7 @@ import type { ConnectorService } from "./connectors.ts";
 import type { FileService } from "./files.ts";
 import type { MailService } from "./mail.ts";
 import { checkApproval, DEFAULT_EMPLOYMENT, type ApprovalCheck, type Employment, type WriteAction } from "./policy.ts";
-import type { ApprovalAction, RunEventInput } from "./run-types.ts";
+import type { ApprovalAction, ConversationScope, RunEventInput } from "./run-types.ts";
 import { withTaskRef, type TaskPlan, type TaskService } from "./tasks.ts";
 
 export interface DeferredApprovalRequest {
@@ -23,11 +23,12 @@ export interface DeferredApprovalRequest {
   reason?: string;
 }
 
-/** A question an AI employee asks a person while working on a task. */
+/** A question an AI employee asks a person while working on a task, or in a conversation. */
 export interface AskPersonRequest {
   companyId: string;
   agentId: string;
-  taskId: string;
+  /** The task that waits for the answer (none for a question asked in a conversation). */
+  taskId?: string;
   runId?: string;
   question: string;
   context?: string;
@@ -36,6 +37,12 @@ export interface AskPersonRequest {
   options?: string[];
   /** Ask its manager rather than anyone who handles its department's work. */
   toManager?: boolean;
+  /** The conversation the question was asked in: the card appears there. */
+  conversationId?: string;
+  /** The participant it is for (a person or a guest), when one was named. */
+  to?: { kind: string; id: string; name: string };
+  /** Assign it to this person (a participant named in a conversation). */
+  toUserId?: string | null;
 }
 
 export interface ToolDeps {
@@ -70,6 +77,8 @@ export interface ToolScope {
   dryRun?: boolean;
   /** Model use the tools had (working an old system's screens), counted with the step's. */
   onUsage?: (usage: LlmUsage) => void;
+  /** A turn in a conversation: it may ask a participant; a guest's turn asks a person before every change. */
+  conversation?: ConversationScope;
 }
 
 export interface RuntimeTool {
@@ -82,10 +91,12 @@ export interface RuntimeTool {
 /** Ask the policy, counting today's changes only when the AI employee has a daily limit. */
 export async function approvalCheck(
   deps: Pick<ToolDeps, "changesToday">,
-  scope: { agentId: string; definition: AgentDefinition; employment?: Employment },
+  scope: { agentId: string; definition: AgentDefinition; employment?: Employment; conversation?: Pick<ConversationScope, "byGuest"> },
   action: WriteAction,
   explicit?: boolean,
 ): Promise<ApprovalCheck> {
+  // An outside guest asked: whatever the AI employee's level, an employee approves every change.
+  if (scope.conversation?.byGuest && explicit !== false) return { needed: true, reason: "Asked by an outside guest: an employee approves every change" };
   const employment = scope.employment ?? DEFAULT_EMPLOYMENT;
   const counted = explicit === undefined && employment.probation === "trusted" && employment.limits.maxActionsPerDay !== undefined;
   const changesToday = counted ? await deps.changesToday?.(scope.agentId) : undefined;
@@ -400,7 +411,51 @@ export async function buildTools(
   }
   if (scope.task && deps.tasks) tools.push(...taskTools(deps, deps.tasks, scope, scope.task));
   else if (scope.dryRun) tools.push(...practiceTaskTools());
+  else if (scope.conversation && deps.askPerson) tools.push(conversationAskTool(deps, scope, scope.conversation));
   return { tools, serverTools, warnings };
+}
+
+/** In a conversation: a question card for a participant (or the AI employee's manager); the turn ends with it. */
+function conversationAskTool(deps: ToolDeps, scope: ToolScope, conversation: NonNullable<ToolScope["conversation"]>): RuntimeTool {
+  const people = (conversation.participants ?? []).filter((p) => p.kind === "person" || p.kind === "guest");
+  return {
+    capability: "conversation",
+    kind: "read",
+    definition: {
+      name: "conversation_ask",
+      description: `Ask a person in this conversation when you are unsure or something is missing that your tools can't settle. A question card appears for them; you are called again with the answer. Give your suggestion when you have one. Call it last, then end your turn.${
+        people.length ? ` People here: ${people.map((p) => `${p.name} (${p.id})`).join(", ")}.` : ""
+      }`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          question: { type: "string", description: "One clear question" },
+          to: { type: "string", description: "The id of the person it is for; leave empty for your manager" },
+          context: { type: "string", description: "What you found and why you ask" },
+          suggestion: { type: "string", description: "What you would do, and why" },
+          options: { type: "array", items: { type: "string" }, description: "Possible answers, when there are a few" },
+        },
+        required: ["question"],
+      },
+    },
+    async execute(input) {
+      const to = people.find((p) => p.id === String(input.to ?? "") || p.name === String(input.to ?? ""));
+      await deps.askPerson!({
+        companyId: scope.companyId,
+        agentId: scope.agentId,
+        runId: scope.runId,
+        question: String(input.question),
+        context: input.context ? String(input.context) : undefined,
+        suggestion: input.suggestion ? String(input.suggestion) : undefined,
+        options: Array.isArray(input.options) ? input.options.map(String).slice(0, 8) : undefined,
+        toManager: !to,
+        conversationId: conversation.id,
+        to: to ? { kind: to.kind, id: to.id, name: to.name } : undefined,
+        toUserId: to?.kind === "person" ? to.id : null,
+      });
+      return { content: `Asked${to ? ` ${to.name}` : " your manager"}. The card is in the conversation; you will be called again with the answer. End your turn now without repeating the question.` };
+    },
+  };
 }
 
 /**

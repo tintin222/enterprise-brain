@@ -89,36 +89,27 @@ describe("the places of the app", () => {
     });
   });
 
-  it("keeps conversations private, and only with one's own AI employees", async () => {
+  it("keeps talks with an AI employee private, and only with one's own AI employees", async () => {
     const elif = await as("elif.arslan@acme.com.tr");
     const burak = await as("burak.sahin@acme.com.tr");
-    const started = await t.app.inject({
-      method: "POST",
-      url: "/api/companies/acme/chat/conversations",
-      headers: { cookie: elif },
-      payload: { agent: "reminder-clerk" },
-    });
+    const started = await get("/conversations/for/ai_employee/reminder-clerk", elif);
     expect(started.statusCode, started.body).toBe(200);
-    const id = started.json().id as string;
-    expect((await get("/chat/conversations?agent=reminder-clerk", elif)).json().map((c: { id: string }) => c.id)).toEqual([id]);
-    expect((await get("/chat/conversations?agent=reminder-clerk", burak)).json()).toEqual([]);
-    expect((await get(`/chat/conversations/${id}/messages`, burak)).statusCode).toBe(404);
+    const id = started.json().conversation.id as string;
+    expect(started.json().conversation.kind).toBe("ai_employee");
+    const ids = (list: { conversation: { id: string } }[]) => list.map((c) => c.conversation.id);
+    expect(ids((await get("/conversations?scope=mine", elif)).json())).toContain(id);
+    expect(ids((await get("/conversations?scope=mine", burak)).json())).not.toContain(id);
+    expect((await get(`/conversations/${id}/messages`, burak)).statusCode).toBe(404);
     const send = await t.app.inject({
       method: "POST",
-      url: `/api/companies/acme/chat/conversations/${id}/messages`,
+      url: `/api/companies/acme/conversations/${id}/messages`,
       headers: { cookie: burak },
       payload: { text: "Hello" },
     });
     expect(send.statusCode).toBe(404);
 
     const hrAgent = (await t.platform.agents.list(companyId)).find((a) => a.definition.department === "hr")!;
-    const withHr = await t.app.inject({
-      method: "POST",
-      url: "/api/companies/acme/chat/conversations",
-      headers: { cookie: elif },
-      payload: { agent: hrAgent.row.slug },
-    });
-    expect(withHr.statusCode).toBe(404);
+    expect((await get(`/conversations/for/ai_employee/${hrAgent.row.slug}`, elif)).statusCode).toBe(404);
   });
 
   it("keeps corrections and reasoned rejections as coaching notes on the AI employee", async () => {

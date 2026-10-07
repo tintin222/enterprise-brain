@@ -1,4 +1,4 @@
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, ne, or } from "drizzle-orm";
 import { AgentDefinition, AgentStatus, Probation, TrustLimits, type AgentDefinitionInput } from "@enterprise-brain/core";
 import { agentVersions, agents, type DatabaseHandle } from "@enterprise-brain/db";
 import { defaultProbation, type Employment } from "./policy.ts";
@@ -43,7 +43,8 @@ export class AgentService {
     input: {
       definition: AgentDefinitionInput;
       status?: AgentStatus;
-      source?: "template" | "builder" | "manual";
+      /** system: made by the app itself (the company brain); left out of lists unless asked. */
+      source?: "template" | "builder" | "manual" | "system";
       templateId?: string;
       departmentId?: string | null;
       processId?: string | null;
@@ -172,8 +173,10 @@ export class AgentService {
     }
   }
 
-  async list(companyId: string, filter: { status?: string; departmentId?: string } = {}): Promise<AgentRecord[]> {
+  /** The company's AI employees; the app's own (the company brain) only with `includeSystem`. */
+  async list(companyId: string, filter: { status?: string; departmentId?: string; includeSystem?: boolean } = {}): Promise<AgentRecord[]> {
     const conditions = [eq(agents.companyId, companyId)];
+    if (!filter.includeSystem) conditions.push(ne(agents.source, "system"));
     if (filter.status) conditions.push(eq(agents.status, filter.status));
     if (filter.departmentId) conditions.push(eq(agents.departmentId, filter.departmentId));
     const rows = await this.handle.db

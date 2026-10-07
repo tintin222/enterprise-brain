@@ -69,6 +69,24 @@ export class QueueService {
     return entries.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   }
 
+  /** The open items of one task: its approvals (through its runs) and its work items. */
+  async openForTask(companyId: string, taskId: string): Promise<QueueEntry[]> {
+    const pending = await this.handle.db
+      .select({ approval: approvals })
+      .from(approvals)
+      .innerJoin(runs, eq(runs.id, approvals.runId))
+      .where(and(eq(approvals.companyId, companyId), eq(approvals.status, "pending"), eq(runs.taskId, taskId)));
+    const items = await this.work.list(companyId, { statuses: ["open"], taskId, limit: 1000 });
+    const entries = [
+      ...(await this.fromApprovals(
+        companyId,
+        pending.map((p) => p.approval),
+      )),
+      ...(await this.fromWorkItems(companyId, items)),
+    ];
+    return entries.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+  }
+
   /** One entry by kind and id, open or not (undefined when it doesn't exist). */
   async entry(companyId: string, type: QueueItemType, id: string): Promise<QueueEntry | undefined> {
     if (type === "approval") {
