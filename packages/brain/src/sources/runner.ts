@@ -147,14 +147,16 @@ export class BrainSources {
 
   /**
    * Connects and reads every source, in order; then reads again the ones that named something only a
-   * later source brought, so their links find it.
+   * later source brought, so their links find it. `only: "connected"` reads the connected ones;
+   * `only: "not-off"` also the ones never connected, and leaves alone those a person turned off.
    */
-  async syncAll(companyId: string, options: { now?: Date; only?: "connected" } = {}): Promise<Record<string, SyncResult>> {
+  async syncAll(companyId: string, options: { now?: Date; only?: "connected" | "not-off" } = {}): Promise<Record<string, SyncResult>> {
     return this.serialized(companyId, async () => {
       const rows = await this.db.select().from(brainSources).where(eq(brainSources.companyId, companyId));
+      const status = (key: string) => rows.find((r) => r.key === key)?.status ?? "new";
       const keys = this.definitions
         .map((d) => d.key)
-        .filter((key) => options.only !== "connected" || rows.some((r) => r.key === key && r.status === "connected"));
+        .filter((key) => (options.only === "connected" ? status(key) === "connected" : options.only === "not-off" ? status(key) !== "off" : true));
       const results: Record<string, SyncResult> = {};
       for (const key of keys) {
         try {

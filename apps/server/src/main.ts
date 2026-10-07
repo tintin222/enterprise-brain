@@ -1,7 +1,7 @@
 import { BuilderService } from "@enterprise-brain/builder";
 import { Platform } from "@enterprise-brain/runtime";
 import { loadConfig } from "./config.ts";
-import { seedDemo, seedDemoPeople } from "./seed.ts";
+import { fillDemoBrain, seedDemo, seedDemoPeople } from "./seed.ts";
 import { buildServer } from "./server.ts";
 
 async function main() {
@@ -68,6 +68,12 @@ async function main() {
       .filter((line) => line !== "")
       .join("\n"),
   );
+  // The demo company's brain reads, in the background, the sources it never read: all the first time, then the ones a newer version brings.
+  if (config.seedDemo) {
+    void fillDemoBrain(platform, company.id, { demo: !existing || company.settings.demo === true }).catch((error) =>
+      console.warn(`  [seed] brain skipped: ${error instanceof Error ? error.message : String(error)}`),
+    );
+  }
 
   const shutdown = async () => {
     await app.close();

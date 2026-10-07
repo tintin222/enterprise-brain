@@ -49,6 +49,26 @@ export async function seedDemoPeople(platform: Platform, company: CompanyRow): P
   return emails;
 }
 
+/**
+ * The demo company's brain reads the sources it never read, so its places aren't empty: all of them
+ * the first time, and later the ones a newer version brings. Only a demo company, or a brain that
+ * already reads the demo sources, gets them (a company's own brain never gets made-up data), and a
+ * source a person turned off stays off. Returns the sources read for the first time.
+ */
+export async function fillDemoBrain(platform: Platform, companyId: string, options: { demo?: boolean } = {}): Promise<string[]> {
+  const sources = await platform.brainSources.list(companyId);
+  const fresh = sources.filter((s) => s.status === "new");
+  if (fresh.length === 0 || !(options.demo || sources.some((s) => s.demo && s.syncs > 0))) return [];
+  const results = await platform.brainSources.syncAll(companyId, { only: "not-off" });
+  const added = Object.values(results).reduce((sum, result) => sum + result.added, 0);
+  const read = fresh.length === sources.length ? `filled from ${fresh.length} sources` : `read ${fresh.map((s) => s.name).join(", ")} for the first time`;
+  log(`brain: ${read}, ${added} things added`);
+  for (const source of await platform.brainSources.list(companyId)) {
+    if (source.lastError) console.warn(`  [seed] brain: ${source.name} could not be read: ${source.lastError}`);
+  }
+  return fresh.map((s) => s.key);
+}
+
 function log(message: string) {
   console.log(`  [seed] ${message}`);
 }

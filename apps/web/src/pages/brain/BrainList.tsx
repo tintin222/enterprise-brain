@@ -1,9 +1,9 @@
 import { clsx } from "clsx";
-import { LayoutGrid, List, Plus, Search } from "lucide-react";
+import { Cable, LayoutGrid, List, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useParams } from "react-router";
 import { Badge } from "../../components/Badge.tsx";
-import { Button } from "../../components/Button.tsx";
+import { Button, ButtonLink } from "../../components/Button.tsx";
 import { Card, PageHeader } from "../../components/Card.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Page } from "../../components/Layout.tsx";
@@ -133,11 +133,18 @@ export default function BrainList() {
           title={q ? "Nothing found" : `No ${lowerName(kind?.plural ?? "things")} yet`}
           description={q ? "Try other words." : "Fill the brain from its sources, or add them by hand."}
           action={
-            canAdd && kind && !q ? (
-              <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
-                Add {lowerName(kind.name)}
-              </Button>
-            ) : undefined
+            q ? undefined : (
+              <>
+                {canAdd && kind && (
+                  <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
+                    Add {lowerName(kind.name)}
+                  </Button>
+                )}
+                <ButtonLink to="/brain/sources" icon={Cable}>
+                  Choose sources
+                </ButtonLink>
+              </>
+            )
           }
         />
       ) : cards ? (
