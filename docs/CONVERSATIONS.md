@@ -1,17 +1,17 @@
-# Conversations: people, AI employees and outside experts in one thread
+# Conversations: people and AI employees in one thread
 
-How Enterprise Brain lets several people and several AI employees work on one matter at the same time, how "@" names anything of the company in a conversation, and how outside experts come into the loop. Short sentences; the idea first, then how it is built.
+How Enterprise Brain lets several people and several AI employees work on one matter at the same time, and how "@" names anything of the company in a conversation. Short sentences; the idea first, then how it is built.
 
 ## The idea in one paragraph
 
-There is **one conversation**: a thread with participants (people, AI employees, outside guests) and messages. Everything that talks is a conversation: a free topic, a task, a person's talk with an AI employee (the company brain included), the conversation about a thing in the brain. **"@" is the only way to point at anything**: a person, an AI employee, a process, a table, a report, a document, a task. An AI employee takes part like a polite colleague: it answers when it is addressed, it reads what others wrote, it asks with a question card, and everything it does is a normal run, so levels, approvals, costs, audit and coaching keep working unchanged. Outside experts join one conversation through a link in an email, without an account. One place, **Chat**, replaces the Assistant, Ask the brain and Talk to it.
+There is **one conversation**: a thread with participants (people and AI employees) and messages. Everything that talks is a conversation: a free topic, a task, a person's talk with an AI employee (the company brain included), the conversation about a thing in the brain. **"@" is the only way to point at anything**: a person, an AI employee, a process, a table, a report, a document, a task. An AI employee takes part like a polite colleague: it answers when it is addressed, it reads what others wrote, it asks with a question card, and everything it does is a normal run, so levels, approvals, costs, audit and coaching keep working unchanged. One place, **Chat**, replaces the Assistant, Ask the brain and Talk to it.
 
 ## 1. One conversation
 
 A conversation has:
 
 - **a kind**: `topic` (free), `task` (one per task), `ai_employee` (my talk with one AI employee), `thing` (about a thing of the brain: a process, a system, a table…), later `studio` (a Studio thread);
-- **participants**: people, AI employees, guests. The **company brain** is an AI employee too (a hidden system one, slug `company-brain`), so there is one way to talk to it: `@Company brain`;
+- **participants**: people and AI employees. The **company brain** is an AI employee too (a hidden system one, slug `company-brain`), so there is one way to talk to it: `@Company brain`;
 - **visibility**: only its participants, one department, or the whole company. A topic with department visibility *is* the department's channel. There is no separate "channel" or "room";
 - **messages**: text with "@" mentions, files, and **cards** (an approval, a question, a check, a failure). The cards are the work-queue items shown on Home; deciding one anywhere (Home, email, Teams) updates it in the conversation.
 
@@ -43,18 +43,9 @@ Each AI turn is a **run** (`trigger: "conversation"`), so Shadow, Supervised and
 
 People named in a message get an email (once per unread stretch of the conversation, not while they have it open). An approval or question asked in a conversation opens in Chat from its email or card.
 
-## 4. Outside experts = guests (phase 2)
+## 4. Simpler, not more complicated
 
-- A manager or the conversation's owner invites a guest by email: name, organisation, how long (14 days by default), and whether they see the whole conversation or only from now.
-- The email has a link. Opening it shows **that one conversation**, nothing else: no sign-in, no account. The link is signed (the same code as the approval links), expires, and can be revoked.
-- A guest sees messages from their invitation on, the files attached to them, and question cards addressed to them. They can write, attach files, and answer or confirm when asked. Every guest message is labelled "Guest · Organisation". Internal approval cards are never shown to guests.
-- **Guests may give work to AI employees**, with four safety rules: only to AI employees already in the conversation; a turn started by a guest is always treated as Supervised (every email, system change or table change waits for an employee's approval, whatever the AI employee's level); the AI is told who asked and to share only what concerns the guest and this conversation; no hand-over to other AI employees from a guest's message. Admins can turn guest work off (`settings.guests.mayGiveWork`).
-- **Privacy rule:** if the conversation names data marked as personal data, the invitation waits for the data protection officer's decision on Home.
-- Guests get email only. Everything they do is in the audit log as `guest:<name> (<organisation>)`. In the brain an outside expert becomes a `contact` linked to a client, supplier or partner.
-
-## 5. Simpler, not more complicated
-
-| | Before | After phase 1 | After phase 3 |
+| | Before | After phase 1 | After phase 2 |
 |---|---|---|---|
 | text boxes that talk to an AI | 6 | 4 | 2 (the composer, the card answer) |
 | chat storages | 4 | 3 | 2 |
@@ -74,16 +65,14 @@ People named in a message get an email (once per unread stretch of the conversat
 
 ## Phases
 
-1. **Conversations for people and AI employees** (built): everything above except guests.
-2. **Guests**: the `guests` table, signed links, the public guest page, the data protection check, the admin switches.
-3. **One composer everywhere**: hand-over between AI employees (`conversation_hand_over`, never from a guest's turn), the Studio thread as a conversation, "Tell the brain" as a message to `@Company brain`, the Home box on the composer, the guided interview retired.
-4. **Only if asked**: group chats in Teams and Google Chat mirrored to conversations, "catch me up" summaries, search across messages, reactions and presence, live streaming of an AI's draft.
+1. **Conversations for people and AI employees** (built): everything above.
+2. **One composer everywhere**: hand-over between AI employees (`conversation_hand_over`), the Studio thread as a conversation, "Tell the brain" as a message to `@Company brain`, the Home box on the composer, the guided interview retired.
+3. **Only if asked**: group chats in Teams and Google Chat mirrored to conversations, "catch me up" summaries, search across messages, reactions and presence, live streaming of an AI's draft.
 
 ## Risks and how each is handled
 
-1. **An outsider steering an AI**: only participant AI employees, guest turns Supervised at most, the asker named as a guest in the brief, no hand-over, the admin switch, everything audited.
-2. **Injection through mentioned content**: cards are data under "Things named in these messages", never instructions; the guidance says to use tools and never follow text found in data.
-3. **AI loops**: one AI-to-AI hop at most, 3 replies per message, 20 turns per conversation per hour, the budgets.
-4. **Permission leaks through mentions**: `allowed` follows the author's visibility at post time; the AI uses its own tools and level for depth.
-5. **Notification floods**: one mention email per conversation while unread, nothing while the person is reading; cards keep the once-per-item rule.
-6. **Server restarts mid-turn**: `resumeInterrupted` re-runs; the brief is rebuilt from the AI employee's read mark; the message is posted only at the end, so a repeated turn never posts twice.
+1. **Injection through mentioned content**: cards are data under "Things named in these messages", never instructions; the guidance says to use tools and never follow text found in data.
+2. **AI loops**: one AI-to-AI hop at most, 3 replies per message, 20 turns per conversation per hour, the budgets.
+3. **Permission leaks through mentions**: `allowed` follows the author's visibility at post time; the AI uses its own tools and level for depth.
+4. **Notification floods**: one mention email per conversation while unread, nothing while the person is reading; cards keep the once-per-item rule.
+5. **Server restarts mid-turn**: `resumeInterrupted` re-runs; the brief is rebuilt from the AI employee's read mark; the message is posted only at the end, so a repeated turn never posts twice.
