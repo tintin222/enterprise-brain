@@ -1,12 +1,13 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { understandNeed, type NeedMaterials, type UnderstoodNeed } from "@enterprise-brain/builder";
-import { describeDuties, describeRepeat, NEED_KINDS, RepeatSchedule } from "@enterprise-brain/core";
+import { describeDuties, describeRepeat, namesOnly, NEED_KINDS, RepeatSchedule } from "@enterprise-brain/core";
 import type { RecurringWorkView } from "@enterprise-brain/runtime";
 import { buildsFor, canChangeBuilt, rulesOf } from "../auth/building.ts";
 import { actorOf, canManageDepartment, canSeeDepartment, viewerOf, type Viewer } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf } from "../http.ts";
+import { checkMentions } from "../mentions.ts";
 import { canUseApp } from "./apps.ts";
 import { canSeeTable } from "./tables.ts";
 
@@ -65,9 +66,13 @@ export async function needRoutes(app: FastifyInstance, ctx: AppContext) {
   app.post("/api/companies/:company/needs", async (request) => {
     const company = await companyOf(platform, request);
     const viewer = viewerOf(request);
-    const body = z.object({ text: z.string().trim().min(3).max(4000), as: z.enum(NEED_KINDS).optional() }).parse(request.body);
+    const body = z.object({ text: z.string().trim().min(3).max(8000), as: z.enum(NEED_KINDS).optional() }).parse(request.body);
     const found = await materialsOf(viewer, company.id);
     const workers = found.agents.filter((a) => a.row.status === "active" || a.row.status === "testing");
+    // An AI employee named with "@" (one the person may see) is the one meant; the words are read without the tokens.
+    const mentions = await checkMentions(platform, viewer, company.id, body.text);
+    const namedIds = new Set(mentions.filter((m) => m.allowed && m.kind === "ai_employee").map((m) => m.id));
+    const named = workers.filter((a) => namedIds.has(a.row.id));
     const materials: NeedMaterials = {
       agents: workers.map((a) => ({
         slug: a.row.slug,
@@ -79,7 +84,12 @@ export async function needRoutes(app: FastifyInstance, ctx: AppContext) {
       apps: found.apps.map((a) => ({ key: a.key, name: a.name })),
       calculations: found.calculations.map((c) => ({ key: c.key, name: c.name, rule: c.rule })),
     };
-    const need = await understandNeed(platform.llm, { text: body.text, ...(body.as ? { as: body.as } : {}), materials });
+    const need = await understandNeed(platform.llm, {
+      text: namesOnly(body.text),
+      ...(body.as ? { as: body.as } : {}),
+      materials,
+      ...(named.length === 1 ? { named: named[0]!.row.slug } : {}),
+    });
     const agent = need.agent ? workers.find((a) => a.row.slug === need.agent) : undefined;
     const rules = rulesOf(company);
     // "File the complaints emailed to quality@ into the register": the table it would fill (an app's first table).

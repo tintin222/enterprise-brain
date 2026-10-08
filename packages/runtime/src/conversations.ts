@@ -41,6 +41,8 @@ export type ConversationEvent =
   | { type: "message"; message: MessageRow }
   | { type: "working"; actor: Actor; on: boolean }
   | { type: "card"; message: MessageRow; entry: QueueEntry }
+  /** A message changed in place (a card kept or put aside). */
+  | { type: "updated"; message: MessageRow }
   | { type: "participants"; participants: ParticipantRow[] };
 
 export interface ConversationWithParticipants {
@@ -121,6 +123,17 @@ export function canReadConversation(conversation: ConversationRow, participants:
 
 export function participantActor(p: Pick<ParticipantRow, "actorKind" | "actorId" | "actorName">): Actor {
   return { kind: p.actorKind as Actor["kind"], id: p.actorId, name: p.actorName };
+}
+
+/** What an AI employee reads after a person's name when the message wanted no answer from it. */
+function intentNote(message: Pick<MessageRow, "data">): string {
+  if (message.data.intent === "teach") return " (taught the company brain; nothing to answer)";
+  if (message.data.intent === "work") {
+    const to = message.data.to as { name?: string } | undefined;
+    const task = message.data.task as { ref?: string } | undefined;
+    return ` (gave this${to?.name ? ` to ${to.name}` : ""} as work${task?.ref ? `, task ${task.ref}` : ""}; nothing to answer)`;
+  }
+  return "";
 }
 
 export function agentActor(agent: AgentRecord): Actor {
@@ -596,8 +609,35 @@ export class ConversationService {
 
   /** A work-queue item as a card in the conversation it belongs to (once per item). */
   async postCard(companyId: string, conversationId: string, entry: QueueEntry): Promise<MessageRow | undefined> {
+    const author: Actor = entry.agent ? { kind: "ai_employee", id: entry.agent.id, name: entry.agent.name } : SYSTEM_ACTOR;
+    return this.insertCard(companyId, conversationId, { author, card: { type: entry.type, id: entry.id } });
+  }
+
+  /**
+   * A card that is not a work-queue item: what it shows lives in the message's `data` (what the brain
+   * understood from a person's words, say). Once per type and id; `text` is how lists show it.
+   */
+  async postDataCard(
+    companyId: string,
+    conversationId: string,
+    input: { author: Actor; type: string; id: string; text: string; data: Record<string, unknown>; replyToId?: string | null },
+  ): Promise<MessageRow | undefined> {
+    return this.insertCard(companyId, conversationId, {
+      author: input.author,
+      card: { type: input.type, id: input.id },
+      text: input.text,
+      data: input.data,
+      replyToId: input.replyToId ?? null,
+    });
+  }
+
+  private async insertCard(
+    companyId: string,
+    conversationId: string,
+    input: { author: Actor; card: { type: string; id: string }; text?: string; data?: Record<string, unknown>; replyToId?: string | null },
+  ): Promise<MessageRow | undefined> {
     return this.serialized(conversationId, async () => {
-      const cardKey = `${entry.type}:${entry.id}`;
+      const cardKey = `${input.card.type}:${input.card.id}`;
       const [existing] = await this.db
         .select()
         .from(conversationMessages)
@@ -607,7 +647,6 @@ export class ConversationService {
       if (!found) return undefined;
       const seq = found.conversation.lastSeq + 1;
       const now = new Date();
-      const author: Actor = entry.agent ? { kind: "ai_employee", id: entry.agent.id, name: entry.agent.name } : SYSTEM_ACTOR;
       const [message] = await this.db
         .insert(conversationMessages)
         .values({
@@ -615,18 +654,42 @@ export class ConversationService {
           conversationId,
           seq,
           kind: "card",
-          author,
-          authorKind: author.kind,
-          authorId: author.id,
-          text: "",
-          card: { type: entry.type, id: entry.id },
+          author: input.author,
+          authorKind: input.author.kind,
+          authorId: input.author.id,
+          text: input.text ?? "",
+          card: input.card,
           cardKey,
+          replyToId: input.replyToId ?? null,
+          data: input.data ?? {},
           createdAt: now,
         })
         .returning();
       await this.db.update(conversations).set({ lastSeq: seq, lastMessageAt: now, updatedAt: now }).where(eq(conversations.id, conversationId));
       this.publish(conversationId, { type: "message", message: message! });
       return message!;
+    });
+  }
+
+  /**
+   * Change a message's data in place (a card kept or put aside): one change at a time per conversation,
+   * and the open pages hear it. `change` returns the new data, or nothing to leave it as it is; it must
+   * not post to the same conversation (that would wait for itself).
+   */
+  async changeMessage(
+    companyId: string,
+    messageId: string,
+    change: (message: MessageRow) => Promise<Record<string, unknown> | undefined>,
+  ): Promise<MessageRow> {
+    const first = await this.message(companyId, messageId);
+    if (!first) throw new ConversationError("There is no such message", 404);
+    return this.serialized(first.conversationId, async () => {
+      const current = (await this.message(companyId, messageId)) ?? first;
+      const data = await change(current);
+      if (!data) return current;
+      const [updated] = await this.db.update(conversationMessages).set({ data }).where(eq(conversationMessages.id, messageId)).returning();
+      this.publish(current.conversationId, { type: "updated", message: updated! });
+      return updated!;
     });
   }
 
@@ -659,7 +722,8 @@ export class ConversationService {
 
   /** A message naming things of the brain goes on their timelines (and a thing's own conversation always does). */
   private async recordInBrain(companyId: string, conversation: ConversationRow, message: MessageRow): Promise<void> {
-    if (!this.deps.brain || message.kind === "card" || !message.text.trim()) return;
+    // What a person teaches the brain becomes know-how when they keep it, not a message on timelines.
+    if (!this.deps.brain || message.kind === "card" || !message.text.trim() || message.data.intent === "teach") return;
     const things = new Set(message.mentions.filter((m) => m.allowed && m.kind === "thing").map((m) => m.id));
     if (conversation.kind === "thing" && conversation.aboutId) things.add(conversation.aboutId);
     if (!things.size) return;
@@ -749,7 +813,7 @@ export class ConversationService {
     let used = 0;
     const lines: string[] = [];
     for (const m of fresh) {
-      const who = m.author.kind === "system" ? "Enterprise Brain" : m.author.name;
+      const who = `${m.author.kind === "system" ? "Enterprise Brain" : m.author.name}${intentNote(m)}`;
       const text = truncate(m.text, 2000);
       const line = `[#${m.seq}] ${who}: ${m.kind === "system" ? `(${text})` : text}${m.fileIds.length ? ` [files: ${m.fileIds.join(", ")}]` : ""}`;
       used += line.length;
@@ -768,6 +832,7 @@ export class ConversationService {
   async mirrorTaskEvent(companyId: string, task: TaskRow, event: { type: string; message: string; actor: string; runId: string | null }): Promise<void> {
     const kinds = new Set(["note", "done", "failed", "waiting", "stopped", "paused", "resumed", "blocked"]);
     if (!kinds.has(event.type)) return;
+    if ((event.type === "done" || event.type === "failed") && task.source === "chat" && task.sourceRef) await this.tellWhereGiven(companyId, task, event);
     const { conversation } = await this.forTask(companyId, task);
     if (event.type === "note" || event.type === "done") {
       // Its notes and its outcome are its own words in the conversation.
@@ -778,6 +843,15 @@ export class ConversationService {
       return;
     }
     await this.postSystem(companyId, conversation.id, event.message, { taskEvent: event.type });
+  }
+
+  /** Work given in a conversation ("Give as work"): the conversation hears when its task ends. */
+  private async tellWhereGiven(companyId: string, task: TaskRow, event: { type: string; message: string }): Promise<void> {
+    const where = await this.find(companyId, task.sourceRef!).catch(() => undefined);
+    if (!where) return;
+    const outcome = event.message.replace(/^(Done|Failed):\s*/, "");
+    const line = event.type === "done" ? `${task.ref} is done: ${outcome}` : `${task.ref} failed: ${outcome}`;
+    await this.postSystem(companyId, where.conversation.id, truncate(line, 600), { task: { id: task.id, ref: task.ref }, taskEvent: event.type });
   }
 
   /** Did a run already leave a message here (its outcome, mirrored from the task)? */

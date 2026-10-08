@@ -1,14 +1,16 @@
-import type { BrainService } from "@enterprise-brain/brain";
-import { actorString, isRecord, plainText, truncate, type Actor } from "@enterprise-brain/core";
+import { proposeLearning, type BrainService } from "@enterprise-brain/brain";
+import { SYSTEM_ACTOR, actorString, isRecord, mentionToken, namesOnly, plainText, truncate, type Actor } from "@enterprise-brain/core";
 import type { KnowledgeService } from "@enterprise-brain/knowledge";
 import type { LlmClient } from "@enterprise-brain/llm";
 import type { AgentRecord, AgentService } from "./agents.ts";
+import { COMPANY_BRAIN_SLUG } from "./company-brain.ts";
 import { agentActor, participantActor, type ConversationRow, type ConversationService, type MessageRow, type ParticipantRow } from "./conversations.ts";
 import { BudgetError, RunError, type RunEngine } from "./engine.ts";
 import type { MentionCards } from "./mentions.ts";
 import { offlineAnswer } from "./offline-answer.ts";
 import type { PeopleService } from "./people.ts";
 import type { QueueEntry } from "./queue.ts";
+import type { ConversationScope } from "./run-types.ts";
 import type { TaskService } from "./tasks.ts";
 
 export interface TurnPlannerDeps {
@@ -49,15 +51,27 @@ export class TurnPlanner {
   private readonly pending = new Map<string, TurnInput>();
   private readonly recent = new Map<string, number[]>();
   private readonly pausedUntil = new Map<string, number>();
+  private colleaguesOf?: (companyId: string, person: Actor) => Promise<AgentRecord[]>;
 
   constructor(private readonly deps: TurnPlannerDeps) {
     deps.conversations.onMessage((conversation, message, participants) => this.afterMessage(conversation, message, participants));
     deps.conversations.onCardResolved((conversation, message, entry, by) => this.afterCard(conversation, message, entry, by));
   }
 
+  /**
+   * How to find the AI employees a person may see (the server knows departments and the open ones). An AI
+   * employee hands a matter over only to those; without it, nothing is handed over.
+   */
+  useColleagues(find: (companyId: string, person: Actor) => Promise<AgentRecord[]>): void {
+    this.colleaguesOf = find;
+  }
+
   /** A message was posted: pick the AI employees that answer, and run their turns. */
   async afterMessage(conversation: ConversationRow, message: MessageRow, participants: ParticipantRow[]): Promise<void> {
     if (message.kind !== "text" || message.author.kind === "system") return;
+    // Taught to the brain: it says what it understood, as a card. Given as work: the task does it.
+    if (message.data.intent === "teach") return this.track(`learn:${message.id}`, this.learnTurn(conversation, message));
+    if (message.data.intent) return;
     const named = message.mentions.filter((m) => m.allowed && m.kind === "ai_employee").map((m) => m.id);
     const namedPeople = message.mentions.some((m) => m.allowed && m.kind === "person");
     let targets: string[] = [];
@@ -68,19 +82,31 @@ export class TurnPlanner {
       if (Number(message.data.hop ?? 0) > 0 || typeof message.data.answersSeq !== "number") return;
       const origin = await this.deps.conversations.messageAt(conversation.companyId, conversation.id, message.data.answersSeq);
       if (!origin || origin.author.kind === "ai_employee") return;
+      // A hand-over: the colleague answers the person's message, once (its reply is the last hop).
+      const handOver = message.data.handOver as { to?: { id?: string }; reason?: string } | undefined;
+      if (handOver?.to?.id) {
+        const colleague = origin.author.kind === "person" ? await this.deps.agents.find(conversation.companyId, handOver.to.id) : undefined;
+        if (colleague) {
+          const decision = `${message.author.name} handed you ${origin.author.name}'s message #${origin.seq}: “${truncate(plainText(origin.text), 600)}”${handOver.reason ? `. Why: ${handOver.reason}` : ""}`;
+          void this.schedule(conversation, colleague, { answersSeq: origin.seq, hop: 1, actor: actorString(origin.author as Actor), decision });
+        }
+        return;
+      }
       const both = new Set(origin.mentions.filter((m) => m.allowed && m.kind === "ai_employee").map((m) => m.id));
       targets = named.filter((id) => both.has(id) && id !== message.author.id);
       hop = 1;
     } else {
       targets = named;
       if (!targets.length && !namedPeople) {
-        if (conversation.kind === "ai_employee" && conversation.aboutId) targets = [conversation.aboutId];
+        // A reply goes to the AI employee replied to (in a talk too: one that was handed the matter);
+        // otherwise to the AI employee the talk or the task is about.
+        const replied =
+          message.replyToId && conversation.kind !== "task" ? await this.deps.conversations.message(conversation.companyId, message.replyToId) : undefined;
+        if (replied?.author.kind === "ai_employee") targets = [replied.author.id];
+        else if (conversation.kind === "ai_employee" && conversation.aboutId) targets = [conversation.aboutId];
         else if (conversation.kind === "task" && conversation.aboutId) {
           const task = await this.deps.tasks.byId(conversation.aboutId);
           if (task) targets = [task.agentId];
-        } else if (message.replyToId) {
-          const replied = await this.deps.conversations.message(conversation.companyId, message.replyToId);
-          if (replied?.author.kind === "ai_employee") targets = [replied.author.id];
         }
       }
     }
@@ -131,6 +157,13 @@ export class TurnPlanner {
     await run;
   }
 
+  /** Work that is not a turn of the queue (reading what was taught), kept until done so `idle` waits for it. */
+  private track(key: string, work: Promise<void>): Promise<void> {
+    const run = work.catch((error) => console.error("[conversations] turn:", error)).finally(() => this.running.delete(key));
+    this.running.set(key, run);
+    return run;
+  }
+
   /** Resolves once the turns under way are done, or after the given time (a model call can be long). */
   async idle(timeoutMs = 5_000): Promise<void> {
     if (!this.running.size) return;
@@ -151,17 +184,22 @@ export class TurnPlanner {
     return false;
   }
 
+  /** Too many AI turns here this hour: say so once, and do nothing more for an hour. */
+  private async paused(conversation: ConversationRow): Promise<boolean> {
+    if (!this.tooMany(conversation.id)) return false;
+    const paused = this.pausedUntil.get(conversation.id) ?? 0;
+    if (paused > Date.now() - 1000)
+      await this.deps.conversations.postSystem(conversation.companyId, conversation.id, "AI employees paused here for an hour: too many replies in a row.", {
+        paused: true,
+      });
+    return true;
+  }
+
   private async turn(conversation: ConversationRow, agent: AgentRecord, turn: TurnInput): Promise<void> {
     const { companyId } = conversation;
     const ai = agentActor(agent);
-    if (this.tooMany(conversation.id)) {
-      const paused = this.pausedUntil.get(conversation.id) ?? 0;
-      if (paused > Date.now() - 1000)
-        await this.deps.conversations.postSystem(companyId, conversation.id, "AI employees paused here for an hour: too many replies in a row.", {
-          paused: true,
-        });
-      return;
-    }
+    if (conversation.status !== "open") return;
+    if (await this.paused(conversation)) return;
     this.deps.conversations.publish(conversation.id, { type: "working", actor: ai, on: true });
     try {
       if (conversation.kind === "task" && conversation.aboutId) await this.taskTurn(conversation, agent, turn);
@@ -176,6 +214,53 @@ export class TurnPlanner {
       }
     } finally {
       this.deps.conversations.publish(conversation.id, { type: "working", actor: ai, on: false });
+    }
+  }
+
+  /**
+   * "Teach the brain": the company brain reads what a person told it and says, as a card, what it would
+   * add or change; the person keeps what is right. Without a model the words are kept as know-how.
+   */
+  private async learnTurn(conversation: ConversationRow, message: MessageRow): Promise<void> {
+    const { companyId } = conversation;
+    const brain = this.deps.brain;
+    if (!brain || conversation.status !== "open") return;
+    const agent = await this.deps.agents.find(companyId, COMPANY_BRAIN_SLUG);
+    const author: Actor = agent ? agentActor(agent) : SYSTEM_ACTOR;
+    if (await this.paused(conversation)) return;
+    this.deps.conversations.publish(conversation.id, { type: "working", actor: author, on: true });
+    try {
+      // What the conversation is about is what they look at; the things they named with "@" come along.
+      const named = message.mentions.filter((m) => m.allowed && m.kind === "thing").map((m) => ({ id: m.id, name: m.name }));
+      const about = conversation.kind === "thing" && conversation.aboutId ? conversation.aboutId : undefined;
+      const words = namesOnly(message.text);
+      const proposal = await proposeLearning(brain, this.deps.llm, companyId, words, about, { named }).catch((error: unknown) => {
+        console.error("[conversations] learning:", error);
+        return proposeLearning(brain, this.deps.llm, companyId, words, about, { named, offline: true });
+      });
+      await this.deps.conversations.postDataCard(companyId, conversation.id, {
+        author,
+        type: "learning",
+        id: message.id,
+        text: proposal.understood || "What the company brain understood",
+        replyToId: message.id,
+        data: {
+          learning: {
+            by: message.author,
+            forSeq: message.seq,
+            about: about ?? null,
+            understood: proposal.understood,
+            offline: proposal.offline,
+            changes: proposal.changes,
+            status: "open",
+          },
+        },
+      });
+    } catch (error) {
+      const text = error instanceof Error ? error.message : String(error);
+      await this.deps.conversations.postSystem(companyId, conversation.id, `The company brain couldn't read that: ${truncate(text, 300)}`, { error: true });
+    } finally {
+      this.deps.conversations.publish(conversation.id, { type: "working", actor: author, on: false });
     }
   }
 
@@ -201,6 +286,7 @@ export class TurnPlanner {
       return;
     }
     const brief = await this.brief(conversation, participants, ai, unread, turn);
+    const colleagues = await this.colleaguesFor(conversation, agent, turn);
     const run = await this.deps.engine.start(
       companyId,
       agent.row.id,
@@ -215,6 +301,7 @@ export class TurnPlanner {
           id: conversation.id,
           upToSeq: unread.upToSeq,
           participants: participants.filter((p) => p.actorKind !== "ai_employee").map((p) => ({ kind: p.actorKind, id: p.actorId, name: p.actorName })),
+          ...(colleagues.length ? { colleagues } : {}),
         },
       },
     );
@@ -226,6 +313,8 @@ export class TurnPlanner {
       });
       return;
     }
+    const handOver = handOverOf(run.output);
+    if (handOver) return this.handOver(conversation, agent, turn, handOver, run.id);
     const text = outputTextOf(run.output);
     if (!text) return;
     await this.deps.conversations.post(companyId, conversation.id, {
@@ -233,6 +322,52 @@ export class TurnPlanner {
       text,
       runId: run.id,
       data: { answersSeq: turn.answersSeq, hop: turn.hop },
+    });
+  }
+
+  /**
+   * Who it may hand the matter to: only on a turn answering a person's message (not a hop, not a decision),
+   * AI employees at work or on trial that this person may see, other than itself and those the message named.
+   */
+  private async colleaguesFor(conversation: ConversationRow, agent: AgentRecord, turn: TurnInput): Promise<NonNullable<ConversationScope["colleagues"]>> {
+    if (!this.colleaguesOf || turn.hop !== 0 || turn.decision) return [];
+    const origin = await this.deps.conversations.messageAt(conversation.companyId, conversation.id, turn.answersSeq);
+    if (!origin || origin.author.kind !== "person") return [];
+    const named = new Set(origin.mentions.filter((m) => m.allowed && m.kind === "ai_employee").map((m) => m.id));
+    const sameDepartment = (a: AgentRecord) => Number(a.row.departmentId === agent.row.departmentId);
+    return (await this.colleaguesOf(conversation.companyId, origin.author as Actor))
+      .filter((a) => a.row.id !== agent.row.id && !named.has(a.row.id))
+      .sort((a, b) => sameDepartment(b) - sameDepartment(a) || a.definition.name.localeCompare(b.definition.name))
+      .slice(0, 25)
+      .map((a) => ({ id: a.row.id, slug: a.row.slug, name: a.definition.name, title: a.definition.title ?? "", summary: a.definition.summary ?? "" }));
+  }
+
+  /** The AI employee passed the matter on: the colleague joins, and its message says to whom and why (the colleague answers next). */
+  private async handOver(
+    conversation: ConversationRow,
+    from: AgentRecord,
+    turn: TurnInput,
+    handOver: { to: { id: string }; reason: string },
+    runId: string,
+  ): Promise<void> {
+    const { companyId } = conversation;
+    const colleague = await this.deps.agents.find(companyId, handOver.to.id);
+    if (!colleague || (colleague.row.status !== "active" && colleague.row.status !== "testing")) {
+      await this.deps.conversations.postSystem(
+        companyId,
+        conversation.id,
+        `${from.definition.name} wanted to hand this over, but ${colleague?.definition.name ?? "that AI employee"} is not at work.`,
+        { error: true, runId },
+      );
+      return;
+    }
+    const to = agentActor(colleague);
+    await this.deps.conversations.addParticipant(companyId, conversation.id, to, { invitedBy: agentActor(from) });
+    await this.deps.conversations.post(companyId, conversation.id, {
+      author: agentActor(from),
+      text: `Handing this over to ${mentionToken({ kind: "ai_employee", id: to.id, name: to.name })}: ${handOver.reason || "it is theirs to answer."}`,
+      runId,
+      data: { answersSeq: turn.answersSeq, hop: 0, handOver: { to, reason: handOver.reason } },
     });
   }
 
@@ -319,6 +454,13 @@ interface TurnInput {
   actor: string;
   /** A decision or answer that caused the turn, in words. */
   decision?: string;
+}
+
+/** The colleague a run handed the matter to (conversation_hand_over), if it did. */
+function handOverOf(output: unknown): { to: { id: string }; reason: string } | undefined {
+  if (!isRecord(output) || !isRecord(output.handOver) || !isRecord(output.handOver.to)) return undefined;
+  const id = output.handOver.to.id;
+  return typeof id === "string" ? { to: { id }, reason: typeof output.handOver.reason === "string" ? output.handOver.reason : "" } : undefined;
 }
 
 /** The text a run ends with (its final step's `text`), or nothing. */

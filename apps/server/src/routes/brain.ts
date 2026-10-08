@@ -11,7 +11,7 @@ import {
   brainKind,
   type BrainImage,
 } from "@enterprise-brain/core";
-import { actorOf, requireAnyManager, viewerOf, type Viewer } from "../auth/viewer.ts";
+import { actorOf, canShapeBrain, requireAnyManager, viewerOf, type Viewer } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf } from "../http.ts";
 
@@ -23,7 +23,7 @@ export async function brainRoutes(app: FastifyInstance, ctx: AppContext) {
   const { platform } = ctx;
   const base = "/api/companies/:company/brain";
 
-  const editor = (viewer: Viewer) => viewer.isAdmin || viewer.departments.some((d) => d.role === "manager");
+  const editor = canShapeBrain;
   const requireEditor = (request: FastifyRequest): Viewer => {
     const viewer = viewerOf(request);
     if (!editor(viewer)) throw new HttpError(403, "Only a manager or an admin can change this; you can add know-how and notes");

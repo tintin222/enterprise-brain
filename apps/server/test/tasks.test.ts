@@ -69,6 +69,28 @@ describe("tasks over the API", () => {
     expect(list.find((row) => row.ref === task.ref)?.agent.name).toBe("Collections Agent");
   });
 
+  it("gives work to the AI employee the words name with @, with the files that came along", async () => {
+    const elif = await as("elif.arslan@acme.com.tr");
+    const company = (await t.platform.company("acme"))!;
+    const collections = await t.platform.agents.get(company.id, assistant);
+    const po = await t.platform.agents.get(company.id, chaser);
+    const file = await t.platform.files.put(company.id, { name: "aging.csv", data: Buffer.from("invoice,days\nINV-1,75\n"), mimeType: "text/csv" });
+    const given = await post(elif, "/api/companies/acme/tasks", {
+      text: `@[Collections Agent](ai_employee:${collections.row.id}) list the invoices overdue more than 60 days`,
+      fileIds: [file.id],
+      wait: true,
+    });
+    expect(given.statusCode, given.body).toBe(200);
+    const { task } = given.json();
+    expect(task).toMatchObject({ agentId: collections.row.id, title: "List the invoices overdue more than 60 days", source: "request" });
+    expect(task.input.request).toContain("List the invoices overdue more than 60 days");
+    expect(task.input.request).toContain(`aging.csv (file id: ${file.id})`);
+    const both = `@[Collections Agent](ai_employee:${collections.row.id}) and @[PO Chaser](ai_employee:${po.row.id}) do it`;
+    expect((await post(elif, "/api/companies/acme/tasks", { text: both })).statusCode).toBe(400);
+    expect((await post(elif, "/api/companies/acme/tasks", { text: "Do the thing please" })).statusCode).toBe(400);
+    expect((await post(elif, "/api/companies/acme/tasks", { agent: assistant, text: "Read it", fileIds: ["not-a-file"] })).statusCode).toBe(400);
+  });
+
   it("keeps other departments' tasks out of sight", async () => {
     const ayse = await as("ayse.yilmaz@acme.com.tr");
     const [task] = (await get(await as("burak.sahin@acme.com.tr"), "/api/companies/acme/tasks")).json() as { ref: string }[];

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { ArrowDown, ArrowLeft, CornerUpLeft, ExternalLink, MessagesSquare, Reply, UserPlus } from "lucide-react";
+import { ArrowDown, ArrowLeft, Briefcase, CornerUpLeft, ExternalLink, Lightbulb, MessagesSquare, Reply, UserPlus } from "lucide-react";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api, fileUrl, subscribe } from "../../api.ts";
@@ -19,7 +19,8 @@ import { Markdown } from "../Markdown.tsx";
 import { ErrorState, Spinner } from "../Spinner.tsx";
 import { WorkItemCard } from "../WorkItemCard.tsx";
 import { ActorAvatar } from "./Actors.tsx";
-import { Composer, type ComposerSend } from "./Composer.tsx";
+import { Composer, type ComposerIntent, type ComposerSend } from "./Composer.tsx";
+import { LearningCard } from "./LearningCard.tsx";
 import { useMentionHits } from "./MentionPicker.tsx";
 
 const PAGE = 50;
@@ -68,16 +69,41 @@ function AuthorLine({ message, extra }: { message: Message; extra?: ReactNode })
   );
 }
 
+/** Under a message given as work or taught to the brain: what became of it. */
+function IntentFooter({ message }: { message: Message }) {
+  const data = message.data ?? {};
+  if (data.intent === "teach") {
+    return (
+      <p className="mt-1 flex items-center gap-1 text-[11px] text-muted">
+        <Lightbulb className="size-3" /> Taught the company brain
+      </p>
+    );
+  }
+  const task = data.intent === "work" ? (data.task as { ref?: string } | undefined) : undefined;
+  if (!task?.ref) return null;
+  const to = data.to as Actor | undefined;
+  return (
+    <Link
+      to={`/work/${encodeURIComponent(task.ref)}`}
+      className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300"
+    >
+      <Briefcase className="size-3" /> Given{to ? ` to ${to.name}` : ""} as {task.ref}
+    </Link>
+  );
+}
+
 function MessageRow({
   message,
   previous,
   replyTo,
   onReply,
+  onChanged,
 }: {
   message: Message;
   previous?: Message;
   replyTo?: Message;
   onReply?: (message: Message) => void;
+  onChanged: (message: Message) => void;
 }) {
   const { company } = useCompany();
   if (message.kind === "system") {
@@ -99,7 +125,9 @@ function MessageRow({
           <ActorAvatar actor={message.author} />
           <div className="min-w-0 max-w-2xl flex-1">
             <AuthorLine message={message} />
-            {message.card ? (
+            {message.card?.type === "learning" ? (
+              <LearningCard message={message} card={message.card} onChanged={onChanged} />
+            ) : message.card ? (
               <WorkItemCard entry={message.card} showAgent={false} />
             ) : (
               <p className="rounded-xl border border-dashed border-line px-4 py-3 text-sm text-muted">This item is no longer there.</p>
@@ -157,6 +185,7 @@ function MessageRow({
               ))}
             </div>
           )}
+          <IntentFooter message={message} />
         </div>
       </div>
       {onReply && (
@@ -255,6 +284,8 @@ export interface ConversationViewProps {
   /** Sent once when the view opens (a question typed elsewhere). */
   initialText?: string;
   onSentInitial?: () => void;
+  /** Open the composer ready to give work or to teach the brain (where offered). */
+  initialIntent?: ComposerIntent;
 }
 
 /**
@@ -271,6 +302,7 @@ export function ConversationView({
   suggestions = [],
   initialText,
   onSentInitial,
+  initialIntent,
 }: ConversationViewProps) {
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
@@ -306,6 +338,8 @@ export function ConversationView({
         apply(message);
         if (event === "card") void queryClient.invalidateQueries({ queryKey: keys.work(company) });
         invalidateLists();
+      } else if (event === "updated") {
+        apply((data as { message: Message }).message);
       } else if (event === "working") {
         const { actor, on } = data as { actor: Actor; on: boolean };
         setWorking((current) => {
@@ -334,7 +368,7 @@ export function ConversationView({
       if (closed) return;
       stop = subscribe(
         path(`/conversations/${encodeURIComponent(id)}/stream?after=${lastSeqRef.current}`),
-        ["message", "card", "working", "participants"],
+        ["message", "card", "updated", "working", "participants"],
         (event, data) => {
           attempt = 0;
           onEvent(event, data);
@@ -414,6 +448,7 @@ export function ConversationView({
         text: input.text,
         fileIds: input.fileIds,
         replyToId: input.replyToId,
+        ...(input.intent !== "send" ? { intent: input.intent } : {}),
       });
       apply(message);
       scrollToBottom();
@@ -428,7 +463,7 @@ export function ConversationView({
   useEffect(() => {
     if (!initialText?.trim() || sentInitial.current || !view.data || !messages.isSuccess) return;
     sentInitial.current = true;
-    send({ text: initialText.trim(), fileIds: [], replyToId: null })
+    send({ text: initialText.trim(), fileIds: [], replyToId: null, intent: "send" })
       .then(() => onSentInitial?.())
       .catch((error) => toast.error(error));
   }, [initialText, view.data, messages.isSuccess, send, onSentInitial, toast]);
@@ -448,7 +483,7 @@ export function ConversationView({
     );
   }
 
-  const { conversation, participants, me, canInvite, about } = view.data;
+  const { conversation, participants, me, canInvite, about, offers } = view.data;
   const meta = KIND_META[conversation.kind];
   const KindIcon = meta.icon;
   const title = conversationTitle(conversation, participants, me ? participantActor(me) : null);
@@ -528,7 +563,7 @@ export function ConversationView({
                   <button
                     key={s}
                     type="button"
-                    onClick={() => void send({ text: s, fileIds: [], replyToId: null }).catch((error) => toast.error(error))}
+                    onClick={() => void send({ text: s, fileIds: [], replyToId: null, intent: "send" }).catch((error) => toast.error(error))}
                     className="rounded-xl border border-line bg-surface px-4 py-3 text-left text-sm text-fg shadow-xs transition-colors hover:border-brand-400 hover:bg-brand-50/50 dark:hover:bg-brand-400/5"
                   >
                     {s}
@@ -557,6 +592,7 @@ export function ConversationView({
                   previous={separator ? undefined : list[i - 1]}
                   replyTo={message.replyToId ? byId.get(message.replyToId) : undefined}
                   onReply={archived ? undefined : setReplyTo}
+                  onChanged={apply}
                 />
               </Fragment>
             );
@@ -596,6 +632,8 @@ export function ConversationView({
             compact={embedded}
             autoFocus={!embedded}
             placeholder={placeholderFor(conversation, participants)}
+            offers={offers}
+            initialIntent={initialIntent}
           />
         )}
       </div>

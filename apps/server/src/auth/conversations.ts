@@ -1,7 +1,8 @@
 import type { Actor } from "@enterprise-brain/core";
-import { canReadConversation, type ConversationRow, type ParticipantRow, type Reader } from "@enterprise-brain/runtime";
+import { canReadConversation, type AgentRecord, type ConversationRow, type ParticipantRow, type Platform, type Reader } from "@enterprise-brain/runtime";
 import { HttpError } from "../http.ts";
-import { canManageDepartment, type Viewer } from "./viewer.ts";
+import type { AuthService } from "./service.ts";
+import { OPEN_VIEWER, canManageDepartment, canSeeDepartment, viewerFromPerson, type Viewer } from "./viewer.ts";
 
 /** How the viewer takes part in conversations: a person by their id; the owner in open mode; machines as the app. */
 export function actorOfViewer(viewer: Viewer): Actor {
@@ -29,4 +30,24 @@ export function canInvite(viewer: Viewer, conversation: ConversationRow, partici
   const me = actorOfViewer(viewer);
   if (participants.some((p) => p.actorKind === me.kind && p.actorId === me.id && p.role === "owner")) return true;
   return Boolean(conversation.departmentId) && canManageDepartment(viewer, conversation.departmentId);
+}
+
+/**
+ * The AI employees a person may see (their departments and the open ones; admins all), at work or on
+ * trial: an AI employee in a conversation hands a matter over only to one of these.
+ */
+export function colleaguesFor(platform: Platform, auth: AuthService) {
+  return async (companyId: string, person: Actor): Promise<AgentRecord[]> => {
+    if (person.kind !== "person") return [];
+    let viewer: Viewer;
+    if (auth.mode === "open" && person.id === "owner") viewer = OPEN_VIEWER;
+    else {
+      const found = await platform.people.get(companyId, person.id).catch(() => undefined);
+      if (!found || found.status !== "active") return [];
+      viewer = viewerFromPerson(found, await auth.openDepartmentIds(companyId));
+    }
+    return (await platform.agents.list(companyId, { includeSystem: true })).filter(
+      (a) => (a.row.status === "active" || a.row.status === "testing") && canSeeDepartment(viewer, a.row.departmentId),
+    );
+  };
 }

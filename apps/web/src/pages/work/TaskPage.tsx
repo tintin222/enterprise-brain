@@ -108,7 +108,7 @@ function Request({ task }: { task: TaskRow }) {
     <Card>
       <CardHeader title="What it was asked" icon={CornerDownLeft} subtitle={`${fromText(task)} · ${formatDateTime(task.createdAt)}`} />
       <div className="space-y-3 px-5 py-4 text-sm">
-        {text && <p className="whitespace-pre-wrap text-fg">{text}</p>}
+        {text && <p className="whitespace-pre-wrap text-fg">{plainText(text)}</p>}
         {email && (
           <div className="rounded-lg border border-line px-3 py-2.5">
             <p className="font-medium text-fg">{String(email.subject ?? "(no subject)")}</p>

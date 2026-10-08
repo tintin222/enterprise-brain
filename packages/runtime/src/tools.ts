@@ -77,8 +77,10 @@ export interface ToolScope {
   dryRun?: boolean;
   /** Model use the tools had (working an old system's screens), counted with the step's. */
   onUsage?: (usage: LlmUsage) => void;
-  /** A turn in a conversation: it may ask a participant. */
+  /** A turn in a conversation: it may ask a participant, or hand the matter to a colleague. */
   conversation?: ConversationScope;
+  /** Set by conversation_hand_over: the colleague the matter goes to, and why. */
+  handOver?: { to: { id: string; name: string }; reason: string };
 }
 
 export interface RuntimeTool {
@@ -409,8 +411,46 @@ export async function buildTools(
   }
   if (scope.task && deps.tasks) tools.push(...taskTools(deps, deps.tasks, scope, scope.task));
   else if (scope.dryRun) tools.push(...practiceTaskTools());
-  else if (scope.conversation && deps.askPerson) tools.push(conversationAskTool(deps, scope, scope.conversation));
+  else if (scope.conversation) {
+    if (deps.askPerson) tools.push(conversationAskTool(deps, scope, scope.conversation));
+    if (scope.conversation.colleagues?.length) tools.push(conversationHandOverTool(scope, scope.conversation.colleagues));
+  }
   return { tools, serverTools, warnings };
+}
+
+/** In a conversation: pass the matter to the colleague AI employee whose job it is; they join and answer. The turn ends with it. */
+function conversationHandOverTool(scope: ToolScope, colleagues: NonNullable<ConversationScope["colleagues"]>): RuntimeTool {
+  const listed = colleagues.slice(0, 25);
+  const line = (c: (typeof listed)[number]) => `${c.name} (${c.id})${c.title ? `, ${c.title}` : ""}${c.summary ? `: ${c.summary.slice(0, 140)}` : ""}`;
+  return {
+    capability: "conversation",
+    kind: "read",
+    definition: {
+      name: "conversation_hand_over",
+      description: `Hand this matter over to a colleague AI employee when it is clearly their job, not yours: they join the conversation and answer it. Use it instead of answering, at most once, and never for what you can answer yourself; then end your turn. Colleagues: ${listed.map(line).join("; ")}.`,
+      inputSchema: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "The colleague's id (or name)" },
+          reason: { type: "string", description: "Why it is theirs, in one short sentence the person reads" },
+        },
+        required: ["to", "reason"],
+      },
+    },
+    async execute(input) {
+      const wanted = String(input.to ?? "").trim();
+      const colleague = listed.find((c) => c.id === wanted || c.slug === wanted || c.name.toLowerCase() === wanted.toLowerCase());
+      if (!colleague)
+        return { content: `Not a colleague you can hand over to. Choose one of: ${listed.map((c) => `${c.name} (${c.id})`).join(", ")}`, isError: true };
+      if (scope.handOver) return { content: `It is already handed over to ${scope.handOver.to.name}. End your turn now.`, isError: true };
+      const reason = String(input.reason ?? "").trim();
+      scope.handOver = { to: { id: colleague.id, name: colleague.name }, reason: reason.slice(0, 300) };
+      return {
+        content: `Handed over to ${colleague.name}: they join the conversation and answer it. End your turn now without answering it yourself.`,
+        stop: true,
+      };
+    },
+  };
 }
 
 /** In a conversation: a question card for a participant (or the AI employee's manager); the turn ends with it. */

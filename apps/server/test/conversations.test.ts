@@ -80,6 +80,10 @@ describe("conversations", () => {
       ...(payload === undefined ? {} : { payload: payload as Record<string, unknown> }),
     });
   const messages = async (who: string, id: string) => (await call(who, "GET", `/conversations/${id}/messages`)).json() as Message[];
+  // The tools each scripted turn was offered, by turn.
+  let followUpTools: string[] = [];
+  let handedTools: string[] = [];
+  let brainTools: { name: string; description: string }[] = [];
   const aiMessages = (list: Message[]) => list.filter((m) => m.kind === "text" && m.author.kind === "ai_employee");
 
   beforeAll(async () => {
@@ -87,7 +91,13 @@ describe("conversations", () => {
       "runtime.agent:invoice-helper.turn": {
         tools: (request, turn, results) => {
           const brief = briefOf(request);
-          if (/approved "Send email/.test(brief)) return { text: "Sent the reminder to ap@customer.example." };
+          if (/pay the supplier/i.test(brief) && turn === 1 && request.tools.some((tool) => tool.name === "conversation_hand_over")) {
+            return { calls: [{ name: "conversation_hand_over", input: { to: clerkId, reason: "Paying suppliers is the Payment Clerk's job." } }] };
+          }
+          if (/approved "Send email/.test(brief)) {
+            followUpTools = request.tools.map((tool) => tool.name);
+            return { text: "Sent the reminder to ap@customer.example." };
+          }
           if (/send the reminder/i.test(brief) && turn === 1) {
             return {
               calls: [{ name: "mail_send", input: { to: "ap@customer.example", subject: "Overdue invoice INV-9", body: "Please pay invoice INV-9." } }],
@@ -101,7 +111,13 @@ describe("conversations", () => {
         },
       },
       "runtime.agent:payment-clerk.turn": {
-        tools: () => ({ text: `I pay once @[Invoice Helper](ai_employee:${helperId}) confirms the amounts.` }),
+        tools: (request) => {
+          if (/handed you/.test(briefOf(request))) {
+            handedTools = request.tools.map((tool) => tool.name);
+            return { text: "On it: I will pay INV-9 to Kaya today." };
+          }
+          return { text: `I pay once @[Invoice Helper](ai_employee:${helperId}) confirms the amounts.` };
+        },
       },
       "runtime.agent:invoice-helper.task": {
         tools: (request) => {
@@ -111,7 +127,10 @@ describe("conversations", () => {
         },
       },
       "runtime.agent:company-brain.turn": {
-        tools: () => ({ text: "Supplier invoices above 250,000 TRY are approved by Burak Şahin in SAP S/4HANA." }),
+        tools: (request) => {
+          brainTools = request.tools.map((tool) => ({ name: tool.name, description: tool.description }));
+          return { text: "Supplier invoices above 250,000 TRY are approved by Burak Şahin in SAP S/4HANA." };
+        },
       },
     });
     t = await createTestApp({ llm, config: ACCOUNTS });
@@ -231,6 +250,9 @@ describe("conversations", () => {
     expect(updated.card?.status).toBe("approved");
     const followUp = await until(async () => (await messages("burak.sahin", topicId)).find((m) => m.text.startsWith("Sent the reminder")), "the follow-up");
     expect(followUp.author.id).toBe(helperId);
+    // A turn after a decision answers it: it hands nothing over.
+    expect(followUpTools).toContain("conversation_ask");
+    expect(followUpTools).not.toContain("conversation_hand_over");
   });
 
   it("keeps a mention plain when its author may not see the asset, and links the ones they may", async () => {
@@ -265,6 +287,8 @@ describe("conversations", () => {
     const answer = await until(async () => aiMessages(await messages("deniz.aydin", id))[0], "the brain's answer");
     expect(answer.text).toContain("Burak Şahin");
     expect(answer.author.name).toBe("Company brain");
+    // It could only hand over to AI employees Deniz may see: not finance's.
+    expect(brainTools.find((tool) => tool.name === "conversation_hand_over")?.description ?? "").not.toContain("Invoice Helper");
     // The same talk opens again.
     expect(((await call("deniz.aydin", "GET", "/conversations/for/ai_employee/company-brain")).json() as ConversationView).conversation.id).toBe(id);
   });
@@ -316,6 +340,81 @@ describe("conversations", () => {
     // The Payment Clerk was named again, by an AI employee answering an AI employee: nobody answers that.
     await new Promise((resolve) => setTimeout(resolve, 1500));
     expect(aiMessages(await messages("burak.sahin", id)).length).toBe(3);
+  });
+
+  it("hands a matter to the colleague AI employee whose job it is, who answers it once", async () => {
+    const started = await call("burak.sahin", "POST", "/conversations", {
+      text: `@[Invoice Helper](ai_employee:${helperId}) please pay the supplier Kaya for INV-9.`,
+    });
+    expect(started.statusCode, started.body).toBe(200);
+    const id = (started.json() as ConversationView).conversation.id;
+    const [handOver, answer] = await until(async () => {
+      const ai = aiMessages(await messages("burak.sahin", id));
+      return ai.length >= 2 ? ai : undefined;
+    }, "the hand-over and the colleague's answer");
+    expect(handOver!.author.id).toBe(helperId);
+    expect(handOver!.text).toBe(`Handing this over to @[Payment Clerk](ai_employee:${clerkId}): Paying suppliers is the Payment Clerk's job.`);
+    expect(handOver!.data).toMatchObject({
+      answersSeq: 1,
+      hop: 0,
+      handOver: { to: { kind: "ai_employee", id: clerkId }, reason: "Paying suppliers is the Payment Clerk's job." },
+    });
+    expect(answer!.author.id).toBe(clerkId);
+    expect(answer!.text).toBe("On it: I will pay INV-9 to Kaya today.");
+    expect(answer!.data).toMatchObject({ answersSeq: 1, hop: 1 });
+    // The colleague answers; it cannot pass the matter on again.
+    expect(handedTools).toContain("conversation_ask");
+    expect(handedTools).not.toContain("conversation_hand_over");
+    const view = (await call("burak.sahin", "GET", `/conversations/${id}`)).json() as { participants: { actorId: string; invitedBy: { id: string } | null }[] };
+    expect(view.participants.find((p) => p.actorId === clerkId)?.invitedBy?.id).toBe(helperId);
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(aiMessages(await messages("burak.sahin", id)).length).toBe(2);
+  });
+
+  it("gives work from a conversation: a task for the AI employee named or talked with, and no answer there", async () => {
+    type View = ConversationView & { offers: { teach: boolean; work: { to: { id: string } | null } | null } };
+    const topic = (await call("burak.sahin", "POST", "/conversations", { title: "Kaya follow-up" })).json() as View;
+    expect(topic.offers).toEqual({ teach: false, work: { to: null } });
+    const id = topic.conversation.id;
+    const given = await call("burak.sahin", "POST", `/conversations/${id}/messages`, {
+      text: `@[Invoice Helper](ai_employee:${helperId}) prepare the reminder for INV-12`,
+      intent: "work",
+    });
+    expect(given.statusCode, given.body).toBe(200);
+    const message = given.json() as Message;
+    expect(message.data).toMatchObject({ intent: "work", to: { id: helperId, name: "Invoice Helper" }, task: { title: "Prepare the reminder for INV-12" } });
+    const ref = (message.data.task as { ref: string }).ref;
+    expect(await t.platform.tasks.get(companyId, ref)).toMatchObject({ source: "chat", sourceRef: id, requestedBy: "Burak Şahin" });
+    // The task does the work; when it ends, the conversation hears it. Nobody answers the message there.
+    const done = await until(async () => (await messages("burak.sahin", id)).find((m) => m.kind === "system" && /is done/.test(m.text)), "the task's end");
+    expect(done.text).toBe(`${ref} is done: Reminder prepared.`);
+    expect(aiMessages(await messages("burak.sahin", id))).toEqual([]);
+    // In a talk with an AI employee, the work is theirs when nobody is named.
+    const talk = (await call("burak.sahin", "GET", `/conversations/for/ai_employee/${helperId}`)).json() as View;
+    expect(talk.offers.work).toMatchObject({ to: { id: helperId } });
+    const inTalk = await call("burak.sahin", "POST", `/conversations/${talk.conversation.id}/messages`, {
+      text: "check INV-13 against its order",
+      intent: "work",
+    });
+    expect(inTalk.statusCode, inTalk.body).toBe(200);
+    expect((inTalk.json() as Message).data).toMatchObject({ intent: "work", to: { id: helperId }, task: { title: "Check INV-13 against its order" } });
+    // Not clear who: two named, or the company brain's talk with nobody named. Never in a task's conversation.
+    const both = `@[Invoice Helper](ai_employee:${helperId}) and @[Payment Clerk](ai_employee:${clerkId}) do it`;
+    expect((await call("burak.sahin", "POST", `/conversations/${id}/messages`, { text: both, intent: "work" })).statusCode).toBe(400);
+    const brain = (await call("burak.sahin", "GET", "/conversations/for/ai_employee/company-brain")).json() as View;
+    expect(brain.offers).toEqual({ teach: true, work: { to: null } });
+    expect(
+      (await call("burak.sahin", "POST", `/conversations/${brain.conversation.id}/messages`, { text: "do it now please", intent: "work" })).statusCode,
+    ).toBe(400);
+    const taskTalk = (await call("burak.sahin", "GET", `/conversations/for/task/${ref}`)).json() as View;
+    expect(taskTalk.offers).toEqual({ teach: false, work: null });
+    expect(
+      (await call("burak.sahin", "POST", `/conversations/${taskTalk.conversation.id}/messages`, { text: "and again please", intent: "work" })).statusCode,
+    ).toBe(400);
+    // The picker says who takes work.
+    const hits = (await call("burak.sahin", "GET", "/mention?kinds=ai_employee")).json() as { name: string; takesWork?: boolean }[];
+    expect(hits.find((h) => h.name === "Invoice Helper")?.takesWork).toBe(true);
+    expect(hits.find((h) => h.name === "Company brain")?.takesWork).toBe(false);
   });
 
   it("emails a person who is named in a conversation they are not reading, once while it is unread", async () => {

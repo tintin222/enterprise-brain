@@ -15,7 +15,6 @@ import {
   Moon,
   PanelLeftClose,
   Search,
-  Send,
   Settings,
   Sun,
   UserPlus,
@@ -30,7 +29,6 @@ import { initials } from "../lib/format.ts";
 import { isTyping, useStoredFlag } from "../lib/preferences.ts";
 import { useChatBadge, useWork } from "../lib/queries.ts";
 import { useTheme } from "../lib/theme.ts";
-import { GiveWorkDialog } from "./GiveWork.tsx";
 import { NotificationsDialog } from "./NotificationSettings.tsx";
 import { Wordmark } from "./Logo.tsx";
 import { FoldButton } from "./SideMenu.tsx";
@@ -78,7 +76,6 @@ function Sidebar({ onNavigate, folded = false, onFold }: { onNavigate?: () => vo
   const { pathname } = useLocation();
   const needsYou = useNeedsYou();
   const newInChat = useChatBadge();
-  const [giving, setGiving] = useState(false);
   const isManager = !viewer || viewer.isAdmin || viewer.departments.some((d) => d.role === "manager");
   return (
     <nav className="flex h-full flex-col" aria-label="Main">
@@ -135,19 +132,6 @@ function Sidebar({ onNavigate, folded = false, onFold }: { onNavigate?: () => vo
         })}
       </ul>
       <div className={clsx("shrink-0 border-t border-line", folded ? "flex flex-col items-center gap-2 p-2" : "space-y-1 p-3")}>
-        <button
-          type="button"
-          onClick={() => setGiving(true)}
-          title="Give work to an AI employee"
-          aria-label={folded ? "Give work" : undefined}
-          className={clsx(
-            "flex items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-brand-600 to-violet-600 text-sm font-medium text-white shadow-sm hover:from-brand-700 hover:to-violet-700",
-            folded ? "size-10" : "w-full px-3 py-2",
-          )}
-        >
-          <Send className="size-4" />
-          {!folded && "Give work"}
-        </button>
         {onFold &&
           (folded ? (
             <FoldButton folded onToggle={onFold} label="the menu ( [ )" />
@@ -165,7 +149,6 @@ function Sidebar({ onNavigate, folded = false, onFold }: { onNavigate?: () => vo
             </button>
           ))}
       </div>
-      <GiveWorkDialog open={giving} onClose={() => setGiving(false)} />
     </nav>
   );
 }

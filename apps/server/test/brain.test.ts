@@ -184,6 +184,62 @@ describe("the company brain", () => {
     expect(linked(knowhow, "From")).toEqual(["Deniz Aydın"]);
   });
 
+  it("is taught in Chat: a card says what it would keep, the teacher keeps it with their own rights, and nobody answers it", async () => {
+    type Card = {
+      type: string;
+      status: string;
+      canKeep: boolean;
+      mayEdit: boolean;
+      offline: boolean;
+      changes: { type: string; name: string; about: { id: string }[] }[];
+      result: { done: string[] } | null;
+    };
+    type Msg = { id: string; kind: string; author: { kind: string; name: string }; text: string; data: Record<string, unknown>; card: Card | null };
+    const process = await thing("Customer complaints and 8D", "process");
+    const client = await thing("Gulf Water", "client");
+    const about = (await call("deniz.aydin", "GET", `/conversations/for/thing/${process.id}`)).json() as {
+      conversation: { id: string };
+      offers: { teach: boolean };
+    };
+    expect(about.offers.teach).toBe(true);
+    const id = about.conversation.id;
+    const text = `@[Gulf Water](thing:${client.id}) always asks for the test certificates in English and Arabic.`;
+    expect((await call("deniz.aydin", "POST", `/conversations/${id}/messages`, { text, intent: "teach", fileIds: ["a-file"] })).statusCode).toBe(400);
+    const taught = await call("deniz.aydin", "POST", `/conversations/${id}/messages`, { text, intent: "teach" });
+    expect(taught.statusCode, taught.body).toBe(200);
+    expect((taught.json() as Msg).data.intent).toBe("teach");
+    const list = async (who: string) => (await call(who, "GET", `/conversations/${id}/messages`)).json() as Msg[];
+    const card = await until(async () => (await list("deniz.aydin")).find((m) => m.card?.type === "learning"), "the learning card");
+    expect(card.author.name).toBe("Company brain");
+    expect(card.card).toMatchObject({ status: "open", canKeep: true, mayEdit: false, offline: true });
+    // Without a model the words are kept as know-how, about the process and what was named.
+    expect(card.card!.changes).toMatchObject([{ type: "knowhow", name: "Gulf Water always asks for the test certificates in English and Arabic." }]);
+    expect(card.card!.changes[0]!.about.map((a) => a.id).sort()).toEqual([process.id, client.id].sort());
+    // Someone else sees it, but only the teacher keeps it.
+    const others = (await list("mehmet.oz")).find((m) => m.id === card.id)!;
+    expect(others.card).toMatchObject({ canKeep: false, mayEdit: true });
+    expect((await call("mehmet.oz", "POST", `/conversations/${id}/messages/${card.id}/learn`, { keep: [0] })).statusCode).toBe(403);
+    const kept = await call("deniz.aydin", "POST", `/conversations/${id}/messages/${card.id}/learn`, { keep: [0] });
+    expect(kept.statusCode, kept.body).toBe(200);
+    expect((kept.json() as Msg).card).toMatchObject({
+      status: "kept",
+      canKeep: false,
+      result: { done: ['Kept know-how "Gulf Water always asks for the test certificates in English and Arabic."'] },
+    });
+    expect((await call("deniz.aydin", "POST", `/conversations/${id}/messages/${card.id}/learn`, { keep: [0] })).statusCode).toBe(409);
+    // Nobody answered the words themselves, and they are no message on the process's timeline.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect((await list("deniz.aydin")).filter((m) => m.kind === "text" && m.author.kind === "ai_employee")).toEqual([]);
+    expect((await thing("Customer complaints and 8D", "process")).events.some((e) => e.kind === "message" && /Deniz/.test(e.title))).toBe(false);
+    // Teaching happens in the brain's talk and in a thing's conversation, not in a topic.
+    const topic = (await call("deniz.aydin", "POST", "/conversations", { title: "Certificates" })).json() as {
+      conversation: { id: string };
+      offers: { teach: boolean };
+    };
+    expect(topic.offers.teach).toBe(false);
+    expect((await call("deniz.aydin", "POST", `/conversations/${topic.conversation.id}/messages`, { text, intent: "teach" })).statusCode).toBe(400);
+  });
+
   it("answers questions from the brain, also without a model", async () => {
     const talk = (await call("deniz.aydin", "GET", "/conversations/for/ai_employee/company-brain")).json() as { conversation: { id: string } };
     const posted = await call("deniz.aydin", "POST", `/conversations/${talk.conversation.id}/messages`, { text: "Who knows the 8D complaint process?" });
@@ -197,6 +253,16 @@ describe("the company brain", () => {
     );
     expect(answer.text).toMatch(/\[Customer complaints and 8D\]\(\/brain\/e\/[0-9a-f-]{36}\)/);
     expect(answer.text).toMatch(/\*\*Who knows it:\*\* .*Kerem Yıldız/);
+  });
+
+  it("lists a person or an AI employee once in the @ picker: the one that reaches them, not the brain's copy", async () => {
+    type Hit = { kind: string; name: string };
+    const kindsOf = async (query: string, name: string) =>
+      ((await call("mehmet.oz", "GET", `/mention${query}`)).json() as Hit[]).filter((h) => h.name === name).map((h) => h.kind);
+    expect(await kindsOf("?q=Invoice%20Processor", "Invoice Processor")).toEqual(["ai_employee"]);
+    expect(await kindsOf("?q=Burak", "Burak Şahin")).toEqual(["person"]);
+    // Asked for things of the brain only, its copy is what there is.
+    expect(await kindsOf("?q=Invoice%20Processor&kinds=thing", "Invoice Processor")).toEqual(["thing"]);
   });
 });
 
@@ -367,5 +433,54 @@ describe("Claude with the company brain", () => {
       gaps: { title: string }[];
     };
     expect(after.gaps.map((g) => g.title).join("\n")).not.toContain("Monthly consolidation and management report");
+  });
+
+  it("is taught in the talk with it: Claude reads the words and what they name, the card keeps what the teacher ticks", async () => {
+    type Msg = {
+      id: string;
+      kind: string;
+      author: { kind: string };
+      text: string;
+      card: { type: string; status: string; offline: boolean; changes: unknown[]; result: { done: string[] } | null } | null;
+    };
+    const call = (method: "GET" | "POST", url: string, payload?: unknown) =>
+      t.app.inject({
+        method,
+        url: `${base}${url}`,
+        headers: { cookie: as["burak.sahin"]! },
+        ...(payload === undefined ? {} : { payload: payload as Record<string, unknown> }),
+      });
+    const process = ((await call("GET", "/brain/search?q=consolidation&kinds=process")).json() as { id: string; name: string }[])[0]!;
+    const talk = (await call("GET", "/conversations/for/ai_employee/company-brain?teach=1")).json() as {
+      conversation: { id: string };
+      offers: { teach: boolean };
+    };
+    expect(talk.offers.teach).toBe(true);
+    const id = talk.conversation.id;
+    const taught = await call("POST", `/conversations/${id}/messages`, {
+      text: `I can do the @[${process.name}](thing:${process.id}) now: Selin and I rebuilt it from Hande's notes on SharePoint.`,
+      intent: "teach",
+    });
+    expect(taught.statusCode, taught.body).toBe(200);
+    const card = await until(
+      async () => ((await call("GET", `/conversations/${id}/messages`)).json() as Msg[]).find((m) => m.card?.type === "learning"),
+      "the learning card",
+    );
+    expect(card.text).toBe("Burak Şahin can now do the consolidation.");
+    expect(card.card).toMatchObject({ status: "open", offline: false });
+    expect(card.card!.changes).toHaveLength(2);
+    // Claude read the words without tokens, and what they named.
+    expect(seen.learn?.[0]).toContain("Things they named");
+    expect(seen.learn?.[0]).toContain(process.id);
+    const kept = await call("POST", `/conversations/${id}/messages/${card.id}/learn`, { keep: [1] });
+    expect(kept.statusCode, kept.body).toBe(200);
+    expect((kept.json() as Msg).card?.result?.done).toEqual([`Kept know-how "Hande's notes for the consolidation are on SharePoint › Finance"`]);
+    // A message without "Teach" is still a question it answers.
+    await call("POST", `/conversations/${id}/messages`, { text: "Who knows the 8D process?" });
+    const answer = await until(
+      async () => ((await call("GET", `/conversations/${id}/messages`)).json() as Msg[]).find((m) => m.kind === "text" && m.author.kind === "ai_employee"),
+      "the brain's answer",
+    );
+    expect(answer.text).toBe("Kerem Yıldız and Selin Acar know it best.");
   });
 });

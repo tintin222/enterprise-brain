@@ -249,6 +249,11 @@ describe("the Studio as an agent", () => {
     view = built.json() as ThreadView;
     expect(view.built).toMatchObject({ employees: ["complaint-handler"], tables: ["supplier_complaints"], apps: ["complaint_desk"] });
     expect((await t.platform.agents.get(companyId, "complaint-handler")).row.status).toBe("active");
+    // Performance counts it as hired in the Studio, at work now.
+    const performance = (await call("selin.acar", "GET", "/reports/performance")).json() as {
+      hiring: { slug: string; source: string; atWorkAt: string | null }[];
+    };
+    expect(performance.hiring.find((h) => h.slug === "complaint-handler")).toMatchObject({ source: "studio", atWorkAt: expect.any(String) });
     expect((await t.platform.tables.get(companyId, "supplier_complaints")).settings.studio).toBeUndefined();
     expect((await t.platform.apps.get(companyId, "complaint_desk")).tables).toEqual(["supplier_complaints"]);
     expect((await call("selin.acar", "POST", `/studio/threads/${id}/messages`, { text: "One more thing" })).statusCode).toBe(409);

@@ -1,10 +1,13 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { LearnChange, applyLearning } from "@enterprise-brain/brain";
 import { CONVERSATION_KINDS, plainText, type Actor, type Mention, type MentionKind } from "@enterprise-brain/core";
 import {
   COMPANY_BRAIN_SLUG,
   OPEN_TASK_STATUSES,
   agentActor,
+  isCompanyBrain,
+  type AgentRecord,
   type ConversationEvent,
   type ConversationRow,
   type MessageRow,
@@ -12,13 +15,63 @@ import {
   type QueueEntry,
 } from "@enterprise-brain/runtime";
 import { actorOfViewer, canInvite, readerOf, requireConversation } from "../auth/conversations.ts";
-import { canHandleWork, canSeeDepartment, isForViewer, viewerOf, type Viewer } from "../auth/viewer.ts";
+import { canHandleWork, canSeeDepartment, canShapeBrain, isForViewer, viewerOf, type Viewer } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
+import { giveWork } from "../give-work.ts";
 import { HttpError, companyOf, sse } from "../http.ts";
 import { checkMentions, mentionHref, type MentionHit } from "../mentions.ts";
 import { canSeeTable } from "./tables.ts";
 
 const MENTION_KINDS: MentionKind[] = ["person", "ai_employee", "thing", "table", "app", "calculation", "file", "document", "task"];
+
+/** What the composer offers besides Send: teaching the brain, and giving work (to whom, when the words name nobody). */
+export interface Offers {
+  teach: boolean;
+  work: { to: { id: string; slug: string; name: string } | null } | null;
+}
+
+/** What the company brain understood from a person's words, kept in its card's message. */
+interface LearningData {
+  by: Actor;
+  forSeq: number;
+  about: string | null;
+  understood: string;
+  offline: boolean;
+  changes: LearnChange[];
+  status: "open" | "kept" | "dismissed";
+  kept?: number[];
+  result?: { done: string[]; skipped: string[]; ids: string[] };
+  settledBy?: string;
+  settledAt?: string;
+}
+
+/** An AI employee that can be given work: at work or on trial (the company brain answers, it takes no tasks). */
+export function takesWork(agent: AgentRecord): boolean {
+  return !isCompanyBrain(agent.row) && (agent.row.status === "active" || agent.row.status === "testing");
+}
+
+/** A learning card as the viewer sees it: only the person who taught it keeps it, with their own rights. */
+function learningView(viewer: Viewer, row: MessageRow) {
+  const learning = row.data.learning as LearningData | undefined;
+  if (!learning || !row.card) return null;
+  const me = actorOfViewer(viewer);
+  const teacher = learning.by.kind === me.kind && learning.by.id === me.id;
+  return {
+    type: "learning" as const,
+    id: row.card.id,
+    by: learning.by,
+    understood: learning.understood,
+    offline: learning.offline,
+    changes: learning.changes,
+    status: learning.status,
+    kept: learning.kept ?? [],
+    result: learning.result ?? null,
+    settledBy: learning.settledBy ?? null,
+    settledAt: learning.settledAt ?? null,
+    canKeep: teacher && learning.status === "open",
+    mayEdit: canShapeBrain(viewer),
+  };
+}
 
 /**
  * Conversations: people and AI employees in one thread, with "@" mentions of people
@@ -95,7 +148,7 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
         ...row,
         mentions,
         files: attachments,
-        card: row.card ? await cardOf(row.card) : null,
+        card: row.card ? (row.card.type === "learning" ? learningView(viewer, row) : await cardOf(row.card)) : null,
         plain: plainText(row.text),
       });
     }
@@ -130,6 +183,22 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
     }
   };
 
+  /** What the composer offers here besides Send: teaching the brain (its talk, a thing's conversation), giving work. */
+  const offersOf = async (viewer: Viewer, companyId: string, conversation: ConversationRow): Promise<Offers> => {
+    const none: Offers = { teach: false, work: null };
+    if (conversation.status !== "open" || conversation.kind === "task" || conversation.kind === "studio") return none;
+    if (actorOfViewer(viewer).kind !== "person") return none;
+    if (conversation.kind === "thing") return { teach: true, work: { to: null } };
+    if (conversation.kind === "ai_employee" && conversation.aboutId) {
+      const agent = await platform.agents.find(companyId, conversation.aboutId);
+      if (agent && isCompanyBrain(agent.row)) return { teach: true, work: { to: null } };
+      if (agent && takesWork(agent) && canSeeDepartment(viewer, agent.row.departmentId)) {
+        return { teach: false, work: { to: { id: agent.row.id, slug: agent.row.slug, name: agent.definition.name } } };
+      }
+    }
+    return { teach: false, work: { to: null } };
+  };
+
   const conversationView = async (viewer: Viewer, companyId: string, conversation: ConversationRow, participants: ParticipantRow[]) => {
     const me = actorOfViewer(viewer);
     return {
@@ -138,6 +207,7 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
       me: participants.find((p) => p.actorKind === me.kind && p.actorId === me.id) ?? null,
       canInvite: canInvite(viewer, conversation, participants),
       about: await aboutOf(companyId, conversation),
+      offers: await offersOf(viewer, companyId, conversation),
     };
   };
 
@@ -258,19 +328,48 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
     const company = await companyOf(platform, request);
     const { id } = request.params as { id: string };
     const body = z
-      .object({ text: z.string().max(20_000), fileIds: z.array(z.string()).max(20).optional(), replyToId: z.string().uuid().nullable().optional() })
+      .object({
+        text: z.string().max(20_000),
+        fileIds: z.array(z.string()).max(20).optional(),
+        replyToId: z.string().uuid().nullable().optional(),
+        /** teach: the company brain reads it and says what it would keep · work: it becomes a task */
+        intent: z.enum(["teach", "work"]).optional(),
+      })
       .parse(request.body);
     if (!body.text.trim() && !body.fileIds?.length) throw new HttpError(400, "Write something, or attach a file");
     const viewer = viewerOf(request);
     const found = await open(request, company.id, id);
     if (found.conversation.status !== "open") throw new HttpError(409, "This conversation is archived");
+    const author = actorOfViewer(viewer);
+    let data: Record<string, unknown> = {};
+    if (body.intent) {
+      const offers = await offersOf(viewer, company.id, found.conversation);
+      if (author.kind !== "person") throw new HttpError(400, "Only a person teaches the brain or gives work here");
+      if (body.intent === "teach") {
+        if (!offers.teach) throw new HttpError(400, "Teach the brain in your talk with it, or in the conversation about a thing");
+        if (body.fileIds?.length) throw new HttpError(400, "Teach the brain in words: files are not read here");
+        if (plainText(body.text).trim().split(/\s+/).length < 3) throw new HttpError(400, "Say a little more: a few words at least");
+        data = { intent: "teach" };
+      } else {
+        if (!offers.work) throw new HttpError(400, "Work is given in a talk with an AI employee, or by naming one with @");
+        const given = await giveWork(platform, viewer, company.id, {
+          text: body.text,
+          fileIds: body.fileIds,
+          defaultAgent: offers.work.to?.id ?? null,
+          trigger: "chat",
+          triggerRef: id,
+        });
+        data = { intent: "work", task: { id: given.task.id, ref: given.task.ref, title: given.task.title }, to: given.to };
+      }
+    }
     const mentions = await checkMentions(platform, viewer, company.id, body.text);
     const message = await platform.conversations.post(company.id, id, {
-      author: actorOfViewer(viewer),
+      author,
       text: body.text,
       mentions,
       fileIds: body.fileIds,
       replyToId: body.replyToId ?? null,
+      data,
     });
     return (await messageViews(viewer, company.slug, company.id, [message]))[0];
   });
@@ -326,6 +425,32 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
     return { participants };
   });
 
+  /** Keep what the company brain understood (the ticked changes), or put it aside: only the person who taught it. */
+  app.post("/api/companies/:company/conversations/:id/messages/:messageId/learn", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id, messageId } = z.object({ id: z.string(), messageId: z.string().uuid() }).parse(request.params);
+    const body = z.object({ keep: z.array(z.number().int().min(0)).max(50).optional(), dismiss: z.boolean().optional() }).parse(request.body ?? {});
+    const viewer = viewerOf(request);
+    const found = await open(request, company.id, id);
+    if (found.conversation.status !== "open") throw new HttpError(409, "This conversation is archived");
+    const row = await platform.conversations.message(company.id, messageId);
+    if (!row || row.conversationId !== id || row.card?.type !== "learning") throw new HttpError(404, "There is no such card here");
+    const me = actorOfViewer(viewer);
+    const updated = await platform.conversations.changeMessage(company.id, messageId, async (current) => {
+      const learning = current.data.learning as LearningData;
+      if (learning.status !== "open") throw new HttpError(409, learning.status === "kept" ? "It was already kept" : "It was put aside");
+      if (learning.by.kind !== me.kind || learning.by.id !== me.id) throw new HttpError(403, "Only the person who taught the brain keeps what it understood");
+      const settled = { settledBy: viewer.name, settledAt: new Date().toISOString() };
+      if (body.dismiss) return { ...current.data, learning: { ...learning, status: "dismissed", ...settled } };
+      const kept = [...new Set(body.keep ?? [])].filter((i) => i < learning.changes.length).sort((a, b) => a - b);
+      if (!kept.length) throw new HttpError(400, "Tick what to keep");
+      const changes = kept.map((i) => LearnChange.parse(learning.changes[i]));
+      const result = await applyLearning(platform.brain, company.id, changes, { name: viewer.name, email: viewer.email, mayEdit: canShapeBrain(viewer) });
+      return { ...current.data, learning: { ...learning, status: "kept", kept, result, ...settled } };
+    });
+    return (await messageViews(viewer, company.slug, company.id, [updated]))[0];
+  });
+
   /** Live: new messages, who is working, cards that were handled, participants. */
   app.get("/api/companies/:company/conversations/:id/stream", async (request, reply) => {
     const company = await companyOf(platform, request);
@@ -336,7 +461,7 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
     const stream = sse(reply);
     const send = async (event: ConversationEvent) => {
       try {
-        if (event.type === "message" || event.type === "card") {
+        if (event.type === "message" || event.type === "card" || event.type === "updated") {
           const [view] = await messageViews(viewer, company.slug, company.id, [event.message]);
           stream.send(event.type, { message: view });
         } else stream.send(event.type, event);
@@ -402,11 +527,14 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
           detail: brain ? "Knows the company" : (agent.definition.title ?? "AI employee"),
           group: "AI employees",
           href: brain ? null : `/ai/${agent.row.slug}`,
+          takesWork: takesWork(agent),
         });
       }
     }
     if (wanted.has("thing") && q) {
       for (const thing of await platform.brain.search(company.id, q, { limit: 10 })) {
+        // The brain's copy of a person or an AI employee listed above: only the one that reaches them.
+        if ((thing.kind === "person" || thing.kind === "ai_employee") && hits.some((h) => h.kind === thing.kind && h.name === thing.name)) continue;
         hits.push({
           kind: "thing",
           id: thing.id,

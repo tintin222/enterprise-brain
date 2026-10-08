@@ -6,7 +6,7 @@ import type { ConversationSummary } from "../../types.ts";
 function preview(item: ConversationSummary): string {
   const last = item.lastMessage;
   if (!last) return "Nothing said yet";
-  if (last.kind === "card") return `${last.author.name} needs someone`;
+  if (last.kind === "card") return last.text ? `${last.author.name}: ${last.text}` : `${last.author.name} needs someone`;
   if (last.kind === "system") return last.text;
   return `${last.author.name}: ${last.text}`;
 }

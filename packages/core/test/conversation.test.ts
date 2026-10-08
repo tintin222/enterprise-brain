@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { actorString } from "../src/actor.ts";
-import { mentionToken, mentions, parseMentions, plainText } from "../src/conversation.ts";
+import { mentionToken, mentions, namesOnly, parseMentions, plainText } from "../src/conversation.ts";
 
 describe("mention tokens", () => {
   const text = "@[Invoice Processor](ai_employee:3f2a) please check @[VBAK](thing:9c1e-aa) and @[VBAK](thing:9c1e-aa) again, cc @[Elif Arslan](person:u-7)";
@@ -25,6 +25,7 @@ describe("mention tokens", () => {
 
   it("turns tokens into plain names", () => {
     expect(plainText(text)).toBe("@Invoice Processor please check @VBAK and @VBAK again, cc @Elif Arslan");
+    expect(namesOnly(text)).toBe("Invoice Processor please check VBAK and VBAK again, cc Elif Arslan");
   });
 
   it("knows whether a text mentions someone", () => {

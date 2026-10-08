@@ -73,6 +73,23 @@ describe("the one box", () => {
     });
   });
 
+  it("takes the AI employee named with @ as the one meant, and reads the words without the tokens", async () => {
+    const triage = await t.platform.agents.get(companyId, "customer-service-mail-triage");
+    const need = await call(deniz, "POST", "/needs", { text: `@[Mail Triage](ai_employee:${triage.row.id}) reply to Kaya Çelik about the late parcel` });
+    expect(need.statusCode, need.body).toBe(200);
+    expect(need.json()).toMatchObject({ kind: "task", agent: "customer-service-mail-triage", work: "Reply to Kaya Çelik about the late parcel" });
+    // A name Deniz may not see counts for nothing.
+    const invoices = (await t.platform.agents.list(companyId)).find((a) => a.row.slug === "finance-invoice-processor")!;
+    const other = (await call(deniz, "POST", "/needs", { text: `@[Invoice Processor](ai_employee:${invoices.row.id}) check the Kaya invoices` })).json();
+    expect(other.agent).not.toBe("finance-invoice-processor");
+    // A question goes to the AI employee it names.
+    const question = await call(deniz, "POST", "/needs", {
+      text: `@[Mail Triage](ai_employee:${triage.row.id}) what did Kaya Çelik write last week?`,
+      as: "answer",
+    });
+    expect(question.json()).toMatchObject({ kind: "answer", agent: "customer-service-mail-triage" });
+  });
+
   it("makes work recurring, and gives it as a task on its day, once", async () => {
     const need = (await call(deniz, "POST", "/needs", { text: "Every Monday at 9, send me the open complaints" })).json() as {
       kind: string;

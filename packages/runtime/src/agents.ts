@@ -43,8 +43,8 @@ export class AgentService {
     input: {
       definition: AgentDefinitionInput;
       status?: AgentStatus;
-      /** system: made by the app itself (the company brain); left out of lists unless asked. */
-      source?: "template" | "builder" | "manual" | "system";
+      /** builder: the guided interview (or a table's email intake) · studio: the Studio agent · system: made by the app itself (the company brain), left out of lists unless asked. */
+      source?: "template" | "builder" | "studio" | "manual" | "system";
       templateId?: string;
       departmentId?: string | null;
       processId?: string | null;

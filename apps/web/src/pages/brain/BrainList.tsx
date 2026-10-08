@@ -1,7 +1,7 @@
 import { clsx } from "clsx";
 import { Cable, LayoutGrid, List, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, Navigate, useParams } from "react-router";
 import { Badge } from "../../components/Badge.tsx";
 import { Button, ButtonLink } from "../../components/Button.tsx";
 import { Card, PageHeader } from "../../components/Card.tsx";
@@ -13,7 +13,6 @@ import { useStoredFlag } from "../../lib/preferences.ts";
 import { KindIcon, ThingChip, brainPath, kindIcon, kindOf, lowerName, useBrainEntities, useBrainModel, useMayEditBrain } from "./brain.tsx";
 import { ReportCards } from "./data.tsx";
 import { EntityForm } from "./EntityForm.tsx";
-import { TellTheBrain } from "./TellTheBrain.tsx";
 import { toneOf } from "./values.tsx";
 
 /** Every thing of one kind: people, processes, systems… with their main values, to filter and search. */
@@ -214,7 +213,8 @@ export default function BrainList() {
         </Card>
       )}
       {adding && kindKey === "knowhow" && !mayEdit ? (
-        <TellTheBrain open onClose={() => setAdding(false)} />
+        // Anyone adds know-how by teaching the company brain, in their talk with it.
+        <Navigate to="/chat/for/ai_employee/company-brain?teach=1" />
       ) : adding ? (
         <EntityForm open onClose={() => setAdding(false)} kind={kindKey} />
       ) : null}

@@ -27,12 +27,17 @@ export function taskGuidance(ref: string): string {
 }
 
 /** How to behave as one participant among colleagues in a conversation. */
-export function conversationGuidance(): string {
+export function conversationGuidance(options: { handOver?: boolean } = {}): string {
   return [
     "You are one participant in a shared conversation with colleagues and maybe other AI employees.",
     "- Your final text is your message in the conversation: short, in the language of the conversation, only about what is for you.",
     "- Name people and things as @[Name](kind:id) when you point at them; mention another AI employee only to ask them something.",
     "- When you need a person's answer, call conversation_ask once and end your turn; do not answer on their behalf.",
+    ...(options.handOver
+      ? [
+          "- When this is clearly a colleague AI employee's job and not yours, call conversation_hand_over instead of answering; never hand over what you can answer yourself.",
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -85,7 +90,7 @@ export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps:
   const result = await deps.llm.runTools({
     purpose: `runtime.agent:${scope.definition.slug}.${step.id}`,
     system: `${scope.definition.instructions}\n\n${TOOL_GUIDANCE}${capabilities.includes("company.lookup") ? `\n\n${COMPANY_GUIDANCE}` : ""}${
-      scope.task ? `\n\n${taskGuidance(scope.task.ref)}` : scope.conversation ? `\n\n${conversationGuidance()}` : scope.context.run.isTest ? `\n\n${PRACTICE_GUIDANCE}` : ""
+      scope.task ? `\n\n${taskGuidance(scope.task.ref)}` : scope.conversation ? `\n\n${conversationGuidance({ handOver: Boolean(scope.conversation.colleagues?.length) })}` : scope.context.run.isTest ? `\n\n${PRACTICE_GUIDANCE}` : ""
     }`,
     messages: [{ role: "user", content: task }],
     tools: tools.map((t) => t.definition),
@@ -124,6 +129,7 @@ export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps:
       turns: result.turns,
       stopReason: result.stopReason,
       citations: toolScope.citations.map((c, i) => ({ n: i + 1, title: c.title, collection: c.collectionKey, documentId: c.documentId })),
+      ...(toolScope.handOver ? { handOver: toolScope.handOver } : {}),
     },
     usage: mergeUsage(result.usage, toolUsage),
   };

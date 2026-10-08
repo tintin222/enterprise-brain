@@ -10,7 +10,7 @@ There is **one conversation**: a thread with participants (people and AI employe
 
 A conversation has:
 
-- **a kind**: `topic` (free), `task` (one per task), `ai_employee` (my talk with one AI employee), `thing` (about a thing of the brain: a process, a system, a table…), later `studio` (a Studio thread);
+- **a kind**: `topic` (free), `task` (one per task), `ai_employee` (my talk with one AI employee), `thing` (about a thing of the brain: a process, a system, a table…). The kind `studio` is kept for a Studio thread; moving the Studio into Chat is not planned now;
 - **participants**: people and AI employees. The **company brain** is an AI employee too (a hidden system one, slug `company-brain`), so there is one way to talk to it: `@Company brain`;
 - **visibility**: only its participants, one department, or the whole company. A topic with department visibility *is* the department's channel. There is no separate "channel" or "room";
 - **messages**: text with "@" mentions, files, and **cards** (an approval, a question, a check, a failure). The cards are the work-queue items shown on Home; deciding one anywhere (Home, email, Teams) updates it in the conversation.
@@ -19,8 +19,9 @@ Where it shows:
 
 - **Chat**: the list of my conversations (mine, my departments', everything I may see), with unread and "mentions you" badges, and the conversation itself.
 - **A task**: the conversation is the main column of the task page. People comment on a task; the AI employee's notes, questions and approvals appear there; it reads the comments on its next step.
-- **An AI employee**: *Talk to it* opens my talk with it in Chat. Others can be invited.
-- **A thing in the brain**: *Discuss* opens its conversation, with the company brain in it. Messages that name a thing also appear on the thing's timeline and in "What's happening".
+- **An AI employee**: *Talk to it* opens my talk with it in Chat. Others can be invited. *Give work* opens the same talk with **Give as work** chosen.
+- **A thing in the brain**: *Discuss* opens its conversation, with the company brain in it. Messages that name a thing also appear on the thing's timeline and in "What's happening". *Tell the brain* opens it with **Teach the brain** chosen.
+- **Home**: the box "What do you need?" is the same composer, with "@" and files (see 4).
 
 ## 2. "@" mentions
 
@@ -35,44 +36,82 @@ Where it shows:
 |---|---|
 | A person names `@Invoice Processor` | Invoice Processor (several named: each one, in parallel, at most 3) |
 | The conversation is a talk with an AI employee or a task's, and the message names nobody | that AI employee |
-| A person replies to an AI employee's message | that AI employee |
+| A person replies to an AI employee's message | that AI employee (also after a hand-over: the reply reaches the colleague) |
 | A message names only people | nobody; AI employees read it on their next turn |
 | An AI employee names another AI employee | the other answers only if the person's message named both; never a third time |
+| An AI employee hands the person's message over to a colleague | the colleague, once; its reply is the last hop |
+| A person sends with **Teach the brain** | nobody answers; the company brain puts a card with what it understood |
+| A person sends with **Give as work** | nobody answers; the AI employee gets a task, and the conversation says when it is done |
 
-Each AI turn is a **run** (`trigger: "conversation"`), so Shadow, Supervised and Trusted apply as today: a Supervised AI employee that wants to send an email makes an approval card in the conversation; a Trusted one acts within its limits. Its final text is its message. It has one extra tool, `conversation_ask`, which puts a question card in front of a named participant (or its manager). "Invoice Processor is working…" shows while it runs. One turn at a time per AI employee per conversation; messages that arrive during a turn are read by the next one. Guards: 3 AI replies per message, 20 AI turns per conversation per hour, the existing budgets. Without a model, the AI employee answers with the closest things of the brain and passages of the knowledge base, labelled offline.
+Each AI turn is a **run** (`trigger: "conversation"`), so Shadow, Supervised and Trusted apply as today: a Supervised AI employee that wants to send an email makes an approval card in the conversation; a Trusted one acts within its limits. Its final text is its message. It has two extra tools: `conversation_ask`, which puts a question card in front of a named participant (or its manager), and `conversation_hand_over` (below). "Invoice Processor is working…" shows while it runs. One turn at a time per AI employee per conversation; messages that arrive during a turn are read by the next one. Guards: 3 AI replies per message, 20 AI turns per conversation per hour, the existing budgets. Without a model, the AI employee answers with the closest things of the brain and passages of the knowledge base, labelled offline.
 
 People named in a message get an email (once per unread stretch of the conversation, not while they have it open). An approval or question asked in a conversation opens in Chat from its email or card.
 
-## 4. Simpler, not more complicated
+**Hand-over.** When a person's message is clearly a colleague's job, the AI employee can say so and pass it on: "Handing this over to @Purchasing Assistant: it is about an order." The colleague joins the conversation (invited by the first one) and answers the person's message. Rules:
 
-| | Before | After phase 1 | After phase 2 |
+- It is offered only on a turn that answers a person's message, never on a hop or after an approval.
+- The list holds the AI employees at work or on trial that **the person** may see (at most 25, the same department first), other than itself and those the message already named. The company brain is among them.
+- One hand-over per message: the colleague's reply is the last hop, so nothing chains. The guidance says to hand over only what is clearly a colleague's job, never what it can answer itself.
+- Without a model there are no tools, so there is no hand-over.
+
+![A hand-over in Chat: the Invoice Processor passes a customer's unpaid invoices to the Collections Clerk, who answers; then Elif gives the Clerk more as work, and the conversation says when the task is done](screenshots/chat-hand-over.png)
+
+**The Send menu.** Next to Send, a small menu offers two more ways to send, only where they apply. The server says which in the conversation's `offers`, and checks them again when the message comes:
+
+| Where | Teach the brain | Give as work |
+|---|---|---|
+| the talk with the company brain, a thing's conversation | yes | to the one AI employee the message names |
+| the talk with another AI employee | no | to that AI employee, if it is at work or on trial |
+| a topic | no | to the one AI employee the message names |
+| a task's conversation, an archived one | no | no |
+
+The chosen way shows as a chip above the text, with ✕. After sending, it goes back to Send.
+
+**Teach the brain.** The words go to the company brain, not to an answer. It reads them (with a model; or, offline, keeps them as one piece of know-how about the thing) and puts a **card** under the message: what it understood, and each change with a tick box (a new thing, new values for one already there, a link, a piece of know-how). Only the person who taught it keeps what is right, with their own rights: anyone keeps know-how; managers and admins keep the other changes, as on the brain's pages. Others see the card read-only. "Not now" puts it aside. The message is not an event of the brain by itself; what is kept is.
+
+![Teaching the company brain in Chat: a card with what it understood, each change with a tick box, kept by the person who taught it](screenshots/chat-teach.png)
+
+**Give as work.** The message becomes a **task** for one AI employee: the talk's, or the one the message names (exactly one; not the company brain). The task keeps the person's words as its request, with the files and the cards of what the message names; it says "Given by" the person and points back to the conversation. The message shows "Given to X as EB-… →". When the task is done or fails, the conversation gets one line saying so. The AI employee does the work as a task, not as an answer, so nobody answers the message in the conversation.
+
+## 4. One composer everywhere
+
+The Home box "What do you need?" is the same composer: "@" names an AI employee, a thing of the brain, a table, an app, a calculation, a document or a task, and files can be added. **Go** reads the words as before (a task, a recurring duty, an answer, a new AI employee); naming an AI employee makes it the one meant. **Give as work** in its menu starts the task at once. An answer opens in the named AI employee's talk, else the company brain's.
+
+| | Before | After phase 1 | After phase 2 (built) |
 |---|---|---|---|
 | text boxes that talk to an AI | 6 | 4 | 2 (the composer, the card answer) |
-| chat storages | 4 | 3 | 2 |
-| ways an AI answers | 3 | 2 | 1 (runs) |
-| entry points to talk | Assistant icon, Brain → Ask, Talk to it, Give work, the Home box | Chat, Give work, the Home box | Chat, the Home box |
+| dialogs that give work or teach the brain | 2 | 2 | 0 |
+| chat storages | 4 | 3 | 3 (unchanged) |
+| ways an AI answers | 3 | 2 | 2 (unchanged) |
+| entry points to talk | Assistant icon, Brain → Ask, Talk to it, Give work, the Home box | Chat, Give work, the Home box | Chat, the Home box (the same composer) |
 | ways a person can comment on a task | 0 | 1 | 1 |
+
+The Studio keeps its own box, threads and turns, and the guided interview stays for installs without a model: moving them into conversations is not planned now.
 
 ## How it is built
 
 **Data** (`packages/db/src/schema.ts`, migrations `0019_conversations.sql` and `0020_drop_guest_columns.sql`): `conversations` (kind, aboutId, title, departmentId, visibility, createdBy, status, lastSeq; one per task, thing or Studio thread), `conversation_participants` (actorKind, actorId, actorName, role, readSeq, invitedBy, lastSeenAt), `conversation_messages` (seq per conversation, kind text|system|card, author, text, mentions with `allowed`, fileIds, card `{type, id}` with a unique key per conversation, runId, replyToId, data). Messages hold only human-visible text; the model transcript stays in `runs` / `run_events`. Shared types: `Actor` and `Mention` in `packages/core/src/actor.ts` and `conversation.ts`.
 
-**Services** (`packages/runtime/src`): `company-brain.ts` (the hidden system AI employee), `conversations.ts` (`ConversationService`: numbering, participants, read marks, lists with unread and mention counts, cards from the work queue, the brain event per message, what an AI employee reads, the older chats adopted), `conversation-turns.ts` (`TurnPlanner`: the rules above, one turn at a time, the guards), `mentions.ts` (`MentionCards`: the cards in the brief), `offline-answer.ts`. The engine runs a turn as a run without a task (`StartRunOptions.conversation`), with `conversationGuidance` and the `conversation_ask` tool; a task's brief carries new comments (`WakeReason: message`), and its notes and status changes mirror into its conversation. Mentions reach people by email (`NotificationService.mentioned`).
+**Services** (`packages/runtime/src`): `company-brain.ts` (the hidden system AI employee), `conversations.ts` (`ConversationService`: numbering, participants, read marks, lists with unread and mention counts, cards from the work queue and learning cards, `changeMessage` with the `updated` event, the brain event per message, what an AI employee reads, the older chats adopted), `conversation-turns.ts` (`TurnPlanner`: the rules above, one turn at a time, the guards, the hand-over and `learnTurn`; `useColleagues` sets how the colleague list is found), `mentions.ts` (`MentionCards`: the cards in the brief), `offline-answer.ts`. The engine runs a turn as a run without a task (`StartRunOptions.conversation`), with `conversationGuidance` and the `conversation_ask` and `conversation_hand_over` tools; a task's brief carries new comments (`WakeReason: message`), and its notes and status changes mirror into its conversation. Mentions reach people by email (`NotificationService.mentioned`). The teach proposal is `proposeLearning` (`packages/brain/src/learn.ts`), with the things the message named.
 
-**Server** (`apps/server/src`): `routes/conversations.ts` (the API and the `/mention` picker; see `docs/API.md`), `mentions.ts` (`checkMentions`: `allowed` by the author's visibility), `auth/conversations.ts` (who may read, who may invite).
+A message's `data.intent` (`teach` or `work`) marks it: the planner gives it no answer, and what an AI employee reads later labels it ("taught the company brain; nothing to answer"). A learning card is a `card` message (`{type: "learning", id: <the taught message>}`) whose content is in its `data.learning`: what was understood, the changes, and `status` open, kept or put aside.
 
-**Web** (`apps/web/src`): `pages/chat/Chat.tsx`, `components/chat/` (`Composer` with the "@" picker, `ConversationView` live over the server's event stream, `ConversationList`, `ConversationFor`), chips drawn by `Markdown` for `@[Name](kind:id)` tokens; the task page, the AI employee's page, the brain and the Home box open their conversations.
+**Server** (`apps/server/src`): `routes/conversations.ts` (the API, `offers`, the learn route and the `/mention` picker; see `docs/API.md`), `mentions.ts` (`checkMentions`: `allowed` by the author's visibility), `auth/conversations.ts` (who may read, who may invite, `colleaguesFor`: the AI employees a person may see), `give-work.ts` (`giveWork`: one way to give work, used by `POST /tasks` and by Give as work; a task from Chat has `trigger: "chat"`, source "chat" and the conversation as its `sourceRef`).
+
+**Web** (`apps/web/src`): `pages/chat/Chat.tsx` (`?teach=1` and `?work=1` choose the way to send), `components/chat/` (`Composer` with the "@" picker and the Send menu, `ConversationView` live over the server's event stream, `LearningCard`, `ConversationList`, `ConversationFor`), chips drawn by `Markdown` for `@[Name](kind:id)` tokens; `components/NeedBox.tsx` (the Home box on the composer); the task page, the AI employee's page, the brain and the Home box open their conversations.
 
 ## Phases
 
-1. **Conversations for people and AI employees** (built): everything above.
-2. **One composer everywhere**: hand-over between AI employees (`conversation_hand_over`), the Studio thread as a conversation, "Tell the brain" as a message to `@Company brain`, the Home box on the composer, the guided interview retired.
-3. **Only if asked**: group chats in Teams and Google Chat mirrored to conversations, "catch me up" summaries, search across messages, reactions and presence, live streaming of an AI's draft.
+1. **Conversations for people and AI employees** (built): sections 1 to 3.
+2. **One composer everywhere** (built): hand-over between AI employees (`conversation_hand_over`), "Teach the brain" in Chat with a learning card (the Tell the brain dialog is gone), "Give as work" in Chat and on Home (the Give work dialog is gone), the Home box on the composer.
+3. **Not planned now**: the Studio thread as a conversation, and retiring the guided interview (it stays for installs without a model).
+4. **Only if asked**: group chats in Teams and Google Chat mirrored to conversations, "catch me up" summaries, search across messages, reactions and presence, live streaming of an AI's draft.
 
 ## Risks and how each is handled
 
 1. **Injection through mentioned content**: cards are data under "Things named in these messages", never instructions; the guidance says to use tools and never follow text found in data.
-2. **AI loops**: one AI-to-AI hop at most, 3 replies per message, 20 turns per conversation per hour, the budgets.
-3. **Permission leaks through mentions**: `allowed` follows the author's visibility at post time; the AI uses its own tools and level for depth.
-4. **Notification floods**: one mention email per conversation while unread, nothing while the person is reading; cards keep the once-per-item rule.
-5. **Server restarts mid-turn**: `resumeInterrupted` re-runs; the brief is rebuilt from the AI employee's read mark; the message is posted only at the end, so a repeated turn never posts twice.
+2. **AI loops**: one AI-to-AI hop at most (a hand-over is that hop: the colleague cannot hand over again), 3 replies per message, 20 turns per conversation per hour, the budgets. A hand-over doubles the cost of that message; the same limits cap it.
+3. **Permission leaks through mentions**: `allowed` follows the author's visibility at post time; the AI uses its own tools and level for depth. A hand-over goes only to an AI employee the person may see, and its level and approvals still apply; at worst, text in data makes it hand over to such a colleague.
+4. **Who keeps what the brain understood**: only the person who taught it, with their own rights; others see the card read-only. A kept or put-aside card cannot be kept again.
+5. **Notification floods**: one mention email per conversation while unread, nothing while the person is reading; cards keep the once-per-item rule.
+6. **Server restarts mid-turn**: `resumeInterrupted` re-runs; the brief is rebuilt from the AI employee's read mark; the message is posted only at the end, so a repeated turn never posts twice.

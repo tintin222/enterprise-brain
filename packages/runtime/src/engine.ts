@@ -57,6 +57,8 @@ export interface StartRunOptions {
   actor?: string;
   /** Run a free-form task with the agent's tools instead of its workflow (requests, Paperclip tasks, wake-ups). */
   task?: string;
+  /** What the task keeps as its request when `task` is a fuller brief (the words a person wrote, without the cards around them). */
+  request?: string;
   /** Continue this task (a wake-up); otherwise a new task is opened for the run (none for test runs). */
   taskId?: string;
   /** The task's title; derived from the request, the email or the input otherwise. */
@@ -159,7 +161,7 @@ export class RunEngine {
         source: trigger === "manual" ? "request" : trigger,
         sourceRef: options.triggerRef ?? null,
         requestedBy: options.requestedBy ?? (trigger === "manual" || trigger === "request" ? (options.actor ?? null) : null),
-        input: options.task ? { ...input, request: options.task } : input,
+        input: options.task ? { ...input, request: options.request ?? options.task } : input,
       });
       taskId = task.id;
       await this.deps.tasks.record(companyId, task.id, { type: "created", message: `${SOURCE_TEXT[trigger] ?? "Started"}: ${task.title}`, actor: options.actor ?? "system" });

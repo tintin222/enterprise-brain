@@ -62,6 +62,11 @@ export function plainText(text: string): string {
   return text.replace(MENTION_TOKEN, (_token, name: string) => `@${name.trim()}`);
 }
 
+/** The text with its tokens as the bare names, as a sentence reads: what a model reads as plain words. */
+export function namesOnly(text: string): string {
+  return text.replace(MENTION_TOKEN, (_token, name: string) => name.trim());
+}
+
 /** Does the text mention this one? */
 export function mentions(text: string, mention: Pick<MentionRef, "kind" | "id">): boolean {
   return parseMentions(text).some((m) => m.kind === mention.kind && m.id === mention.id);

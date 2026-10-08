@@ -18,7 +18,6 @@ import { KindIcon, ThingChip, brainKeys, kindOf, originName, useBrainEntities, u
 import { ColumnsCard, DatabaseTablesCard, LineageCard, ReadTablesDialog, ScreenshotsCard } from "./data.tsx";
 import { EntityForm } from "./EntityForm.tsx";
 import { EventItem } from "./EventItem.tsx";
-import { TellTheBrain } from "./TellTheBrain.tsx";
 import { FieldValue } from "./values.tsx";
 
 function fold(text: string): string {
@@ -238,7 +237,6 @@ export default function BrainEntityPage() {
   const mayEdit = useMayEditBrain();
   const lookup = useNameLookup(entity.data);
   const [editing, setEditing] = useState(false);
-  const [telling, setTelling] = useState(false);
   const [linking, setLinking] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [reading, setReading] = useState(false);
@@ -352,9 +350,9 @@ export default function BrainEntityPage() {
           <ButtonLink to={`/brain/map?focus=${thing.id}`} icon={Share2} size="sm">
             Map
           </ButtonLink>
-          <Button icon={Lightbulb} size="sm" onClick={() => setTelling(true)}>
+          <ButtonLink to={`/chat/for/thing/${thing.id}?teach=1`} icon={Lightbulb} size="sm">
             Tell the brain
-          </Button>
+          </ButtonLink>
           {mayEdit && isDatabase && (
             <Button icon={DatabaseZap} size="sm" onClick={() => setReading(true)}>
               Read tables
@@ -488,7 +486,6 @@ export default function BrainEntityPage() {
         </div>
       )}
       {editing && <EntityForm open onClose={() => setEditing(false)} entity={thing} />}
-      <TellTheBrain open={telling} onClose={() => setTelling(false)} about={{ id: thing.id, name: thing.name }} />
       {linking && <AddLink entity={thing} open onClose={() => setLinking(false)} />}
       {isDatabase && <ReadTablesDialog thing={thing} open={reading} onClose={() => setReading(false)} />}
       <Dialog

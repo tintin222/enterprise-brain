@@ -152,10 +152,21 @@ export function learnedValue(field: BrainField, words: string): unknown {
   return brainValue(field, field.type === "list" ? words.split(/\r?\n/) : words);
 }
 
-/** Proposes changes for what someone told the brain; `about` is the thing they were looking at. */
-export async function proposeLearning(brain: BrainService, llm: LlmClient, companyId: string, text: string, about?: string): Promise<LearnProposal> {
+/**
+ * Proposes changes for what someone told the brain; `about` is the thing they were looking at, `named`
+ * the things they named with "@". `offline` keeps the words as know-how without asking the model.
+ */
+export async function proposeLearning(
+  brain: BrainService,
+  llm: LlmClient,
+  companyId: string,
+  text: string,
+  about?: string,
+  options: { named?: { id: string; name: string }[]; offline?: boolean } = {},
+): Promise<LearnProposal> {
   const focus = about ? await brain.get(companyId, about).catch(() => undefined) : undefined;
-  if (!llm.available) {
+  const named = (options.named ?? []).filter((thing, i, all) => thing.id !== focus?.id && all.findIndex((t) => t.id === thing.id) === i);
+  if (!llm.available || options.offline) {
     return {
       understood: "Kept as know-how (no AI model is connected to sort it).",
       offline: true,
@@ -165,7 +176,7 @@ export async function proposeLearning(brain: BrainService, llm: LlmClient, compa
           kind: "knowhow",
           name: firstSentence(text),
           fields: { details: text },
-          about: focus ? [{ id: focus.id, name: focus.name }] : [],
+          about: [...(focus ? [{ id: focus.id, name: focus.name }] : []), ...named].slice(0, 20),
           why: "What you wrote",
         }),
       ],
@@ -174,6 +185,7 @@ export async function proposeLearning(brain: BrainService, llm: LlmClient, compa
   const nearby = await brain.search(companyId, text, { limit: 25 });
   const context = [
     focus ? `They are looking at this thing:\n${describeEntity(focus, { events: 3 })}` : "",
+    named.length ? `Things they named (ids in the addresses /brain/e/<id>):\n${named.map((t) => `- ${t.name}: /brain/e/${t.id}`).join("\n")}` : "",
     nearby.length
       ? `Things in the brain that may be meant (ids in the addresses /brain/e/<id>):\n${nearby.map(describeSummary).join("\n")}`
       : "The brain has nothing close yet.",

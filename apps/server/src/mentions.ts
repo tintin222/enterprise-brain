@@ -11,6 +11,8 @@ export interface MentionHit {
   detail: string;
   group: "People" | "AI employees" | "Things" | "Data" | "Files" | "Tasks";
   href: string | null;
+  /** AI employees: whether it can be given work (at work or on trial; the company brain only answers). */
+  takesWork?: boolean;
 }
 
 /** The page an asset has, for a chip to link to (a mention's kind and id). */

@@ -172,7 +172,7 @@ export interface AgentDefinition {
 }
 
 export type AgentStatus = "draft" | "testing" | "active" | "paused" | "archived";
-export type AgentSource = "template" | "builder" | "manual";
+export type AgentSource = "template" | "builder" | "studio" | "manual" | "system";
 
 /** Row of GET /agents (list), definition omitted. */
 export interface AgentRow {
@@ -720,6 +720,34 @@ export interface ConversationView {
   canInvite: boolean;
   /** The page it is about: its task, its AI employee, or its thing in the brain. */
   about: { href: string; label: string } | null;
+  /** What the composer offers besides Send here. */
+  offers: ComposerOffers;
+}
+
+/** Teaching the brain (its talk, a thing's conversation), and giving work (to whom when the words name nobody). */
+export interface ComposerOffers {
+  teach: boolean;
+  work: { to: { id: string; slug: string; name: string } | null } | null;
+}
+
+/** What the company brain understood from a person's words, as a card they keep or put aside. */
+export interface LearningCardView {
+  type: "learning";
+  id: string;
+  by: Actor;
+  understood: string;
+  /** No model sorted it: the words are kept as know-how. */
+  offline: boolean;
+  changes: BrainLearnChange[];
+  status: "open" | "kept" | "dismissed";
+  kept: number[];
+  result: BrainLearnApplied | null;
+  settledBy: string | null;
+  settledAt: string | null;
+  /** The viewer taught it and it waits: they keep what is right. */
+  canKeep: boolean;
+  /** The viewer may add and change things (a manager or an admin); others keep know-how only. */
+  mayEdit: boolean;
 }
 
 /** One conversation in a list: what the viewer hasn't read, and the newest message. */
@@ -751,8 +779,8 @@ export interface Message {
   text: string;
   mentions: MessageMention[];
   files: { id: string; name: string; mimeType: string; size: number }[];
-  /** A work-queue item shown in the conversation (an approval, a question, a check, a failure). */
-  card: WorkEntry | null;
+  /** A work-queue item shown in the conversation (an approval, a question, a check, a failure), or what the brain understood. */
+  card: WorkEntry | LearningCardView | null;
   /** The AI employee's turn that wrote it. */
   runId: string | null;
   replyToId: string | null;
@@ -770,6 +798,8 @@ export interface MentionHit {
   detail: string;
   group: "People" | "AI employees" | "Things" | "Data" | "Files" | "Tasks";
   href: string | null;
+  /** AI employees: whether it can be given work (at work or on trial). */
+  takesWork?: boolean;
 }
 
 // ---------------------------------------------------------------------------

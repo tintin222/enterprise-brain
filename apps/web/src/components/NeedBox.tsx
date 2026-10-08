@@ -1,7 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import {
-  ArrowRight,
   BookOpen,
   Calculator,
   CalendarClock,
@@ -16,10 +15,11 @@ import {
   Wand2,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useNavigate } from "react-router";
 import { api } from "../api.ts";
 import { useCompany } from "../lib/company.tsx";
+import { plainText } from "../lib/mentions.ts";
 import { keys } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
 import type {
@@ -29,6 +29,8 @@ import type {
   ConversationView as ConversationData,
   Message,
   CoachingProposal,
+  ComposerOffers,
+  MentionKind,
   NeedKind,
   NeedReading,
   RecurringWork,
@@ -44,6 +46,7 @@ import { ResultView } from "./calculations/ResultView.tsx";
 import { FillFromEmail } from "./FillFromEmail.tsx";
 import { Chip, Field } from "./Form.tsx";
 import { useGiveWork } from "./GiveWork.tsx";
+import { Composer, type ComposerSend } from "./chat/Composer.tsx";
 import { ConversationView } from "./chat/ConversationView.tsx";
 import { Callout, ErrorState, Skeleton } from "./Spinner.tsx";
 import { NewTableDialog, useTableDepartments } from "./tables/NewTableDialog.tsx";
@@ -70,6 +73,13 @@ const EXAMPLES = [
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
+/** On Home, work goes to the AI employee named with "@" (there is no talk to default to). */
+const WORK_BY_NAMING: ComposerOffers = { teach: false, work: { to: null } };
+/** What "@" offers on Home: who does the work, and what of the company it is about. */
+const HOME_MENTIONS: MentionKind[] = ["ai_employee", "thing", "table", "app", "calculation", "document", "task"];
+/** The readings that use files that came with the words. */
+const USES_FILES: NeedKind[] = ["task", "recurring", "answer", "ai-employee"];
+
 /**
  * "What do you need?": the first place to go. Say anything; it says what it understood (work for an
  * AI employee now or regularly, an answer, a calculation, a table, an app, an AI employee, a change)
@@ -77,83 +87,67 @@ const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", 
  */
 export function NeedBox({ className }: { className?: string }) {
   const { path } = useCompany();
-  const [text, setText] = useState("");
+  const toast = useToast();
+  /** The words as sent (with "@" names as tokens), and the files that came with them. */
   const [asked, setAsked] = useState("");
+  const [files, setFiles] = useState<string[]>([]);
   const [reading, setReading] = useState<NeedReading | null>(null);
-  const read = useMutation({
-    mutationFn: (input: { text: string; as?: NeedKind }) => api.post<NeedReading>(path("/needs"), input),
-    onSuccess: (result, input) => {
-      setReading(result);
-      setAsked(input.text);
-    },
-  });
-  const go = (said = text) => {
-    const trimmed = said.trim();
-    if (trimmed.length >= 3) read.mutate({ text: trimmed });
-  };
-  const submit = (e: FormEvent) => {
-    e.preventDefault();
-    go();
-  };
+  const read = useMutation({ mutationFn: (input: { text: string; as?: NeedKind }) => api.post<NeedReading>(path("/needs"), input) });
   const done = () => {
     setReading(null);
-    setText("");
+    setAsked("");
+    setFiles([]);
+  };
+  const give = useGiveWork(done, { quiet: true });
+  const go = async (text: string, fileIds: string[] = []) => {
+    const result = await read.mutateAsync({ text });
+    setReading(result);
+    setAsked(text);
+    setFiles(fileIds);
+  };
+  // Go: read what is needed and show it; "Give as work": the task starts at once.
+  const send = async ({ text, fileIds, intent }: ComposerSend) => {
+    if (intent === "work") await give.mutateAsync({ text, fileIds });
+    else await go(text, fileIds);
   };
   return (
     <Card className={clsx("p-4 sm:p-5", className)}>
-      <form onSubmit={submit}>
-        <label htmlFor="need" className="flex items-center gap-2 text-base font-semibold text-fg">
-          <Sparkles className="size-[18px] text-brand-600 dark:text-brand-300" /> What do you need?
-        </label>
-        <p className="mt-0.5 text-sm text-muted">
-          Say it as you would to a colleague: something done now or every week, a question, a list to keep, an app, a calculation, or a change.
-        </p>
-        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-          <textarea
-            id="need"
-            rows={2}
-            className="input min-h-[3.25rem] flex-1 resize-y"
-            placeholder="Every Monday, send me the open complaints"
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              setReading(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                go();
-              }
-            }}
-          />
-          <Button type="submit" variant="primary" className="sm:self-start" iconRight={ArrowRight} loading={read.isPending} disabled={text.trim().length < 3}>
-            Go
-          </Button>
-        </div>
-      </form>
+      <p className="flex items-center gap-2 text-base font-semibold text-fg">
+        <Sparkles className="size-[18px] text-brand-600 dark:text-brand-300" /> What do you need?
+      </p>
+      <p className="mt-0.5 text-sm text-muted">
+        Say it as you would to a colleague: something done now or every week, a question, a list to keep, an app, a calculation, or a change. Name an AI
+        employee with @ to give them the work.
+      </p>
+      <Composer
+        className="mt-3"
+        conversationId={null}
+        onSend={send}
+        compact
+        sendLabel="Go"
+        sendDetail="Read what you need, then choose what happens"
+        offers={WORK_BY_NAMING}
+        mentionKinds={HOME_MENTIONS}
+        placeholder="Every Monday, send me the open complaints"
+      />
       {!reading && !read.isPending && (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {EXAMPLES.map((example) => (
-            <Chip
-              key={example}
-              onClick={() => {
-                setText(example);
-                go(example);
-              }}
-            >
+            <Chip key={example} onClick={() => void go(example).catch((error: unknown) => toast.error(error))}>
               {example}
             </Chip>
           ))}
         </div>
       )}
-      {read.error && <ErrorState className="mt-3" error={read.error} title="It couldn't be understood" />}
+      {read.isPending && !reading && <Skeleton className="mt-3 h-16" />}
       {reading && (
         <ReadingView
           key={`${asked}|${reading.kind}`}
           reading={reading}
           text={asked}
+          files={files}
           busy={read.isPending}
-          onOther={(kind) => read.mutate({ text: asked, as: kind })}
+          onOther={(kind) => read.mutate({ text: asked, as: kind }, { onSuccess: setReading, onError: (error) => toast.error(error) })}
           onDone={done}
         />
       )}
@@ -164,12 +158,14 @@ export function NeedBox({ className }: { className?: string }) {
 function ReadingView({
   reading,
   text,
+  files,
   busy,
   onOther,
   onDone,
 }: {
   reading: NeedReading;
   text: string;
+  files: string[];
   busy: boolean;
   onOther: (kind: NeedKind) => void;
   onDone: () => void;
@@ -177,6 +173,10 @@ function ReadingView({
   const Icon = NEED[reading.kind].icon;
   return (
     <div className="mt-4 space-y-3 rounded-xl border border-brand-200 bg-brand-50/40 p-4 dark:border-brand-400/25 dark:bg-brand-400/5">
+      <p className="text-xs text-muted">
+        “{plainText(text)}”{files.length > 0 ? ` · ${files.length === 1 ? "1 file" : `${files.length} files`}` : ""}
+        {files.length > 0 && !USES_FILES.includes(reading.kind) ? " (files aren't used for this)" : ""}
+      </p>
       <p className="flex items-start gap-2 text-sm font-semibold text-fg">
         <Icon className="mt-0.5 size-4 shrink-0 text-brand-600 dark:text-brand-300" />
         <span>{reading.summary}</span>
@@ -188,12 +188,12 @@ function ReadingView({
           ))}
         </ul>
       )}
-      {reading.kind === "task" && <TaskReading reading={reading} text={text} onDone={onDone} />}
-      {reading.kind === "recurring" && <RecurringReading reading={reading} text={text} onDone={onDone} />}
-      {reading.kind === "answer" && <AnswerReading question={reading.description ?? text} />}
+      {reading.kind === "task" && <TaskReading reading={reading} text={text} files={files} onDone={onDone} />}
+      {reading.kind === "recurring" && <RecurringReading reading={reading} text={text} files={files} onDone={onDone} />}
+      {reading.kind === "answer" && <AnswerReading question={text} files={files} agent={reading.agent} />}
       {reading.kind === "calculation" && <CalculationReading reading={reading} text={text} onDone={onDone} />}
       {(reading.kind === "table" || reading.kind === "app") && <MakeReading reading={reading} text={text} onDone={onDone} />}
-      {reading.kind === "ai-employee" && <HireReading reading={reading} text={text} onDone={onDone} />}
+      {reading.kind === "ai-employee" && <HireReading reading={reading} text={text} files={files} onDone={onDone} />}
       {reading.kind === "change" && <ChangeReading reading={reading} />}
       {reading.kind === "unclear" && (
         <div className="flex flex-wrap gap-1.5">
@@ -260,7 +260,7 @@ function WhoAndWhat({
   );
 }
 
-function TaskReading({ reading, text, onDone }: { reading: NeedReading; text: string; onDone: () => void }) {
+function TaskReading({ reading, text, files, onDone }: { reading: NeedReading; text: string; files: string[]; onDone: () => void }) {
   const [agent, setAgent] = useState(reading.agent ?? "");
   const [work, setWork] = useState(reading.work ?? text);
   const give = useGiveWork(onDone);
@@ -275,7 +275,7 @@ function TaskReading({ reading, text, onDone }: { reading: NeedReading; text: st
           icon={Send}
           loading={give.isPending}
           disabled={!agent || work.trim().length < 3}
-          onClick={() => give.mutate({ agent, text: work.trim() })}
+          onClick={() => give.mutate({ agent, text: work.trim(), fileIds: files })}
         >
           {name ? `Give it to ${name}` : "Give it"}
         </Button>
@@ -356,7 +356,7 @@ function ordinal(n: number): string {
   return `${n}${["th", "st", "nd", "rd"][n % 10] ?? "th"}`;
 }
 
-function RecurringReading({ reading, text, onDone }: { reading: NeedReading; text: string; onDone: () => void }) {
+function RecurringReading({ reading, text, files, onDone }: { reading: NeedReading; text: string; files: string[]; onDone: () => void }) {
   const { company, path } = useCompany();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -380,9 +380,12 @@ function RecurringReading({ reading, text, onDone }: { reading: NeedReading; tex
     <>
       <WhoAndWhat reading={reading} agent={agent} setAgent={setAgent} work={work} setWork={setWork} />
       <WhenPicker schedule={schedule} onChange={setSchedule} />
-      <p className="text-xs text-muted">Each time, it's a task for you, as if you had given it that morning. You can stop it any time.</p>
+      <p className="text-xs text-muted">
+        Each time, it's a task for you, as if you had given it that morning. You can stop it any time.
+        {files.length > 0 ? " The files go with it once, now; regular work doesn't keep them." : ""}
+      </p>
       <div className="flex flex-wrap justify-end gap-2">
-        <Button loading={give.isPending} disabled={!agent || work.trim().length < 3} onClick={() => give.mutate({ agent, text: work.trim() })}>
+        <Button loading={give.isPending} disabled={!agent || work.trim().length < 3} onClick={() => give.mutate({ agent, text: work.trim(), fileIds: files })}>
           Just once, now
         </Button>
         <Button variant="primary" icon={CalendarClock} loading={make.isPending} disabled={!agent || work.trim().length < 3} onClick={() => make.mutate()}>
@@ -393,14 +396,14 @@ function RecurringReading({ reading, text, onDone }: { reading: NeedReading; tex
   );
 }
 
-/** The company brain answers it in the person's talk with it, which goes on in Chat. */
-function AnswerReading({ question }: { question: string }) {
+/** The company brain answers it (or the AI employee named with "@") in the person's talk with it, which goes on in Chat. */
+function AnswerReading({ question, files, agent }: { question: string; files: string[]; agent?: string }) {
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
   const ask = useMutation({
     mutationFn: async () => {
-      const found = await api.get<ConversationData>(path("/conversations/for/ai_employee/company-brain"));
-      await api.post<Message>(path(`/conversations/${found.conversation.id}/messages`), { text: question });
+      const found = await api.get<ConversationData>(path(`/conversations/for/ai_employee/${encodeURIComponent(agent ?? "company-brain")}`));
+      await api.post<Message>(path(`/conversations/${found.conversation.id}/messages`), { text: question, fileIds: files });
       return found.conversation.id;
     },
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.conversations(company) }),
@@ -532,14 +535,14 @@ function MakeReading({ reading, text }: { reading: NeedReading; text: string; on
  * A new AI employee. Filing emails into a table needs one answer (the mailbox), so it is hired here;
  * any other job starts an interview in the Studio, from these words.
  */
-function HireReading({ reading, text, onDone }: { reading: NeedReading; text: string; onDone: () => void }) {
+function HireReading({ reading, text, files, onDone }: { reading: NeedReading; text: string; files: string[]; onDone: () => void }) {
   const { path, info } = useCompany();
   const navigate = useNavigate();
   // With Claude, the Studio agent takes it from these words; without, the guided interview.
   const start = useMutation({
     mutationFn: async () =>
       info.llm.available
-        ? `/studio/${(await api.post<StudioThreadView>(path("/studio/threads"), { text })).id}`
+        ? `/studio/${(await api.post<StudioThreadView>(path("/studio/threads"), { text: plainText(text), fileIds: files })).id}`
         : `/hire/studio/${(await api.post<SessionView>(path("/builder/sessions"), { description: reading.description ?? text })).session.id}`,
     onSuccess: (to) => navigate(to),
   });

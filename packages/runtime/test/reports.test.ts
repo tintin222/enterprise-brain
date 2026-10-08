@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { activityLog, agents, approvals, coachingNotes, runs, tasks, workItems } from "@enterprise-brain/db";
+import { activityLog, agents, approvals, coachingNotes, runs, studioThreads, tasks, workItems } from "@enterprise-brain/db";
 import { LocalHashEmbedder, UnavailableLlm } from "@enterprise-brain/llm";
 import {
   Platform,
@@ -235,5 +235,56 @@ describe("performance measures", () => {
     expect(rows).toEqual([
       expect.objectContaining({ slug: "ready", source: "ready-made", hours: 6, targetHours: 24, met: true, atWorkAt: "2026-09-21T12:00:00.000Z" }),
     ]);
+  });
+
+  it("counts what the Studio agent built as built in the Studio, from when its thread started; an email intake hire is not", async () => {
+    const make = async (slug: string, source: "builder" | "studio", createdAt: string) => {
+      const made = await platform.agents.create(companyId, {
+        definition: { slug, name: slug, summary: "x", archetype: "search", instructions: "x" },
+        source,
+        status: "draft",
+      });
+      await platform.handle.db
+        .update(agents)
+        .set({ createdAt: at(createdAt) })
+        .where(eq(agents.id, made.row.id));
+      return made.row.id;
+    };
+    // Built before AI employees said where they came from: found through the thread that built it.
+    const older = await make("older-studio", "builder", "2026-09-20T10:00:00Z");
+    await platform.handle.db.insert(studioThreads).values({
+      companyId,
+      title: "Complaints",
+      owner: { name: "Selin" },
+      setup: { system: "", tools: [] },
+      solution: { employees: [{ key: "older-studio", agentId: older }] },
+      createdAt: at("2026-09-20T08:00:00Z"),
+    });
+    await platform.handle.db.insert(activityLog).values({
+      companyId,
+      actor: "Selin",
+      action: "agent.activated",
+      entityType: "agent",
+      entityId: older,
+      summary: "Put to work",
+      createdAt: at("2026-09-21T08:00:00Z"),
+    });
+    await make("newer-studio", "studio", "2026-09-22T08:00:00Z");
+    await make("intake", "builder", "2026-09-22T09:00:00Z");
+    const rows = await platform.reports.hiring(
+      companyId,
+      await Promise.all(["older-studio", "newer-studio", "intake"].map((slug) => platform.agents.get(companyId, slug))),
+      at("2026-09-01T00:00:00Z"),
+      at("2026-09-26T12:00:00Z"),
+    );
+    expect(rows.find((r) => r.slug === "older-studio")).toMatchObject({
+      source: "studio",
+      startedAt: "2026-09-20T08:00:00.000Z",
+      hours: 24,
+      targetHours: 168,
+      met: true,
+    });
+    expect(rows.find((r) => r.slug === "newer-studio")).toMatchObject({ source: "studio", startedAt: "2026-09-22T08:00:00.000Z", atWorkAt: null });
+    expect(rows.find((r) => r.slug === "intake")).toMatchObject({ source: "other" });
   });
 });

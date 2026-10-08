@@ -104,6 +104,11 @@ export function isForViewer(viewer: Viewer, departmentId: string | null | undefi
   return viewer.departments.some((d) => d.departmentId === departmentId) || (viewer.kind !== "session" && viewer.isAdmin);
 }
 
+/** Who may shape the company brain (add, change and link things): managers and admins; everyone may add know-how. */
+export function canShapeBrain(viewer: Viewer): boolean {
+  return viewer.isAdmin || viewer.departments.some((d) => d.role === "manager");
+}
+
 /** How the viewer appears in the audit log and on decisions. */
 export function actorOf(viewer: Viewer | undefined): string {
   if (!viewer) return "system";

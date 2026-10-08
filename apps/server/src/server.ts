@@ -4,6 +4,7 @@ import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyRequest } from "fastify";
+import { colleaguesFor } from "./auth/conversations.ts";
 import { AuthService, SESSION_COOKIE } from "./auth/service.ts";
 import { API_VIEWER, OPEN_VIEWER, readCookie } from "./auth/viewer.ts";
 import type { AppContext } from "./context.ts";
@@ -70,6 +71,8 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
 
   const auth = (ctx.auth ??= new AuthService(ctx.platform, ctx.config));
   app.decorateRequest("viewer", undefined);
+  // An AI employee hands a matter over only to colleagues the person who asked may see.
+  ctx.platform.turns.useColleagues(colleaguesFor(ctx.platform, auth));
 
   // Who is asking: a signed-in person (session cookie), a machine with EB_API_KEY, or, in open
   // mode (EB_AUTH=open, no EB_API_KEY), anyone acting as the owner.

@@ -29,13 +29,13 @@ const SCOPES: { id: ConversationScope; label: string; hint: string }[] = [
 const FOR_KINDS = ["task", "thing", "ai_employee"] as const;
 type ForKind = (typeof FOR_KINDS)[number];
 
-/** `/chat/for/:kind/:about`: the conversation about something, then its own address. */
-function ResolveFor({ kind, about, q }: { kind: ForKind; about: string; q?: string }) {
+/** `/chat/for/:kind/:about`: the conversation about something, then its own address (with `?q=`, `?teach=1`, `?work=1`). */
+function ResolveFor({ kind, about, search }: { kind: ForKind; about: string; search: string }) {
   const navigate = useNavigate();
   const found = useConversationFor(kind, about);
   useEffect(() => {
-    if (found.data) navigate(`/chat/${found.data.conversation.id}${q ? `?q=${encodeURIComponent(q)}` : ""}`, { replace: true });
-  }, [found.data, navigate, q]);
+    if (found.data) navigate(`/chat/${found.data.conversation.id}${search ? `?${search}` : ""}`, { replace: true });
+  }, [found.data, navigate, search]);
   if (found.error) {
     return (
       <div className="p-6">
@@ -234,6 +234,9 @@ export default function Chat() {
   const list = useConversations({ scope });
   const legacy = params.get("c");
   const q = params.get("q") ?? undefined;
+  // Opened to teach the brain or to give work: the composer starts that way (where it is offered).
+  const intent = params.get("teach") ? "teach" : params.get("work") ? "work" : undefined;
+  const forwarded = new URLSearchParams([...params].filter(([key]) => key === "q" || key === "teach" || key === "work")).toString();
   const open = Boolean(id || kind);
 
   if (!open && legacy) return <Navigate to={`/chat/${encodeURIComponent(legacy)}`} replace />;
@@ -296,7 +299,7 @@ export default function Chat() {
       <div className={clsx("min-w-0 flex-1 flex-col", open ? "flex" : "hidden lg:flex")}>
         {kind && about ? (
           (FOR_KINDS as readonly string[]).includes(kind) ? (
-            <ResolveFor kind={kind as ForKind} about={about} q={q} />
+            <ResolveFor kind={kind as ForKind} about={about} search={forwarded} />
           ) : (
             <div className="p-6">
               <EmptyState
@@ -313,6 +316,7 @@ export default function Chat() {
             onBack={() => navigate("/chat")}
             initialText={q}
             onSentInitial={clearQ}
+            initialIntent={intent}
             className="min-h-[70vh] flex-1 lg:min-h-0"
           />
         ) : (

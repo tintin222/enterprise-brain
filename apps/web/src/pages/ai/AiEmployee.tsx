@@ -39,7 +39,6 @@ import { Dialog } from "../../components/Dialog.tsx";
 import { EmploymentPanel, PROBATION } from "../../components/Employment.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Field } from "../../components/Form.tsx";
-import { GiveWorkDialog } from "../../components/GiveWork.tsx";
 import { Page } from "../../components/Layout.tsx";
 import { Markdown } from "../../components/Markdown.tsx";
 import { LiveRunResult, RunForm } from "../../components/RunViews.tsx";
@@ -396,7 +395,7 @@ function DutiesTab({ detail }: { detail: AgentDetail }) {
       <Section title="Other ways work reaches it" icon={CirclePlay} className="lg:col-span-2">
         <ul className="space-y-2 text-sm text-fg">
           <li className="flex items-center gap-2.5">
-            <Send className="size-4 text-muted" /> People give it work in the app (Give work)
+            <Send className="size-4 text-muted" /> People give it work in the app (Give as work, in Chat or on Home)
           </li>
           {other.map((t, i) => (
             <li key={i} className="flex items-center gap-2.5">
@@ -729,7 +728,6 @@ export default function AiEmployee() {
   const coaching = useCoaching(slug ?? "");
   const departments = useDepartments();
   const { setStatus, remove } = useAgentMutations();
-  const [giving, setGiving] = useState(false);
   const [trying, setTrying] = useState(false);
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -808,9 +806,11 @@ export default function AiEmployee() {
           <ButtonLink to={`/chat/for/ai_employee/${agent.slug}`} icon={MessageSquare}>
             Talk to it
           </ButtonLink>
-          <Button variant="primary" icon={Send} onClick={() => setGiving(true)} disabled={!working && agent.status !== "testing"}>
-            Give work
-          </Button>
+          {(working || agent.status === "testing") && (
+            <ButtonLink to={`/chat/for/ai_employee/${agent.slug}?work=1`} variant="primary" icon={Send}>
+              Give work
+            </ButtonLink>
+          )}
           {data.canManage && (
             <>
               <Button
@@ -885,7 +885,6 @@ export default function AiEmployee() {
         )}
       </div>
 
-      <GiveWorkDialog open={giving} onClose={() => setGiving(false)} agent={agent.slug} />
       <TryDialog detail={data} open={trying} onClose={() => setTrying(false)} />
       <Dialog
         open={confirmDelete}

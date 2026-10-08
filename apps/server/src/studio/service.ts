@@ -904,7 +904,7 @@ export class StudioService {
       agent = await this.platform.agents.create(companyId, {
         definition: compiled.definition,
         status: "draft",
-        source: "builder",
+        source: "studio",
         departmentId: department.id,
         createdBy: actorOf(viewer),
         probation: spec.level,

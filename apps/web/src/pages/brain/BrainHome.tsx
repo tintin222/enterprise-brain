@@ -29,7 +29,6 @@ import {
 } from "./brain.tsx";
 import { EntityForm } from "./EntityForm.tsx";
 import { EventItem } from "./EventItem.tsx";
-import { TellTheBrain } from "./TellTheBrain.tsx";
 import { toneOf } from "./values.tsx";
 
 const QUESTIONS = [
@@ -413,7 +412,6 @@ export default function BrainHome() {
   const queryClient = useQueryClient();
   const overview = useBrainOverview();
   const mayEdit = useMayEditBrain();
-  const [telling, setTelling] = useState(false);
   const [adding, setAdding] = useState(false);
   const data = overview.data;
   const refresh = () => void queryClient.invalidateQueries({ queryKey: brainKeys.all(company) });
@@ -429,9 +427,9 @@ export default function BrainHome() {
         }
         actions={
           <>
-            <Button icon={Lightbulb} onClick={() => setTelling(true)}>
+            <ButtonLink to="/chat/for/ai_employee/company-brain?teach=1" icon={Lightbulb}>
               Tell the brain
-            </Button>
+            </ButtonLink>
             {mayEdit && (
               <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
                 Add
@@ -467,7 +465,6 @@ export default function BrainHome() {
           </div>
         </div>
       )}
-      <TellTheBrain open={telling} onClose={() => setTelling(false)} />
       {adding && <EntityForm open={adding} onClose={() => setAdding(false)} />}
     </Page>
   );

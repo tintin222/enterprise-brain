@@ -1,5 +1,5 @@
 import { and, eq, gte, inArray, isNotNull, lt, or, sql } from "drizzle-orm";
-import { activityLog, approvals, builderSessions, coachingNotes, runs, tasks, workItems, type DatabaseHandle } from "@enterprise-brain/db";
+import { activityLog, approvals, builderSessions, coachingNotes, runs, studioThreads, tasks, workItems, type DatabaseHandle } from "@enterprise-brain/db";
 import { employmentOf, type AgentRecord } from "./agents.ts";
 import { median, weekStart, workingHoursBetween, localDate, type WorkingHours } from "./working-hours.ts";
 
@@ -200,10 +200,22 @@ export class ReportService {
           .where(inArray(builderSessions.id, sessionIds))
       : [];
     const sessionStart = new Map(sessions.map((s) => [s.id, s.createdAt]));
+    // The Studio agent's threads, by the AI employees they built: hiring started when the thread did.
+    const threads = await this.handle.db
+      .select({ createdAt: studioThreads.createdAt, solution: studioThreads.solution })
+      .from(studioThreads)
+      .where(eq(studioThreads.companyId, companyId));
+    const threadStart = new Map<string, Date>();
+    for (const thread of threads) {
+      const employees = (thread.solution as { employees?: { agentId?: unknown }[] }).employees ?? [];
+      for (const employee of employees) if (typeof employee.agentId === "string") threadStart.set(employee.agentId, thread.createdAt);
+    }
     const rows: HiringRow[] = [];
     for (const agent of agents) {
-      const source = agent.row.builderSessionId ? "studio" : agent.row.templateId || agent.row.source === "template" ? "ready-made" : "other";
-      const startedAt = (agent.row.builderSessionId ? sessionStart.get(agent.row.builderSessionId) : undefined) ?? agent.row.createdAt;
+      const fromStudio = Boolean(agent.row.builderSessionId) || agent.row.source === "studio" || threadStart.has(agent.row.id);
+      const source = fromStudio ? "studio" : agent.row.templateId || agent.row.source === "template" ? "ready-made" : "other";
+      const startedAt =
+        (agent.row.builderSessionId ? sessionStart.get(agent.row.builderSessionId) : undefined) ?? threadStart.get(agent.row.id) ?? agent.row.createdAt;
       if (startedAt < since || startedAt > now) continue;
       // Hired at work (a ready-made one installed at work), or put to work later.
       const atWork =

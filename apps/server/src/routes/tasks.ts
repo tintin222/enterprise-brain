@@ -3,6 +3,7 @@ import { z } from "zod";
 import { OPEN_TASK_STATUSES } from "@enterprise-brain/runtime";
 import { actorOf, canManageDepartment, canSeeDepartment, viewerOf } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
+import { giveWork } from "../give-work.ts";
 import { canCorrect } from "./coaching.ts";
 import { HttpError, companyOf } from "../http.ts";
 
@@ -64,20 +65,19 @@ export async function taskRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   /** Give an AI employee work in plain words: it becomes a task. */
+  /** Give work: to the AI employee given, or to the one the words name with "@"; files go along. */
   app.post("/api/companies/:company/tasks", async (request) => {
     const company = await companyOf(platform, request);
-    const body = z.object({ agent: z.string(), text: z.string().min(3), wait: z.boolean().optional() }).parse(request.body);
-    const viewer = viewerOf(request);
-    const agent = await platform.agents.get(company.id, body.agent);
-    if (!canSeeDepartment(viewer, agent.row.departmentId)) throw new HttpError(404, `Agent "${body.agent}" not found`);
-    const run = await platform.engine.start(company.id, agent.row.id, {}, {
-      task: body.text,
-      trigger: "request",
-      actor: actorOf(viewer),
-      requestedBy: viewer.kind === "session" ? viewer.name : null,
-      wait: body.wait ?? false,
-    });
-    return { task: await platform.tasks.get(company.id, run.taskId!), run: { ...run, context: undefined } };
+    const body = z
+      .object({
+        agent: z.string().optional(),
+        text: z.string().min(3).max(20_000),
+        fileIds: z.array(z.string()).max(20).optional(),
+        wait: z.boolean().optional(),
+      })
+      .parse(request.body);
+    const given = await giveWork(platform, viewerOf(request), company.id, { ...body, trigger: "request" });
+    return { task: given.task, run: { ...given.run, context: undefined } };
   });
 
   app.post("/api/companies/:company/tasks/:task/retry", async (request) => {

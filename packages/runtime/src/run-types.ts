@@ -61,6 +61,8 @@ export interface ConversationScope {
   upToSeq: number;
   /** Who is in the conversation, so the AI employee can ask one of them. */
   participants?: { kind: string; id: string; name: string }[];
+  /** AI employees it may hand the matter to (only on a turn answering a person, and only ones that person sees). */
+  colleagues?: { id: string; slug: string; name: string; title: string; summary: string }[];
 }
 
 export interface RunEventInput {

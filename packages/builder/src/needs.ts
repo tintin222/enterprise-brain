@@ -32,7 +32,7 @@ export interface NeedTarget {
 
 export interface UnderstoodNeed {
   kind: NeedKind;
-  /** task, recurring: the AI employee whose job fits (its slug); none when no one's does. */
+  /** task, recurring: the AI employee whose job fits (its slug); none when no one's does. answer: the one named with "@", who answers it. */
   agent?: string;
   /** task, recurring: the work in the person's words, without when it repeats. */
   work?: string;
@@ -53,14 +53,22 @@ export interface UnderstoodNeed {
   drafted: "model" | "words";
 }
 
-export async function understandNeed(llm: LlmClient, input: { text: string; as?: NeedKind; materials: NeedMaterials }): Promise<UnderstoodNeed> {
+/**
+ * `named`: the AI employee the person named with "@" (its slug): the work is theirs unless the request
+ * is clearly something else, and a question goes to them.
+ */
+export async function understandNeed(
+  llm: LlmClient,
+  input: { text: string; as?: NeedKind; materials: NeedMaterials; named?: string },
+): Promise<UnderstoodNeed> {
   const text = input.text.trim().replace(/\s+/g, " ");
   if (text.length < 3) throw new Error("Say what you need");
-  if (llm.available) {
-    const read = await modelNeed(llm, text, input.materials, input.as).catch(() => undefined);
-    if (read) return read;
-  }
-  return wordsNeed(text, input.materials, input.as);
+  const named = input.named && input.materials.agents.some((a) => a.slug === input.named) ? input.named : undefined;
+  let need: UnderstoodNeed | undefined;
+  if (llm.available) need = await modelNeed(llm, text, input.materials, input.as, named).catch(() => undefined);
+  need ??= wordsNeed(text, input.materials, input.as, named);
+  if (named && need.kind === "answer") need.agent = named;
+  return need;
 }
 
 /** The readings worth offering instead of one, given what the company has. */
@@ -100,7 +108,7 @@ const SYSTEM = `You are the front door of Enterprise Brain, where business peopl
 - unclear: when you can't tell. Ask one short question back.
 Prefer an AI employee the company has when its job fits. Keep the person's own words for the work, the description and the change. Use only the slugs and keys listed. Times are 24-hour HH:MM; leave the time empty when none is said.`;
 
-async function modelNeed(llm: LlmClient, text: string, materials: NeedMaterials, as?: NeedKind): Promise<UnderstoodNeed | undefined> {
+async function modelNeed(llm: LlmClient, text: string, materials: NeedMaterials, as?: NeedKind, named?: string): Promise<UnderstoodNeed | undefined> {
   const schema: JsonSchema = {
     type: "object",
     properties: {
@@ -127,6 +135,7 @@ async function modelNeed(llm: LlmClient, text: string, materials: NeedMaterials,
     `Apps:\n${materials.apps.map((a) => `- ${a.key} (${a.name})`).join("\n") || "(none yet)"}`,
     `Calculations:\n${materials.calculations.map((c) => `- ${c.key} (${c.name})${c.rule ? `: ${c.rule}` : ""}`).join("\n") || "(none yet)"}`,
     as ? `The person says it is: ${NEED_LABELS[as]} (kind "${as}"). Read it as that.` : "",
+    named ? `The person named this AI employee with @: ${named}. Work in the request is theirs unless it clearly is something else.` : "",
     `The request: ${text}`,
   ].filter(Boolean);
   const { data } = await llm.structured<{
@@ -146,7 +155,7 @@ async function modelNeed(llm: LlmClient, text: string, materials: NeedMaterials,
   }>({ purpose: "studio.need", system: SYSTEM, effort: "low", schema, messages: [{ role: "user", content: lines.join("\n\n") }] });
   if (!data || !NEED_KINDS.includes(data.kind)) return undefined;
   let kind: NeedKind = as ?? data.kind;
-  const agent = materials.agents.find((a) => a.slug === data.agent.trim())?.slug;
+  const agent = materials.agents.find((a) => a.slug === data.agent.trim())?.slug ?? named;
   const schedule = data.every
     ? RepeatSchedule.parse({
         every: data.every,
@@ -394,6 +403,17 @@ function namedAgent(text: string, agents: NeedAgent[]): { agent: string; rest: s
   return undefined;
 }
 
+/** The AI employee named with "@" (its slug), wherever its name stands in the words: the work is the rest. */
+function namedBySlug(text: string, slug: string | undefined, agents: NeedAgent[]): { agent: string; rest: string } | undefined {
+  const agent = slug ? agents.find((a) => a.slug === slug) : undefined;
+  if (!agent) return undefined;
+  const rest = text
+    .replace(new RegExp(`${B}${escape(agent.name)}${E}\\s*[:,–-]?\\s*`, "iu"), "")
+    .replace(/^(?:please\s+)?(?:could you\s+|can you\s+)?/i, "")
+    .trim();
+  return { agent: agent.slug, rest: rest || text };
+}
+
 /** What the company has that the words name, the longest name first. */
 function mentioned(text: string, materials: NeedMaterials): NeedTarget | undefined {
   const things: NeedTarget[] = [
@@ -417,12 +437,12 @@ function withoutName(text: string, target: NeedTarget): string {
     .trim();
 }
 
-/** Read the request from the words alone (no model). */
-export function wordsNeed(text: string, materials: NeedMaterials, as?: NeedKind): UnderstoodNeed {
+/** Read the request from the words alone (no model); `namedSlug` is the AI employee named with "@". */
+export function wordsNeed(text: string, materials: NeedMaterials, as?: NeedKind, namedSlug?: string): UnderstoodNeed {
   const core = text.replace(POLITE, "").trim();
   const asking = ASKING.test(text);
   const { schedule, rest, notes } = scheduleFromWords(core);
-  const named = namedAgent(core, materials.agents);
+  const named = namedAgent(core, materials.agents) ?? namedBySlug(core, namedSlug, materials.agents);
   const target = mentioned(core, materials);
   const isQuestion = !asking && (QUESTION.test(core) || core.endsWith("?"));
   const calcLike = CALC.test(rest) || ((isQuestion || HOW_MANY.test(core)) && CALC_WORDS.test(core) && mentionsTable(core, materials));
