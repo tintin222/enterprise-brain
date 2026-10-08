@@ -1,14 +1,19 @@
 import { describe, expect, it } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
+import { fieldsToJsonSchema } from "@enterprise-brain/core";
 import {
   AnthropicLlm,
   HALT_TEXT,
   LlmRefusalError,
   LocalHashEmbedder,
+  MAX_UNION_PARAMETERS,
   ScriptedLlm,
   UnavailableLlm,
   createLlmFromEnv,
   extractJson,
+  fromStructuredOutput,
+  structuredOutputProblems,
+  toStructuredOutputSchema,
 } from "../src/index.ts";
 
 type BetaMessage = Anthropic.Beta.Messages.BetaMessage;
@@ -160,6 +165,31 @@ describe("AnthropicLlm", () => {
     const result = await llm.structured<{ category: string }>({ purpose: "classify", messages: [{ role: "user", content: "x" }], schema });
     expect(result.data.category).toBe("invoice");
     expect((requests[0]!.output_config as { format: unknown }).format).toEqual({ type: "json_schema", schema });
+  });
+
+  it("sends optional fields in a form Claude accepts, and gives back null for an empty value", async () => {
+    // The Mail Assistant's details: an optional choice was rejected ("Enum value 'low' does not match declared type").
+    const schema = fieldsToJsonSchema(
+      [
+        { key: "summary", type: "string", required: true },
+        { key: "urgency", label: "Urgency", type: "select", options: [{ value: "low" }, { value: "medium" }, { value: "high" }] },
+        { key: "due_date", label: "Due date", type: "date" },
+        { key: "references", type: "list" },
+      ],
+      { forLlm: true },
+    );
+    const { client, requests } = fakeClient([
+      message({ content: [{ type: "text", text: '{"summary":"A CV","urgency":"","due_date":"","references":[]}', citations: null }] }),
+    ]);
+    const llm = new AnthropicLlm({ client });
+    const result = await llm.structured<Record<string, unknown>>({ purpose: "extract", messages: [{ role: "user", content: "x" }], schema });
+    const sent = (requests[0]!.output_config as { format: { schema: { properties: Record<string, Record<string, unknown>> } } }).format.schema;
+    expect(sent.properties.urgency).toEqual({ description: "Urgency. Empty when not known.", type: "string", enum: ["low", "medium", "high", ""] });
+    expect(sent.properties.due_date).toMatchObject({ type: "string", description: "Due date. ISO 8601 date (YYYY-MM-DD). Empty when not known." });
+    expect(sent.properties.references).toMatchObject({ type: "array", description: "An empty list when there is none." });
+    expect(structuredOutputProblems(sent)).toEqual([]);
+    // What comes back is what the schema promised: null where nothing was found.
+    expect(result.data).toEqual({ summary: "A CV", urgency: null, due_date: null, references: null });
   });
 
   it("throws on refusals", async () => {
@@ -319,6 +349,77 @@ describe("ScriptedLlm / factory", () => {
     expect(createLlmFromEnv({}).available).toBe(false);
     expect(createLlmFromEnv({ EB_LLM_PROVIDER: "offline", ANTHROPIC_API_KEY: "x" })).toBeInstanceOf(UnavailableLlm);
     expect(createLlmFromEnv({ ANTHROPIC_API_KEY: "sk-test" }).provider).toBe("anthropic");
+  });
+});
+
+describe("structured-output schemas", () => {
+  it("keeps other optional types as a list of types, and an optional choice of them as anyOf", () => {
+    const sent = toStructuredOutputSchema({
+      type: "object",
+      properties: {
+        amount: { type: ["number", "null"] },
+        level: { type: ["integer", "null"], enum: [1, 2, 3, null], description: "Level" },
+        name: { type: "string", enum: ["a", "b"] },
+      },
+      required: ["amount", "level", "name"],
+    });
+    expect(sent.properties).toEqual({
+      amount: { type: ["number", "null"] },
+      level: { description: "Level", anyOf: [{ type: "integer", enum: [1, 2, 3] }, { type: "null" }] },
+      name: { type: "string", enum: ["a", "b"] },
+    });
+    expect(sent.additionalProperties).toBe(false);
+    expect(structuredOutputProblems(sent)).toEqual([]);
+  });
+
+  it("gives back null for empty values at any depth, and leaves the rest alone", () => {
+    const schema = fieldsToJsonSchema(
+      [
+        {
+          key: "lines",
+          type: "list",
+          required: true,
+          fields: [
+            { key: "sku", type: "string", required: true },
+            { key: "note", type: "string" },
+          ],
+        },
+      ],
+      { forLlm: true },
+    );
+    expect(
+      fromStructuredOutput(schema, {
+        lines: [
+          { sku: "", note: "" },
+          { sku: "A-1", note: "fragile" },
+        ],
+      }),
+    ).toEqual({
+      lines: [
+        { sku: "", note: null },
+        { sku: "A-1", note: "fragile" },
+      ],
+    });
+  });
+
+  it("names what Claude rejects: a list of types with choices, and too many unions", () => {
+    expect(structuredOutputProblems({ type: ["string", "null"], enum: ["low", null] })).toEqual([
+      "$: a list of types with enum or const is rejected; use anyOf",
+    ]);
+    const many = {
+      type: "object",
+      additionalProperties: false,
+      properties: Object.fromEntries(Array.from({ length: MAX_UNION_PARAMETERS + 1 }, (_, i) => [`n${i}`, { type: ["number", "null"] }])),
+    };
+    expect(structuredOutputProblems(many)).toEqual([
+      `$: ${MAX_UNION_PARAMETERS + 1} parameters use anyOf or a list of types; Claude accepts at most ${MAX_UNION_PARAMETERS}`,
+    ]);
+  });
+
+  it("lets the scripted model check schemas as they are sent, and return what the real one would", async () => {
+    const schema = fieldsToJsonSchema([{ key: "urgency", type: "select", options: [{ value: "low" }] }], { forLlm: true });
+    const llm = new ScriptedLlm({ extract: { structured: () => ({ urgency: "" }) } });
+    expect((await llm.structured({ purpose: "extract", messages: [], schema })).data).toEqual({ urgency: null });
   });
 });
 

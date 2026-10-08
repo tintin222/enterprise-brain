@@ -23,7 +23,7 @@ import {
   type ToolsetName,
   type ToolsetResult,
 } from "./types.ts";
-import { toStructuredOutputSchema } from "./schema.ts";
+import { fromStructuredOutput, toStructuredOutputSchema } from "./schema.ts";
 
 type BetaMessage = Anthropic.Beta.Messages.BetaMessage;
 type BetaCreateParams = Anthropic.Beta.Messages.MessageCreateParamsNonStreaming;
@@ -240,7 +240,7 @@ export class AnthropicLlm implements LlmClient {
     }
     const raw = this.textOf(message);
     try {
-      return { data: JSON.parse(raw) as T, usage: this.usageOf(message), model: message.model };
+      return { data: fromStructuredOutput(request.schema, JSON.parse(raw) as T), usage: this.usageOf(message), model: message.model };
     } catch {
       throw new LlmOutputError(`Structured output for "${request.purpose}" was not valid JSON`, raw);
     }

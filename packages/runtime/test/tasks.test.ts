@@ -14,6 +14,16 @@ import { Platform, taskRefIn, type TaskRow } from "../src/index.ts";
 
 const firstMessage = (request: ToolLoopRequest) => String((request.messages[0] as { content: unknown }).content);
 
+/** An answer the person reads in full, and last words longer than an outcome may be. */
+const LEAVE_ANSWER = [
+  "**Carry-over:** you can carry up to 5 unused days into the next year; they must be taken by 31 March.",
+  "",
+  "- Ask your manager before 1 December to carry days over.",
+  "- Days not taken by 31 March are lost.",
+].join("\n");
+const TRAVEL_ANSWER =
+  `The travel policy, in short: ${"book economy for flights under six hours, keep receipts, and file the expense within 30 days. ".repeat(8)}`.trim();
+
 /** The autonomous AI employee: asks the supplier, waits for the answer, closes the task when it comes. */
 const llm = new ScriptedLlm({
   "runtime.agent": {
@@ -25,6 +35,12 @@ const llm = new ScriptedLlm({
       if (/rejected/.test(brief)) {
         return turn === 1 ? { calls: [{ name: "task_complete", input: { outcome: "Not sent: the manager rejected the email." } }] } : { text: "Closed." };
       }
+      if (/leave policy/.test(brief)) {
+        return turn === 1
+          ? { calls: [{ name: "task_complete", input: { answer: LEAVE_ANSWER, outcome: "Up to 5 unused days carry over, to be taken by 31 March." } }] }
+          : { text: "Closed." };
+      }
+      if (/travel policy/.test(brief)) return { text: TRAVEL_ANSWER };
       if (turn === 1) {
         return {
           calls: [
@@ -176,6 +192,30 @@ describe("an AI employee that plans its own wait", () => {
     const settled = await platform.engine.waitForSettled(companyId, (await platform.tasks.runsOf(task.id)).at(-1)!.id);
     expect(settled.status).toBe("succeeded");
     expect(await platform.tasks.get(companyId, task.id)).toMatchObject({ status: "done", outcome: "Not sent: the manager rejected the email." });
+  });
+});
+
+describe("an AI employee's answer", () => {
+  it("keeps the answer for the person who gave the work, and the outcome for lists", async () => {
+    const run = await platform.engine.start(companyId, "invoice-clerk", {}, { task: "What does the leave policy say about carry-over?", actor: "Elif Arslan" });
+    const task = await taskOf(run.id);
+    expect(task).toMatchObject({ status: "done", outcome: "Up to 5 unused days carry over, to be taken by 31 March.", answer: LEAVE_ANSWER });
+    expect((await platform.tasks.events(task.id)).at(-1)?.message).toBe("Done: Up to 5 unused days carry over, to be taken by 31 March.");
+    // Its conversation shows the answer as the AI employee's own words.
+    const { conversation } = await platform.conversations.forTask(companyId, task);
+    const said = (await platform.conversations.messages(companyId, conversation.id, { limit: 20 })).filter((m) => m.author.kind === "ai_employee");
+    expect(said.map((m) => m.text)).toEqual([LEAVE_ANSWER]);
+    // Woken again, it reads what it answered.
+    const brief = await platform.tasks.brief(task, { kind: "message", messages: [{ seq: 2, author: "Elif Arslan", text: "And sick leave?" }] });
+    expect(brief).toContain(`Your answer when you last closed it (the person who gave the work read this):\n${LEAVE_ANSWER}`);
+  });
+
+  it("keeps all of its last words as the answer when it ends without task_complete", async () => {
+    const run = await platform.engine.start(companyId, "invoice-clerk", {}, { task: "Summarise the travel policy." });
+    const task = await taskOf(run.id);
+    expect(TRAVEL_ANSWER.length).toBeGreaterThan(600);
+    expect(task.answer).toBe(TRAVEL_ANSWER);
+    expect(task.outcome!.length).toBeLessThanOrEqual(600);
   });
 });
 

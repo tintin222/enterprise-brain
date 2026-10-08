@@ -119,6 +119,7 @@ export class MentionCards {
           `## ${task.ref}: ${task.title} — task (${task.status.replace("_", " ")})`,
           `AI employee: ${agent?.definition.name ?? "unknown"}${task.requestedBy ? ` · asked by ${task.requestedBy}` : ""}`,
           events.length ? `Latest:\n${events.map((e) => `- ${e.createdAt.toISOString().slice(0, 16).replace("T", " ")} ${e.message}`).join("\n")}` : "",
+          task.answer ? `Its answer:\n${truncate(task.answer, 1500)}` : "",
         ]
           .filter(Boolean)
           .join("\n");

@@ -41,7 +41,7 @@ Where it shows:
 | An AI employee names another AI employee | the other answers only if the person's message named both; never a third time |
 | An AI employee hands the person's message over to a colleague | the colleague, once; its reply is the last hop |
 | A person sends with **Teach the brain** | nobody answers; the company brain puts a card with what it understood |
-| A person sends with **Give as work** | nobody answers; the AI employee gets a task, and the conversation says when it is done |
+| A person sends with **Give as work** | nobody answers right away; the AI employee gets a task, and its answer comes back here as a reply when the task is done |
 
 Each AI turn is a **run** (`trigger: "conversation"`), so Shadow, Supervised and Trusted apply as today: a Supervised AI employee that wants to send an email makes an approval card in the conversation; a Trusted one acts within its limits. Its final text is its message. It has two extra tools: `conversation_ask`, which puts a question card in front of a named participant (or its manager), and `conversation_hand_over` (below). "Invoice Processor is working…" shows while it runs. One turn at a time per AI employee per conversation; messages that arrive during a turn are read by the next one. Guards: 3 AI replies per message, 20 AI turns per conversation per hour, the existing budgets. Without a model, the AI employee answers with the closest things of the brain and passages of the knowledge base, labelled offline.
 
@@ -54,7 +54,7 @@ People named in a message get an email (once per unread stretch of the conversat
 - One hand-over per message: the colleague's reply is the last hop, so nothing chains. The guidance says to hand over only what is clearly a colleague's job, never what it can answer itself.
 - Without a model there are no tools, so there is no hand-over.
 
-![A hand-over in Chat: the Invoice Processor passes a customer's unpaid invoices to the Collections Clerk, who answers; then Elif gives the Clerk more as work, and the conversation says when the task is done](screenshots/chat-hand-over.png)
+![A hand-over in Chat: the Invoice Processor passes a customer's unpaid invoices to the Collections Clerk, who answers; then Elif gives the Clerk more as work, and the Clerk's answer comes back as a reply when the task is done](screenshots/chat-hand-over.png)
 
 **The Send menu.** Next to Send, a small menu offers two more ways to send, only where they apply. The server says which in the conversation's `offers`, and checks them again when the message comes:
 
@@ -71,7 +71,7 @@ The chosen way shows as a chip above the text, with ✕. After sending, it goes 
 
 ![Teaching the company brain in Chat: a card with what it understood, each change with a tick box, kept by the person who taught it](screenshots/chat-teach.png)
 
-**Give as work.** The message becomes a **task** for one AI employee: the talk's, or the one the message names (exactly one; not the company brain). The task keeps the person's words as its request, with the files and the cards of what the message names; it says "Given by" the person and points back to the conversation. The message shows "Given to X as EB-… →". When the task is done or fails, the conversation gets one line saying so. The AI employee does the work as a task, not as an answer, so nobody answers the message in the conversation.
+**Give as work.** The message becomes a **task** for one AI employee: the talk's, or the one the message names (exactly one; not the company brain). The task keeps the person's words as its request, with the files and the cards of what the message names; it says "Given by" the person and points back to the conversation. The message shows "Given to X as EB-… →". The AI employee does the work as a task, not as a quick answer, so nobody answers the message right away. When the task is done, **its answer comes back here**: the AI employee's message, replying to the one that gave the work, with "EB-… is done · Open the task". A reply to it reaches that AI employee, like any reply. When the task fails, a line from the app says so. The answer is what the person reads in full; the task also keeps a one-sentence outcome for lists (`task_complete` takes both).
 
 ## 4. One composer everywhere
 

@@ -62,7 +62,8 @@ export function TaskTable({ tasks, showAgent = true, empty }: { tasks: TaskRow[]
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-line text-left text-xs text-muted">
-            <th className="px-4 py-2.5 font-medium">Task</th>
+            {/* The task takes what the other columns leave; its title is cut to fit. */}
+            <th className="w-full px-4 py-2.5 font-medium">Task</th>
             {showAgent && <th className="hidden px-4 py-2.5 font-medium md:table-cell">AI employee</th>}
             <th className="px-4 py-2.5 font-medium">Status</th>
             <th className="hidden px-4 py-2.5 font-medium lg:table-cell">From</th>

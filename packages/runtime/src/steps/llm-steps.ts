@@ -46,7 +46,7 @@ export async function runLlmExtract(step: Step<"llm.extract">, scope: ExecutionS
         role: "user",
         content: [
           "Extract the requested fields from the source below.",
-          "Use null when a value is not present in the source. Never invent values; copy names, numbers and dates exactly. Dates as YYYY-MM-DD.",
+          "Leave a value empty (or null) when it is not in the source. Never invent values; copy names, numbers and dates exactly. Dates as YYYY-MM-DD.",
           instructions,
           "<source>",
           text,

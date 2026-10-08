@@ -826,8 +826,9 @@ export class ConversationService {
   }
 
   /**
-   * The task's history, as the conversation shows it: the AI employee's notes as its messages; done,
-   * failed, waiting, stopped, paused and resumed as lines from the app. Cards come from the work queue.
+   * The task's history, as the conversation shows it: the AI employee's notes and its answer as its
+   * messages; failed, waiting, stopped, paused and resumed as lines from the app. Cards come from the
+   * work queue.
    */
   async mirrorTaskEvent(companyId: string, task: TaskRow, event: { type: string; message: string; actor: string; runId: string | null }): Promise<void> {
     const kinds = new Set(["note", "done", "failed", "waiting", "stopped", "paused", "resumed", "blocked"]);
@@ -835,23 +836,62 @@ export class ConversationService {
     if ((event.type === "done" || event.type === "failed") && task.source === "chat" && task.sourceRef) await this.tellWhereGiven(companyId, task, event);
     const { conversation } = await this.forTask(companyId, task);
     if (event.type === "note" || event.type === "done") {
-      // Its notes and its outcome are its own words in the conversation.
+      // Its notes and its answer (else its outcome) are its own words in the conversation.
       const agent = await this.deps.agents.find(companyId, task.agentId);
       if (!agent) return;
-      const text = event.type === "done" ? event.message.replace(/^Done:\s*/, "") : event.message;
+      const text = event.type === "done" ? (task.answer ?? event.message.replace(/^Done:\s*/, "")) : event.message;
       if (text.trim()) await this.post(companyId, conversation.id, { author: agentActor(agent), text, runId: event.runId, data: { [event.type]: true } });
       return;
     }
     await this.postSystem(companyId, conversation.id, event.message, { taskEvent: event.type });
   }
 
-  /** Work given in a conversation ("Give as work"): the conversation hears when its task ends. */
-  private async tellWhereGiven(companyId: string, task: TaskRow, event: { type: string; message: string }): Promise<void> {
+  /**
+   * Work given in a conversation ("Give as work"): when it is done, the AI employee answers there, replying
+   * to the message that gave it; when it fails, a line from the app says so.
+   */
+  private async tellWhereGiven(companyId: string, task: TaskRow, event: { type: string; message: string; runId?: string | null }): Promise<void> {
     const where = await this.find(companyId, task.sourceRef!).catch(() => undefined);
     if (!where) return;
     const outcome = event.message.replace(/^(Done|Failed):\s*/, "");
-    const line = event.type === "done" ? `${task.ref} is done: ${outcome}` : `${task.ref} failed: ${outcome}`;
-    await this.postSystem(companyId, where.conversation.id, truncate(line, 600), { task: { id: task.id, ref: task.ref }, taskEvent: event.type });
+    const agent = event.type === "done" ? await this.deps.agents.find(companyId, task.agentId) : undefined;
+    if (!agent) {
+      const line = event.type === "done" ? `${task.ref} is done: ${outcome}` : `${task.ref} failed: ${outcome}`;
+      await this.postSystem(companyId, where.conversation.id, truncate(line, 600), { task: { id: task.id, ref: task.ref }, taskEvent: event.type });
+      return;
+    }
+    // No answersSeq: the turn planner leaves an answer to given work alone; a reply to it reaches the AI employee.
+    await this.post(companyId, where.conversation.id, {
+      author: agentActor(agent),
+      text: task.answer ?? outcome,
+      runId: event.runId ?? null,
+      replyToId: await this.givingMessage(companyId, where.conversation.id, task.id),
+      data: { task: { id: task.id, ref: task.ref, title: task.title }, taskEvent: "done" },
+    });
+  }
+
+  /**
+   * The person's message that gave the work. It is written once the task has started, so an answer that
+   * comes very fast (offline, or a short task) waits a moment for it, to come after it.
+   */
+  private async givingMessage(companyId: string, conversationId: string, taskId: string): Promise<string | null> {
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const [row] = await this.db
+        .select({ id: conversationMessages.id })
+        .from(conversationMessages)
+        .where(
+          and(
+            eq(conversationMessages.companyId, companyId),
+            eq(conversationMessages.conversationId, conversationId),
+            eq(conversationMessages.authorKind, "person"),
+            sql`${conversationMessages.data}->'task'->>'id' = ${taskId}`,
+          ),
+        )
+        .limit(1);
+      if (row) return row.id;
+      await new Promise((resolve) => setTimeout(resolve, 75));
+    }
+    return null;
   }
 
   /** Did a run already leave a message here (its outcome, mirrored from the task)? */

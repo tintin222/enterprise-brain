@@ -560,7 +560,13 @@ function taskTools(deps: ToolDeps, tasks: TaskService, scope: ToolScope, task: {
       });
       return { content: `Asked. Task ${task.ref} waits for the answer; you will be woken with it. End your turn now.` };
     },
-    task_complete: async (input) => plan({ next: "complete", outcome: String(input.outcome) }, `Task ${task.ref} will close as done. End your turn now.`),
+    task_complete: async (input) => {
+      const answer = typeof input.answer === "string" && input.answer.trim() ? input.answer.trim() : undefined;
+      return plan(
+        { next: "complete", outcome: String(input.outcome ?? ""), ...(answer ? { answer } : {}) },
+        `Task ${task.ref} will close as done. End your turn now.`,
+      );
+    },
   };
   return taskToolDefinitions(`task ${task.ref}`).map((definition) => ({ capability: "task", kind: "read", definition, execute: execute[definition.name]! }));
 }
@@ -605,9 +611,16 @@ function taskToolDefinitions(task: string): ToolDefinition[] {
     ),
     tool(
       "task_complete",
-      `Close ${task}: the work is finished. Give the outcome in one or two sentences for the people who read the task.`,
-      { outcome: { type: "string" } },
-      ["outcome"],
+      `Close ${task}: the work is finished. The person who gave you the work reads your answer; the outcome is a sentence for the task list.`,
+      {
+        answer: {
+          type: "string",
+          description:
+            "What the person who gave you the work reads, written to them: the answer itself (the information they asked for, what you found, or what you did and what is still open), in Markdown, as long as it needs to be. Never a description of an answer, such as 'Gave the user a summary'.",
+        },
+        outcome: { type: "string", description: "One short sentence with the result itself, for the task list and history" },
+      },
+      ["answer", "outcome"],
     ),
   ];
 }

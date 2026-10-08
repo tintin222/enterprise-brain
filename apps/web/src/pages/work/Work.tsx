@@ -14,6 +14,7 @@ type View = "queue" | "tasks" | "handled";
 type Scope = "mine" | "all";
 
 const STATUS_FILTERS = [
+  { value: "all", label: "All, newest first" },
   { value: "open", label: "Open" },
   { value: "needs_person", label: "Needs a person" },
   { value: "working", label: "Working" },
@@ -22,7 +23,6 @@ const STATUS_FILTERS = [
   { value: "done", label: "Done" },
   { value: "failed", label: "Stopped with a problem" },
   { value: "stopped", label: "Stopped" },
-  { value: "all", label: "All" },
 ];
 
 function Queue({
@@ -74,7 +74,8 @@ export default function Work() {
   const [params, setParams] = useSearchParams();
   const view = (params.get("view") as View | null) ?? "queue";
   const scope = (params.get("scope") as Scope | null) ?? "mine";
-  const status = params.get("status") ?? "open";
+  // Tasks: open and finished together, newest activity first, so work that just finished is at the top.
+  const status = params.get("status") ?? "all";
   const agent = params.get("agent") ?? "";
   const department = params.get("department") ?? "";
   const update = (patch: Record<string, string | null>) => {
@@ -132,12 +133,7 @@ export default function Work() {
       {view === "tasks" && (
         <>
           <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-3 lg:max-w-4xl">
-            <select
-              className="input"
-              value={status}
-              onChange={(e) => update({ status: e.target.value === "open" ? null : e.target.value })}
-              aria-label="Status"
-            >
+            <select className="input" value={status} onChange={(e) => update({ status: e.target.value === "all" ? null : e.target.value })} aria-label="Status">
               {STATUS_FILTERS.map((f) => (
                 <option key={f.value} value={f.value}>
                   {f.label}
@@ -179,7 +175,11 @@ export default function Work() {
                     icon={ListChecks}
                     title="No tasks here"
                     description={
-                      status === "open" ? "Nothing is in progress. Give an AI employee work, or wait for its duties to start some." : "Try another filter."
+                      status === "all"
+                        ? "No tasks yet. Give an AI employee work in Chat or on Home, or wait for its duties to start some."
+                        : status === "open"
+                          ? "Nothing is in progress right now."
+                          : "Try another filter."
                     }
                   />
                 }

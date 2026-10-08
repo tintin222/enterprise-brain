@@ -606,7 +606,7 @@ export class RunEngine {
       summary: `${agentName} finished`,
     });
     await this.afterRun(companyId, run.agentId).catch(() => undefined);
-    if (run.taskId) await this.settleTask(companyId, run.taskId, runId, outputText(output));
+    if (run.taskId) await this.settleTask(companyId, run.taskId, runId, outputText(output), answerText(output));
   }
 
   /**
@@ -631,7 +631,7 @@ export class RunEngine {
   // -------------------------------------------------------------------------
 
   /** After a run: a person is still needed, or the task follows its plan (wait, follow up, done). */
-  private async settleTask(companyId: string, taskId: string, runId: string, outcome: string) {
+  private async settleTask(companyId: string, taskId: string, runId: string, outcome: string, answer?: string) {
     const task = await this.deps.tasks.byId(taskId);
     if (!task || task.status !== "working") return;
     const pending = [...(await this.deps.tasks.approvalsOf(taskId, "pending")).map((a) => a.title), ...(await this.deps.work.openFor(taskId, "question")).map((q) => q.title)];
@@ -645,7 +645,7 @@ export class RunEngine {
       });
       return;
     }
-    await this.followPlan(task, runId, outcome);
+    await this.followPlan(task, runId, outcome, answer);
   }
 
   /**
@@ -681,8 +681,11 @@ export class RunEngine {
     return { id: item.id };
   }
 
-  /** No person is needed any more: wait for a reply, follow up later, or close the task. */
-  private async followPlan(task: TaskRow, runId: string | null, fallbackOutcome: string) {
+  /**
+   * No person is needed any more: wait for a reply, follow up later, or close the task. Closing keeps the
+   * answer for the person who gave the work: the one given to task_complete, else the run's last words.
+   */
+  private async followPlan(task: TaskRow, runId: string | null, fallbackOutcome: string, fallbackAnswer?: string) {
     const plan = task.plan as TaskPlan | null;
     const now = new Date();
     const actor = `agent:${task.agentId}`;
@@ -708,8 +711,10 @@ export class RunEngine {
         runId,
       });
     } else {
-      const outcome = plan?.next === "complete" ? plan.outcome : fallbackOutcome;
-      await this.deps.tasks.update(task.id, { status: "done", plan: null, waitingFor: null, nextCheckAt: null, outcome, closedAt: now });
+      const planned = plan?.next === "complete" ? plan : undefined;
+      const answer = (planned ? planned.answer : fallbackAnswer)?.trim() || null;
+      const outcome = String(planned?.outcome ?? "").trim() || (planned && answer ? truncate(answer.replace(/\s+/g, " "), 300) : "") || fallbackOutcome;
+      await this.deps.tasks.update(task.id, { status: "done", plan: null, waitingFor: null, nextCheckAt: null, outcome, answer, closedAt: now });
       await this.deps.tasks.record(task.companyId, task.id, { type: "done", message: `Done: ${truncate(outcome, 400)}`, actor, runId });
       // In Shadow, a person checks every finished task.
       const agent = await this.deps.agents.find(task.companyId, task.agentId);
@@ -717,7 +722,7 @@ export class RunEngine {
         await this.deps.work.create(task.companyId, {
           kind: "review",
           title: `Check ${possessive(agent.definition.name)} work: ${task.title}`,
-          details: outcome,
+          details: truncate(answer ?? outcome, 4000),
           taskId: task.id,
           agentId: agent.row.id,
           departmentId: agent.row.departmentId,
@@ -948,7 +953,12 @@ export class RunEngine {
       return;
     }
     await this.deps.tasks.update(taskId, { status: "working" });
-    await this.followPlan({ ...task, status: "working" }, latest?.id ?? null, latest?.output ? outputText(latest.output) : "Done after approval");
+    await this.followPlan(
+      { ...task, status: "working" },
+      latest?.id ?? null,
+      latest?.output ? outputText(latest.output) : "Done after approval",
+      latest?.output ? answerText(latest.output) : undefined,
+    );
   }
 
   private async fail(run: RunRow, error: unknown, stepId?: string) {
@@ -1428,6 +1438,16 @@ export function taskTitle(definition: AgentDefinition, input: Record<string, unk
   if (trigger === "schedule") return `${definition.name}: scheduled work`;
   const first = definition.inputs.map((f) => input[f.key]).find((v) => typeof v === "string" && v.trim() && v.length < 200) as string | undefined;
   return truncate(first ? `${definition.name}: ${first.trim()}` : definition.name, 120);
+}
+
+/** A run's last words in full (its text or summary), for the person who gave the work; nothing for fields only. */
+function answerText(output: unknown): string | undefined {
+  if (!isRecord(output)) return undefined;
+  for (const key of ["summary", "text", "result", "answer", "reply"]) {
+    const value = output[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
 }
 
 /** A short outcome from a run's output: its text, summary or fields. */

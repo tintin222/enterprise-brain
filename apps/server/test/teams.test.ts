@@ -38,7 +38,17 @@ const llm = new ScriptedLlm({
   "runtime.agent": {
     tools: (request, turn) =>
       /remind/i.test(firstMessage(request)) && turn === 1
-        ? { calls: [{ name: "task_complete", input: { outcome: "Reminded Kaya Çelik about INV-9; they pay on Friday." } }] }
+        ? {
+            calls: [
+              {
+                name: "task_complete",
+                input: {
+                  answer: "I reminded Kaya Çelik about INV-9 by email. Their accounts team answered: they pay on Friday, 10 October.",
+                  outcome: "Reminded Kaya Çelik about INV-9; they pay on Friday.",
+                },
+              },
+            ],
+          }
         : { text: "Done." },
   },
 });
@@ -257,7 +267,8 @@ describe("Microsoft Teams", () => {
       await t.platform.notifications.idle();
       const news = since(before).find((r) => cardText(cardOf(r)).startsWith(`Reminder Clerk · ${task!.ref}`));
       expect(cardText(cardOf(news))).toContain("Done: remind Kaya Çelik about INV-9 and ask when they pay");
-      expect(cardText(cardOf(news))).toContain("they pay on Friday");
+      // The news carries what the AI employee answered, not only its one-line outcome.
+      expect(cardText(cardOf(news))).toContain("Their accounts team answered: they pay on Friday, 10 October.");
 
       // The conversation now goes to Reminder Clerk: no need to name it again.
       await post(activity({ text: "Also remind Aras Lojistik about INV-12" }));

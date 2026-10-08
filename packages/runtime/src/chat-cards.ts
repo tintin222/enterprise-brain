@@ -3,6 +3,7 @@ import {
   describeChange,
   explanationOf,
   itemSubject,
+  newsText,
   SUMMARY_LIST_LIMIT,
   type ItemMessage,
   type SummaryMessage,
@@ -198,7 +199,7 @@ export function taskNewsCard(message: TaskNewsMessage): Card {
     summary: `${message.task.ref}: ${message.text}`,
     title: message.text,
     subtitle: `${message.agentName} · ${message.task.ref}`,
-    blocks: message.task.outcome ? [{ kind: "text", text: truncate(message.task.outcome, 1500) }] : [],
+    blocks: newsText(message) ? [{ kind: "text", text: truncate(newsText(message)!, 1500) }] : [],
     actions: [{ kind: "open", label: "Open the task", url: message.link }],
   };
 }

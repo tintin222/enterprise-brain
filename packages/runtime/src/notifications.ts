@@ -461,7 +461,7 @@ export class NotificationService {
       companyId: event.companyId,
       companyName: company.name,
       person,
-      task: { ref: task.ref, title: task.title, status: task.status, outcome: task.outcome },
+      task: { ref: task.ref, title: task.title, status: task.status, outcome: task.outcome, answer: task.answer },
       agentName: agent?.definition.name ?? "Your AI employee",
       text: text(task.title),
       link: `${this.publicUrl}/work/${encodeURIComponent(task.ref)}`,

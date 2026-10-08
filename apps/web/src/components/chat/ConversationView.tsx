@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { ArrowDown, ArrowLeft, Briefcase, CornerUpLeft, ExternalLink, Lightbulb, MessagesSquare, Reply, UserPlus } from "lucide-react";
+import { ArrowDown, ArrowLeft, Briefcase, CircleCheck, CornerUpLeft, ExternalLink, Lightbulb, MessagesSquare, Reply, UserPlus } from "lucide-react";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { api, fileUrl, subscribe } from "../../api.ts";
@@ -69,9 +69,21 @@ function AuthorLine({ message, extra }: { message: Message; extra?: ReactNode })
   );
 }
 
-/** Under a message given as work or taught to the brain: what became of it. */
+/** Under a message given as work or taught to the brain: what became of it; under an answer to given work: its task. */
 function IntentFooter({ message }: { message: Message }) {
   const data = message.data ?? {};
+  if (data.taskEvent === "done" && message.author.kind === "ai_employee") {
+    const done = data.task as { ref?: string } | undefined;
+    if (!done?.ref) return null;
+    return (
+      <Link
+        to={`/work/${encodeURIComponent(done.ref)}`}
+        className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 hover:underline dark:text-emerald-300"
+      >
+        <CircleCheck className="size-3" /> {done.ref} is done · Open the task
+      </Link>
+    );
+  }
   if (data.intent === "teach") {
     return (
       <p className="mt-1 flex items-center gap-1 text-[11px] text-muted">

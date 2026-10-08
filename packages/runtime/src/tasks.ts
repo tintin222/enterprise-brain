@@ -17,7 +17,7 @@ export const OPEN_TASK_STATUSES: TaskStatus[] = ["working", "waiting", "needs_pe
 
 /** What the AI employee does once no person is needed any more (set by its task tools). */
 export type TaskPlan =
-  | { next: "complete"; outcome: string }
+  | { next: "complete"; outcome: string; answer?: string }
   | { next: "wait_reply"; days: number; note?: string }
   | { next: "follow_up"; at: string; note?: string };
 
@@ -282,12 +282,13 @@ export class TaskService {
       "",
       "What happened so far:",
       history || "- (nothing recorded yet)",
+      ...(task.answer ? ["", "Your answer when you last closed it (the person who gave the work read this):", truncate(task.answer, 3000)] : []),
       "",
       "Why you are looking at it again:",
       wakeText(reason, task),
       ...(extras ? ["", extras] : []),
       "",
-      "Decide the next step and act. When you have to wait for someone, call task_wait_for_reply; to look again later, call task_follow_up; when the work is finished, call task_complete with the outcome.",
+      "Decide the next step and act. When you have to wait for someone, call task_wait_for_reply; to look again later, call task_follow_up; when the work is finished, call task_complete with your answer for the person who gave you the work and a one-sentence outcome.",
     ];
     return lines.join("\n");
   }

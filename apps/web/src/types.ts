@@ -1200,7 +1200,10 @@ export interface TaskRow {
   input: Record<string, unknown>;
   waitingFor: { kind?: "reply" | "time"; since?: string; days?: number; note?: string; replyMessageId?: string; pausedFrom?: string } | null;
   nextCheckAt: string | null;
+  /** What it came to, in a sentence. */
   outcome: string | null;
+  /** The AI employee's answer to the person who gave the work, in full (also its message in the task's conversation). */
+  answer: string | null;
   wakeups: number;
   createdAt: string;
   updatedAt: string;

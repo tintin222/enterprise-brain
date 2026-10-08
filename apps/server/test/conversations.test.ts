@@ -31,6 +31,7 @@ interface Message {
   plain: string;
   mentions: { kind: string; id: string; name: string; allowed: boolean; href: string | null }[];
   runId: string | null;
+  replyToId: string | null;
   card: { type: string; id: string; status: string; canHandle: boolean; title: string } | null;
   data: Record<string, unknown>;
 }
@@ -120,9 +121,15 @@ describe("conversations", () => {
         },
       },
       "runtime.agent:invoice-helper.task": {
-        tools: (request) => {
+        tools: (request, turn) => {
           const brief = briefOf(request);
           if (/conversation/.test(brief) && /urgent/i.test(brief)) return { text: "Understood: I will treat INV-9 as urgent." };
+          if (/INV-12/.test(brief)) {
+            const answer =
+              "Here is the reminder for **INV-12**, ready to send:\n\n> Dear Kaya, invoice INV-12 (8,200 TRY) was due on 30 September. Could you tell us when it will be paid?";
+            return turn === 1 ? { calls: [{ name: "task_complete", input: { answer, outcome: "Reminder for INV-12 prepared." } }] } : { text: "Closed." };
+          }
+          if (/INV-14/.test(brief)) throw new Error("The ERP is not answering");
           return { text: "Reminder prepared." };
         },
       },
@@ -385,10 +392,35 @@ describe("conversations", () => {
     expect(message.data).toMatchObject({ intent: "work", to: { id: helperId, name: "Invoice Helper" }, task: { title: "Prepare the reminder for INV-12" } });
     const ref = (message.data.task as { ref: string }).ref;
     expect(await t.platform.tasks.get(companyId, ref)).toMatchObject({ source: "chat", sourceRef: id, requestedBy: "Burak Şahin" });
-    // The task does the work; when it ends, the conversation hears it. Nobody answers the message there.
-    const done = await until(async () => (await messages("burak.sahin", id)).find((m) => m.kind === "system" && /is done/.test(m.text)), "the task's end");
-    expect(done.text).toBe(`${ref} is done: Reminder prepared.`);
-    expect(aiMessages(await messages("burak.sahin", id))).toEqual([]);
+    // The task does the work; when it is done, the AI employee answers there, replying to the message that gave it.
+    const answer = await until(async () => aiMessages(await messages("burak.sahin", id))[0], "the answer");
+    expect(answer.text).toBe(
+      "Here is the reminder for **INV-12**, ready to send:\n\n> Dear Kaya, invoice INV-12 (8,200 TRY) was due on 30 September. Could you tell us when it will be paid?",
+    );
+    expect(answer.author).toMatchObject({ kind: "ai_employee", id: helperId });
+    expect(answer.replyToId).toBe(message.id);
+    expect(answer.seq).toBeGreaterThan(message.seq);
+    expect(answer.data).toMatchObject({ task: { ref }, taskEvent: "done" });
+    expect(await t.platform.tasks.get(companyId, ref)).toMatchObject({ status: "done", outcome: "Reminder for INV-12 prepared.", answer: answer.text });
+    expect((await messages("burak.sahin", id)).filter((m) => m.kind === "system" && m.text.includes(ref))).toEqual([]);
+    // The task's own conversation has it too, as the AI employee's message.
+    const taskThread = (await call("burak.sahin", "GET", `/conversations/for/task/${ref}`)).json() as View;
+    expect(aiMessages(await messages("burak.sahin", taskThread.conversation.id)).map((m) => m.text)).toContain(answer.text);
+    // A reply to the answer is the AI employee's to answer, like any reply.
+    await call("burak.sahin", "POST", `/conversations/${id}/messages`, { text: "Thanks, send it today.", replyToId: answer.id });
+    const followUp = await until(async () => aiMessages(await messages("burak.sahin", id))[1], "the reply to the answer");
+    expect(followUp.author.id).toBe(helperId);
+    // Work that fails: a line from the app says so.
+    const broken = await call("burak.sahin", "POST", `/conversations/${id}/messages`, {
+      text: `@[Invoice Helper](ai_employee:${helperId}) check INV-14 in the ERP`,
+      intent: "work",
+    });
+    const brokenRef = ((broken.json() as Message).data.task as { ref: string }).ref;
+    const failed = await until(
+      async () => (await messages("burak.sahin", id)).find((m) => m.kind === "system" && m.text.startsWith(`${brokenRef} failed`)),
+      "the failure",
+    );
+    expect(failed.text).toContain("The ERP is not answering");
     // In a talk with an AI employee, the work is theirs when nobody is named.
     const talk = (await call("burak.sahin", "GET", `/conversations/for/ai_employee/${helperId}`)).json() as View;
     expect(talk.offers.work).toMatchObject({ to: { id: helperId } });

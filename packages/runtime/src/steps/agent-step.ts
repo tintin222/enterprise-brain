@@ -22,7 +22,7 @@ export function taskGuidance(ref: string): string {
     `This work is task ${ref}. It can take days; you are woken up when something happens.`,
     "- Emails you send carry the task's reference, so replies come back to this task.",
     "- When you need someone's answer, email them and call task_wait_for_reply; to check something later, call task_follow_up.",
-    "- Record findings and decisions with task_note. When the work is finished, call task_complete with the outcome.",
+    "- Record findings and decisions with task_note. When the work is finished, call task_complete: its answer is what the person who gave you the work reads (the information itself, written to them, not a description of it); its outcome is one sentence for the task list.",
   ].join("\n");
 }
 

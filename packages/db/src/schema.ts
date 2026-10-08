@@ -384,7 +384,10 @@ export const tasks = pgTable(
     waitingFor: jsonb("waiting_for").$type<Record<string, unknown>>(),
     /** When it looks at the task again on its own. */
     nextCheckAt: timestamp("next_check_at", { withTimezone: true }),
+    /** What it came to, in a sentence (lists, history). */
     outcome: text("outcome"),
+    /** What the person who gave the work reads: the AI employee's answer, in full. */
+    answer: text("answer"),
     wakeups: integer("wakeups").notNull().default(0),
     createdAt: createdAt(),
     updatedAt: updatedAt(),

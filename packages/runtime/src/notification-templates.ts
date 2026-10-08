@@ -35,7 +35,8 @@ export interface TaskNewsMessage {
   companyId: string;
   companyName: string;
   person: Person;
-  task: { ref: string; title: string; status: string; outcome: string | null };
+  /** `answer`: what the AI employee answered, in full (`outcome` is its one-sentence result). */
+  task: { ref: string; title: string; status: string; outcome: string | null; answer?: string | null };
   agentName: string;
   text: string;
   link: string;
@@ -317,12 +318,17 @@ export function taskNewsEmail(message: TaskNewsMessage): RenderedEmail {
     [
       `<p style="margin:0 0 4px;color:#64748b;font-size:12px">${escapeHtml(message.agentName)} · ${escapeHtml(message.task.ref)}</p>`,
       `<h1 style="margin:0 0 12px;font-size:18px">${escapeHtml(message.text)}</h1>`,
-      message.task.outcome ? `<div style="margin:0 0 12px">${markdownToHtml(truncate(message.task.outcome, 3000))}</div>` : "",
+      newsText(message) ? `<div style="margin:0 0 12px">${markdownToHtml(truncate(newsText(message)!, 3000))}</div>` : "",
       linkButton(message.link, "Open the task"),
     ].join(""),
     `Sent to ${escapeHtml(message.person.name)}, who gave this task.`,
   );
-  return { subject, text: [message.text, "", message.task.outcome ?? "", "", `Open the task: ${message.link}`].join("\n"), html };
+  return { subject, text: [message.text, "", newsText(message) ?? "", "", `Open the task: ${message.link}`].join("\n"), html };
+}
+
+/** What a task's news says: the AI employee's answer when it gave one, else the outcome. */
+export function newsText(message: TaskNewsMessage): string | null {
+  return message.task.answer || message.task.outcome;
 }
 
 /** Someone named the person in a conversation they are not reading right now. */
