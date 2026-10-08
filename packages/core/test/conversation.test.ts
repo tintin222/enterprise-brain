@@ -14,7 +14,7 @@ describe("mention tokens", () => {
   });
 
   it("ignores things that only look like tokens", () => {
-    expect(parseMentions("@[Nobody](ghost:1) and @[x](thing:bad id) and [VBAK](thing:1)")).toEqual([]);
+    expect(parseMentions("@[Nobody](ghost:1) and @[x](thing:bad id) and [VBAK](thing:1) and @[Old](guest:g-1)")).toEqual([]);
   });
 
   it("formats a token and reads it back, cleaning the name", () => {
@@ -43,7 +43,6 @@ describe("actorString", () => {
     expect(actorString({ kind: "person", id: "u-1", name: "Elif Arslan" }, { email: "elif@acme.com.tr" })).toBe("Elif Arslan <elif@acme.com.tr>");
     expect(actorString({ kind: "person", id: "u-1", name: "Elif Arslan" })).toBe("Elif Arslan");
     expect(actorString({ kind: "ai_employee", id: "a-1", name: "Invoice Processor" })).toBe("agent:a-1");
-    expect(actorString({ kind: "guest", id: "g-1", name: "Mehmet Kaya" }, { organisation: "Kaya Çelik" })).toBe("guest:Mehmet Kaya (Kaya Çelik)");
     expect(actorString({ kind: "system", id: "system", name: "Enterprise Brain" })).toBe("system");
   });
 });

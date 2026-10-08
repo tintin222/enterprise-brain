@@ -685,12 +685,12 @@ export const chatMessages = pgTable(
   (t) => [index("chat_messages_conversation").on(t.conversationId, t.createdAt)],
 );
 
-/** Who did or said something in a conversation: a person, an AI employee, a guest, or the app. */
+/** Who did or said something in a conversation: a person, an AI employee, or the app. */
 type StoredActor = { kind: string; id: string; name: string };
 
 /**
- * A conversation: people, AI employees and outside guests in one thread, about a task, an AI employee,
- * a thing of the brain, a Studio thread, or a free topic. One per task, thing or Studio thread; a
+ * A conversation: people and AI employees in one thread, about a task, an AI employee, a thing of
+ * the brain, a Studio thread, or a free topic. One per task, thing or Studio thread; a
  * person's talk with an AI employee is theirs (several per AI employee).
  */
 export const conversations = pgTable(
@@ -733,23 +733,16 @@ export const conversationParticipants = pgTable(
     conversationId: uuid("conversation_id")
       .notNull()
       .references(() => conversations.id, { onDelete: "cascade" }),
-    /** person · ai_employee · guest */
+    /** person · ai_employee */
     actorKind: text("actor_kind").notNull(),
     actorId: text("actor_id").notNull(),
     actorName: text("actor_name").notNull(),
-    /** owner · member · guest */
+    /** owner · member */
     role: text("role").notNull().default("member"),
     /** The last message they saw (people), or the last one their turn read (AI employees). */
     readSeq: integer("read_seq").notNull().default(0),
-    /** The first message they may see: a guest invited later sees nothing before. */
-    sinceSeq: integer("since_seq").notNull().default(0),
+    /** Who brought them in (a person, or the person whose message named them). */
     invitedBy: jsonb("invited_by").$type<StoredActor>(),
-    /** Guests: when their link stops working. */
-    expiresAt: timestamp("expires_at", { withTimezone: true }),
-    /** Guests: bumped when they are invited again, so older links die. */
-    linkVersion: integer("link_version").notNull().default(1),
-    /** active · waiting (an invitation the data protection officer must approve) · revoked */
-    status: text("status").notNull().default("active"),
     joinedAt: createdAt(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   },

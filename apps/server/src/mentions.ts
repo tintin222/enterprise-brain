@@ -1,5 +1,5 @@
 import { parseMentions, type Mention, type MentionKind, type MentionRef } from "@enterprise-brain/core";
-import type { ParticipantRow, Platform } from "@enterprise-brain/runtime";
+import type { Platform } from "@enterprise-brain/runtime";
 import { canSeeDepartment, type Viewer } from "./auth/viewer.ts";
 import { canSeeTable } from "./routes/tables.ts";
 
@@ -34,8 +34,6 @@ export function mentionHref(companySlug: string, mention: MentionRef, extra: { s
       return "/settings/knowledge";
     case "person":
       return "/company";
-    case "guest":
-      return null;
   }
 }
 
@@ -44,29 +42,17 @@ export function mentionHref(companySlug: string, mention: MentionRef, extra: { s
  * cannot open stays plain text (`allowed: false`), so nobody reaches through an AI employee what they
  * could not reach themselves. Names are set to the asset's real name.
  */
-export async function checkMentions(
-  platform: Platform,
-  viewer: Viewer,
-  companyId: string,
-  text: string,
-  participants: ParticipantRow[] = [],
-): Promise<Mention[]> {
+export async function checkMentions(platform: Platform, viewer: Viewer, companyId: string, text: string): Promise<Mention[]> {
   const found = parseMentions(text);
   const checked: Mention[] = [];
   for (const mention of found) {
-    const resolved = await resolveMention(platform, viewer, companyId, mention, participants).catch(() => undefined);
+    const resolved = await resolveMention(platform, viewer, companyId, mention).catch(() => undefined);
     checked.push(resolved ?? { ...mention, allowed: false });
   }
   return checked;
 }
 
-async function resolveMention(
-  platform: Platform,
-  viewer: Viewer,
-  companyId: string,
-  mention: MentionRef,
-  participants: ParticipantRow[],
-): Promise<Mention | undefined> {
+async function resolveMention(platform: Platform, viewer: Viewer, companyId: string, mention: MentionRef): Promise<Mention | undefined> {
   const allowed = (name: string): Mention => ({ kind: mention.kind, id: mention.id, name, allowed: true });
   switch (mention.kind) {
     case "person": {
@@ -108,10 +94,6 @@ async function resolveMention(
       if (!task) return undefined;
       const agent = await platform.agents.find(companyId, task.agentId);
       return canSeeDepartment(viewer, agent?.row.departmentId) ? { ...allowed(task.title), id: task.ref } : undefined;
-    }
-    case "guest": {
-      const guest = participants.find((p) => p.actorKind === "guest" && p.actorId === mention.id && p.status !== "revoked");
-      return guest ? allowed(guest.actorName) : undefined;
     }
   }
 }

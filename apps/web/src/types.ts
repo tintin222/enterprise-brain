@@ -668,9 +668,9 @@ export interface MailMessageDetail {
 // Conversations
 // ---------------------------------------------------------------------------
 
-export type ActorKind = "person" | "ai_employee" | "guest" | "system";
+export type ActorKind = "person" | "ai_employee" | "system";
 
-/** Who said or did something: a person, an AI employee, an outside guest, or the app. */
+/** Who said or did something: a person, an AI employee, or the app. */
 export interface Actor {
   kind: ActorKind;
   id: string;
@@ -679,7 +679,7 @@ export interface Actor {
 
 export type ConversationKind = "topic" | "task" | "ai_employee" | "thing" | "studio";
 export type ConversationVisibility = "participants" | "department" | "company";
-export type MentionKind = "person" | "ai_employee" | "guest" | "thing" | "table" | "app" | "calculation" | "file" | "document" | "task";
+export type MentionKind = "person" | "ai_employee" | "thing" | "table" | "app" | "calculation" | "file" | "document" | "task";
 export type MessageKind = "text" | "system" | "card";
 
 export interface Conversation {
@@ -703,13 +703,10 @@ export interface Participant {
   actorKind: ActorKind;
   actorId: string;
   actorName: string;
-  role: "owner" | "member" | "guest";
+  role: "owner" | "member";
   readSeq: number;
-  /** The first message a late guest may see. */
-  sinceSeq: number;
+  /** Who brought them in. */
   invitedBy: Actor | null;
-  expiresAt: string | null;
-  status: "active" | "waiting" | "revoked";
   joinedAt: string;
   lastSeenAt: string | null;
 }

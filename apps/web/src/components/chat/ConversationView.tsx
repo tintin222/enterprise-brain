@@ -60,11 +60,6 @@ function AuthorLine({ message, extra }: { message: Message; extra?: ReactNode })
           AI
         </Badge>
       )}
-      {author.kind === "guest" && (
-        <Badge size="xs" tone="amber">
-          Guest
-        </Badge>
-      )}
       <time dateTime={message.createdAt} title={formatDateTime(message.createdAt)} className="text-faint">
         {clock(message.createdAt)}
       </time>
@@ -179,21 +174,20 @@ function MessageRow({
 }
 
 function ParticipantsStack({ participants }: { participants: Participant[] }) {
-  const active = participants.filter((p) => p.status !== "revoked");
-  const shown = active.slice(0, 5);
+  const shown = participants.slice(0, 5);
   return (
-    <div className="hidden items-center sm:flex" title={active.map((p) => p.actorName).join(", ")}>
+    <div className="hidden items-center sm:flex" title={participants.map((p) => p.actorName).join(", ")}>
       <div className="flex -space-x-1">
         {shown.map((p) => (
           <ActorAvatar key={p.id} actor={participantActor(p)} size="sm" className="ring-2 ring-surface" />
         ))}
       </div>
-      {active.length > shown.length && <span className="ml-1.5 text-xs text-muted">+{active.length - shown.length}</span>}
+      {participants.length > shown.length && <span className="ml-1.5 text-xs text-muted">+{participants.length - shown.length}</span>}
     </div>
   );
 }
 
-/** Bring a person or an AI employee in: they see the conversation from now on. */
+/** Bring a person or an AI employee in: they see the whole conversation. */
 function InviteDialog({
   conversationId,
   participants,
@@ -210,7 +204,7 @@ function InviteDialog({
   const toast = useToast();
   const [q, setQ] = useState("");
   const hits = useMentionHits(open ? q : null, { conversationId, kinds: ["person", "ai_employee"] });
-  const present = new Set(participants.filter((p) => p.status !== "revoked").map((p) => `${p.actorKind}:${p.actorId}`));
+  const present = new Set(participants.map((p) => `${p.actorKind}:${p.actorId}`));
   const invite = useMutation({
     mutationFn: (hit: MentionHit) => api.post(path(`/conversations/${encodeURIComponent(conversationId)}/participants`), { kind: hit.kind, id: hit.id }),
     onSuccess: (_, hit) => {
@@ -221,12 +215,7 @@ function InviteDialog({
   });
   const candidates = (hits.data ?? []).filter((h) => !present.has(`${h.kind}:${h.id}`));
   return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="Bring someone in"
-      description="People of your departments, and AI employees. They see the conversation from now on."
-    >
+    <Dialog open={open} onClose={onClose} title="Bring someone in" description="People of your departments, and AI employees. They see the whole conversation.">
       <input className="input" placeholder="A name…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus aria-label="Who to bring in" />
       <ul className="mt-3 max-h-72 divide-y divide-line overflow-y-auto rounded-lg border border-line">
         {candidates.length === 0 && <li className="px-3 py-3 text-sm text-muted">{hits.isFetching ? "Looking…" : "Nobody else to add."}</li>}
@@ -466,9 +455,8 @@ export function ConversationView({
   const byId = new Map(list.map((m) => [m.id, m]));
   const archived = conversation.status !== "open";
   const empty = list.length === 0 && messages.isSuccess;
-  const floor = me?.sinceSeq ?? 0;
-  const hasEarlier = !noMore && list.length > 0 && (list[0]?.seq ?? 1) > floor + 1;
-  const people = participants.filter((p) => p.status !== "revoked");
+  // Messages are numbered from 1 without gaps: earlier ones exist while the first shown is not #1.
+  const hasEarlier = !noMore && (list[0]?.seq ?? 1) > 1;
   let lastDay = "";
 
   return (
@@ -489,7 +477,8 @@ export function ConversationView({
           <div className="min-w-0 flex-1">
             <h1 className="truncate text-sm font-semibold text-fg">{title}</h1>
             <p className="truncate text-xs text-muted">
-              {meta.label} · {VISIBILITY_LABELS[conversation.visibility]} · {people.length === 1 ? "1 participant" : `${people.length} participants`}
+              {meta.label} · {VISIBILITY_LABELS[conversation.visibility]} ·{" "}
+              {participants.length === 1 ? "1 participant" : `${participants.length} participants`}
             </p>
           </div>
           <ParticipantsStack participants={participants} />

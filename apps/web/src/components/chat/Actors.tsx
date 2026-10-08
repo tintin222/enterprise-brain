@@ -24,20 +24,6 @@ export function ActorAvatar({ actor, size = "md", className }: { actor: Actor; s
     );
   }
   if (actor.kind === "system") return <Logo className={clsx("rounded-lg", size === "sm" ? "size-6" : "size-8", className)} />;
-  if (actor.kind === "guest") {
-    return (
-      <span
-        className={clsx(
-          "flex shrink-0 items-center justify-center rounded-full bg-amber-100 font-semibold text-amber-800 dark:bg-amber-400/20 dark:text-amber-200",
-          box,
-          className,
-        )}
-        title={`${actor.name} (guest)`}
-      >
-        {initials(actor.name)}
-      </span>
-    );
-  }
   return (
     <span
       className={clsx(

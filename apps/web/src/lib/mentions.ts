@@ -1,8 +1,8 @@
 import { AppWindow, BookOpen, Bot, Brain, Calculator, FileText, ListChecks, Table2, UserRound, type LucideIcon } from "lucide-react";
 import type { MentionHit, MentionKind, MessageMention } from "../types.ts";
 
-/** `@[Name](kind:id)`: how a message's text names a person, an AI employee, a guest or an asset. */
-export const MENTION_TOKEN = /@\[([^\]\n]{1,120})\]\((person|ai_employee|guest|thing|table|app|calculation|file|document|task):([A-Za-z0-9_.\-]{1,80})\)/g;
+/** `@[Name](kind:id)`: how a message's text names a person, an AI employee or an asset. */
+export const MENTION_TOKEN = /@\[([^\]\n]{1,120})\]\((person|ai_employee|thing|table|app|calculation|file|document|task):([A-Za-z0-9_.\-]{1,80})\)/g;
 
 /** The link the Markdown component turns into a chip: `#mention?kind=…&id=…&href=…`. */
 export const MENTION_LINK = "#mention?";
@@ -10,7 +10,6 @@ export const MENTION_LINK = "#mention?";
 export const MENTION_ICONS: Record<MentionKind, LucideIcon> = {
   person: UserRound,
   ai_employee: Bot,
-  guest: UserRound,
   thing: Brain,
   table: Table2,
   app: AppWindow,
@@ -23,7 +22,6 @@ export const MENTION_ICONS: Record<MentionKind, LucideIcon> = {
 export const MENTION_LABELS: Record<MentionKind, string> = {
   person: "Person",
   ai_employee: "AI employee",
-  guest: "Guest",
   thing: "In the brain",
   table: "Table",
   app: "App",

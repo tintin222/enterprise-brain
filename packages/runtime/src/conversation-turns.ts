@@ -1,7 +1,5 @@
-import { eq } from "drizzle-orm";
 import type { BrainService } from "@enterprise-brain/brain";
 import { actorString, isRecord, plainText, truncate, type Actor } from "@enterprise-brain/core";
-import { companies, type DatabaseHandle } from "@enterprise-brain/db";
 import type { KnowledgeService } from "@enterprise-brain/knowledge";
 import type { LlmClient } from "@enterprise-brain/llm";
 import type { AgentRecord, AgentService } from "./agents.ts";
@@ -14,7 +12,6 @@ import type { QueueEntry } from "./queue.ts";
 import type { TaskService } from "./tasks.ts";
 
 export interface TurnPlannerDeps {
-  handle: DatabaseHandle;
   conversations: ConversationService;
   engine: RunEngine;
   agents: AgentService;
@@ -58,22 +55,13 @@ export class TurnPlanner {
     deps.conversations.onCardResolved((conversation, message, entry, by) => this.afterCard(conversation, message, entry, by));
   }
 
-  /** May outside guests give work to AI employees here? (Settings → People → Guests; on unless turned off.) */
-  async guestsMayGiveWork(companyId: string): Promise<boolean> {
-    const [company] = await this.deps.handle.db.select({ settings: companies.settings }).from(companies).where(eq(companies.id, companyId));
-    const guests = isRecord(company?.settings.guests) ? company!.settings.guests : {};
-    return guests.mayGiveWork !== false;
-  }
-
   /** A message was posted: pick the AI employees that answer, and run their turns. */
   async afterMessage(conversation: ConversationRow, message: MessageRow, participants: ParticipantRow[]): Promise<void> {
     if (message.kind !== "text" || message.author.kind === "system") return;
-    const ais = new Map(participants.filter((p) => p.actorKind === "ai_employee" && p.status !== "revoked").map((p) => [p.actorId, p]));
     const named = message.mentions.filter((m) => m.allowed && m.kind === "ai_employee").map((m) => m.id);
-    const namedPeople = message.mentions.some((m) => m.allowed && (m.kind === "person" || m.kind === "guest"));
+    const namedPeople = message.mentions.some((m) => m.allowed && m.kind === "person");
     let targets: string[] = [];
     let hop = 0;
-    let byGuest = false;
 
     if (message.author.kind === "ai_employee") {
       // One AI employee answers another only when the person's message named both, and never a third time.
@@ -83,10 +71,6 @@ export class TurnPlanner {
       const both = new Set(origin.mentions.filter((m) => m.allowed && m.kind === "ai_employee").map((m) => m.id));
       targets = named.filter((id) => both.has(id) && id !== message.author.id);
       hop = 1;
-    } else if (message.author.kind === "guest") {
-      if (!(await this.guestsMayGiveWork(conversation.companyId))) return;
-      targets = named.filter((id) => ais.has(id));
-      byGuest = true;
     } else {
       targets = named;
       if (!targets.length && !namedPeople) {
@@ -104,7 +88,7 @@ export class TurnPlanner {
     for (const aiId of targets) {
       const agent = await this.deps.agents.find(conversation.companyId, aiId);
       if (!agent) continue;
-      void this.schedule(conversation, agent, { answersSeq: message.seq, hop, byGuest, actor: actorString(message.author as Actor) });
+      void this.schedule(conversation, agent, { answersSeq: message.seq, hop, actor: actorString(message.author as Actor) });
     }
   }
 
@@ -124,7 +108,7 @@ export class TurnPlanner {
           ? "dismissed"
           : "answered";
     const line = `${by} ${verb} "${entry.title}"${entry.answer ? `: ${entry.answer}` : ""}`;
-    void this.schedule(conversation, agent, { answersSeq: conversation.lastSeq, hop: 0, byGuest: false, actor: by, decision: line });
+    void this.schedule(conversation, agent, { answersSeq: conversation.lastSeq, hop: 0, actor: by, decision: line });
   }
 
   /** One turn at a time per AI employee and conversation; a message during a turn means one more turn after it. */
@@ -230,10 +214,7 @@ export class TurnPlanner {
         conversation: {
           id: conversation.id,
           upToSeq: unread.upToSeq,
-          ...(turn.byGuest ? { byGuest: true } : {}),
-          participants: participants
-            .filter((p) => p.actorKind !== "ai_employee" && p.status !== "revoked")
-            .map((p) => ({ kind: p.actorKind, id: p.actorId, name: p.actorName })),
+          participants: participants.filter((p) => p.actorKind !== "ai_employee").map((p) => ({ kind: p.actorKind, id: p.actorId, name: p.actorName })),
         },
       },
     );
@@ -251,7 +232,7 @@ export class TurnPlanner {
       author: ai,
       text,
       runId: run.id,
-      data: { answersSeq: turn.answersSeq, hop: turn.hop, ...(turn.byGuest ? { byGuest: true } : {}) },
+      data: { answersSeq: turn.answersSeq, hop: turn.hop },
     });
   }
 
@@ -273,12 +254,7 @@ export class TurnPlanner {
         task.id,
         {
           kind: "message",
-          messages: fresh.map((m) => ({
-            seq: m.seq,
-            author: m.author.name,
-            text: truncate(m.text, 2000),
-            ...(m.author.kind === "guest" ? { guest: true } : {}),
-          })),
+          messages: fresh.map((m) => ({ seq: m.seq, author: m.author.name, text: truncate(m.text, 2000) })),
         },
         { wait: true, actor: turn.actor },
       );
@@ -311,14 +287,11 @@ export class TurnPlanner {
   ): Promise<string> {
     const people = await this.deps.people.list(conversation.companyId).catch(() => []);
     const titles = new Map(people.map((p) => [p.id, p.title]));
-    const who = participants
-      .filter((p) => p.status !== "revoked")
-      .map((p) => {
-        if (p.actorKind === "ai_employee") return p.actorId === ai.id ? `${p.actorName} (you)` : `${p.actorName} (AI employee)`;
-        if (p.actorKind === "guest") return `${p.actorName} (GUEST, outside the company)`;
-        const title = titles.get(p.actorId);
-        return `${p.actorName} (person${title ? ` · ${title}` : ""})`;
-      });
+    const who = participants.map((p) => {
+      if (p.actorKind === "ai_employee") return p.actorId === ai.id ? `${p.actorName} (you)` : `${p.actorName} (AI employee)`;
+      const title = titles.get(p.actorId);
+      return `${p.actorName} (person${title ? ` · ${title}` : ""})`;
+    });
     const about =
       conversation.kind === "thing" && conversation.aboutId
         ? await this.deps.cards.card(conversation.companyId, { kind: "thing", id: conversation.aboutId, name: conversation.title }).catch(() => undefined)
@@ -343,7 +316,6 @@ interface TurnInput {
   answersSeq: number;
   /** 0 after a person's message; 1 after another AI employee's (the last hop). */
   hop: number;
-  byGuest: boolean;
   actor: string;
   /** A decision or answer that caused the turn, in words. */
   decision?: string;

@@ -76,7 +76,7 @@ export class Platform {
   readonly coachingNotes: CoachingNotes;
   /** Performance and cost reports. */
   readonly reports: ReportService;
-  /** Conversations: people, AI employees and outside guests in one thread. */
+  /** Conversations: people and AI employees in one thread. */
   readonly conversations: ConversationService;
   /** Who answers in a conversation, and when. */
   readonly turns: TurnPlanner;
@@ -230,7 +230,6 @@ export class Platform {
       brain: this.brain,
     });
     this.turns = new TurnPlanner({
-      handle: this.handle,
       conversations: this.conversations,
       engine: this.engine,
       agents: this.agents,

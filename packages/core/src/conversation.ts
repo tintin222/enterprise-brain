@@ -1,9 +1,9 @@
 import { z } from "zod";
 
 /**
- * Conversations: one thread for people, AI employees and outside guests, about a task, an AI
- * employee, a thing of the brain, or a free topic. Messages name people and assets with "@"
- * mentions, written in the text as tokens so an AI can reach what was named.
+ * Conversations: one thread for people and AI employees, about a task, an AI employee, a thing
+ * of the brain, or a free topic. Messages name people and assets with "@" mentions, written in
+ * the text as tokens so an AI can reach what was named.
  */
 
 export const CONVERSATION_KINDS = ["topic", "task", "ai_employee", "thing", "studio"] as const;
@@ -17,7 +17,7 @@ export type ConversationVisibility = (typeof CONVERSATION_VISIBILITIES)[number];
 export const MESSAGE_KINDS = ["text", "system", "card"] as const;
 export type MessageKind = (typeof MESSAGE_KINDS)[number];
 
-export const MENTION_KINDS = ["person", "ai_employee", "guest", "thing", "table", "app", "calculation", "file", "document", "task"] as const;
+export const MENTION_KINDS = ["person", "ai_employee", "thing", "table", "app", "calculation", "file", "document", "task"] as const;
 export const MentionKind = z.enum(MENTION_KINDS);
 export type MentionKind = z.infer<typeof MentionKind>;
 
@@ -32,7 +32,7 @@ export type Mention = z.infer<typeof Mention>;
 export type MentionRef = Pick<Mention, "kind" | "id" | "name">;
 
 /** A mention in a message's text: `@[Invoice Processor](ai_employee:3f2a…)`, `@[VBAK](thing:…)`. */
-export const MENTION_TOKEN = /@\[([^\]\n]{1,120})\]\((person|ai_employee|guest|thing|table|app|calculation|file|document|task):([A-Za-z0-9_.\-]{1,80})\)/g;
+export const MENTION_TOKEN = /@\[([^\]\n]{1,120})\]\((person|ai_employee|thing|table|app|calculation|file|document|task):([A-Za-z0-9_.\-]{1,80})\)/g;
 
 export function mentionToken(mention: MentionRef): string {
   const name =

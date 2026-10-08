@@ -18,10 +18,10 @@ import { HttpError, companyOf, sse } from "../http.ts";
 import { checkMentions, mentionHref, type MentionHit } from "../mentions.ts";
 import { canSeeTable } from "./tables.ts";
 
-const MENTION_KINDS: MentionKind[] = ["person", "ai_employee", "guest", "thing", "table", "app", "calculation", "file", "document", "task"];
+const MENTION_KINDS: MentionKind[] = ["person", "ai_employee", "thing", "table", "app", "calculation", "file", "document", "task"];
 
 /**
- * Conversations: people, AI employees and outside guests in one thread, with "@" mentions of people
+ * Conversations: people and AI employees in one thread, with "@" mentions of people
  * and assets. What is posted here is heard by the turn planner, which decides which AI employee answers.
  */
 export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) {
@@ -201,7 +201,7 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
       participants,
     });
     if (body.text?.trim()) {
-      const mentions = await checkMentions(platform, viewer, company.id, body.text, created.participants);
+      const mentions = await checkMentions(platform, viewer, company.id, body.text);
       await platform.conversations.post(company.id, created.conversation.id, { author: me, text: body.text, mentions, fileIds: body.fileIds });
     }
     const found = await platform.conversations.get(company.id, created.conversation.id);
@@ -249,16 +249,9 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
         limit: z.coerce.number().int().min(1).max(200).default(50),
       })
       .parse(request.query);
-    const viewer = viewerOf(request);
-    const found = await open(request, company.id, id);
-    const me = found.participants.find((p) => p.actorKind === actorOfViewer(viewer).kind && p.actorId === actorOfViewer(viewer).id);
-    const rows = await platform.conversations.messages(company.id, id, {
-      beforeSeq: query.before,
-      afterSeq: query.after,
-      limit: query.limit,
-      floorSeq: me?.sinceSeq,
-    });
-    return messageViews(viewer, company.slug, company.id, rows);
+    await open(request, company.id, id);
+    const rows = await platform.conversations.messages(company.id, id, { beforeSeq: query.before, afterSeq: query.after, limit: query.limit });
+    return messageViews(viewerOf(request), company.slug, company.id, rows);
   });
 
   app.post("/api/companies/:company/conversations/:id/messages", async (request) => {
@@ -271,7 +264,7 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
     const viewer = viewerOf(request);
     const found = await open(request, company.id, id);
     if (found.conversation.status !== "open") throw new HttpError(409, "This conversation is archived");
-    const mentions = await checkMentions(platform, viewer, company.id, body.text, found.participants);
+    const mentions = await checkMentions(platform, viewer, company.id, body.text);
     const message = await platform.conversations.post(company.id, id, {
       author: actorOfViewer(viewer),
       text: body.text,
@@ -322,7 +315,7 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
 
   app.delete("/api/companies/:company/conversations/:id/participants/:kind/:actor", async (request) => {
     const company = await companyOf(platform, request);
-    const { id, kind, actor } = z.object({ id: z.string(), kind: z.enum(["person", "ai_employee", "guest"]), actor: z.string() }).parse(request.params);
+    const { id, kind, actor } = z.object({ id: z.string(), kind: z.enum(["person", "ai_employee"]), actor: z.string() }).parse(request.params);
     const viewer = viewerOf(request);
     const found = await open(request, company.id, id);
     const me = actorOfViewer(viewer);
@@ -393,11 +386,6 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
           group: "People",
           href: "/company",
         });
-      }
-    }
-    if (wanted.has("guest")) {
-      for (const guest of participants.filter((p) => p.actorKind === "guest" && p.status !== "revoked")) {
-        if (matches(guest.actorName)) hits.push({ kind: "guest", id: guest.actorId, name: guest.actorName, detail: "Guest", group: "People", href: null });
       }
     }
     if (wanted.has("ai_employee")) {

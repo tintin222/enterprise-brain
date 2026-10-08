@@ -39,7 +39,7 @@ export interface AskPersonRequest {
   toManager?: boolean;
   /** The conversation the question was asked in: the card appears there. */
   conversationId?: string;
-  /** The participant it is for (a person or a guest), when one was named. */
+  /** The participant it is for, when one was named. */
   to?: { kind: string; id: string; name: string };
   /** Assign it to this person (a participant named in a conversation). */
   toUserId?: string | null;
@@ -77,7 +77,7 @@ export interface ToolScope {
   dryRun?: boolean;
   /** Model use the tools had (working an old system's screens), counted with the step's. */
   onUsage?: (usage: LlmUsage) => void;
-  /** A turn in a conversation: it may ask a participant; a guest's turn asks a person before every change. */
+  /** A turn in a conversation: it may ask a participant. */
   conversation?: ConversationScope;
 }
 
@@ -91,12 +91,10 @@ export interface RuntimeTool {
 /** Ask the policy, counting today's changes only when the AI employee has a daily limit. */
 export async function approvalCheck(
   deps: Pick<ToolDeps, "changesToday">,
-  scope: { agentId: string; definition: AgentDefinition; employment?: Employment; conversation?: Pick<ConversationScope, "byGuest"> },
+  scope: { agentId: string; definition: AgentDefinition; employment?: Employment },
   action: WriteAction,
   explicit?: boolean,
 ): Promise<ApprovalCheck> {
-  // An outside guest asked: whatever the AI employee's level, an employee approves every change.
-  if (scope.conversation?.byGuest && explicit !== false) return { needed: true, reason: "Asked by an outside guest: an employee approves every change" };
   const employment = scope.employment ?? DEFAULT_EMPLOYMENT;
   const counted = explicit === undefined && employment.probation === "trusted" && employment.limits.maxActionsPerDay !== undefined;
   const changesToday = counted ? await deps.changesToday?.(scope.agentId) : undefined;
@@ -417,7 +415,7 @@ export async function buildTools(
 
 /** In a conversation: a question card for a participant (or the AI employee's manager); the turn ends with it. */
 function conversationAskTool(deps: ToolDeps, scope: ToolScope, conversation: NonNullable<ToolScope["conversation"]>): RuntimeTool {
-  const people = (conversation.participants ?? []).filter((p) => p.kind === "person" || p.kind === "guest");
+  const people = (conversation.participants ?? []).filter((p) => p.kind === "person");
   return {
     capability: "conversation",
     kind: "read",

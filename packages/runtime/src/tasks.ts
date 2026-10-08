@@ -42,7 +42,7 @@ export type WakeReason =
     }
   | { kind: "resumed"; by: string }
   /** People wrote in the task's conversation. */
-  | { kind: "message"; messages: { seq: number; author: string; text: string; guest?: boolean }[] };
+  | { kind: "message"; messages: { seq: number; author: string; text: string }[] };
 
 // Letters and digits people don't confuse (no 0/O, 1/I/L).
 const REF_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
@@ -323,7 +323,7 @@ export function wakeText(reason: WakeReason, task?: Pick<TaskRow, "waitingFor">)
       return `${reason.by} resumed the task.`;
     case "message":
       return reason.messages.length === 1
-        ? `${reason.messages[0]!.author}${reason.messages[0]!.guest ? " (an outside guest)" : ""} wrote in the task's conversation: ${truncate(reason.messages[0]!.text, 400)}`
+        ? `${reason.messages[0]!.author} wrote in the task's conversation: ${truncate(reason.messages[0]!.text, 400)}`
         : `${reason.messages.length} new messages in the task's conversation, from ${[...new Set(reason.messages.map((m) => m.author))].join(", ")}.`;
   }
 }

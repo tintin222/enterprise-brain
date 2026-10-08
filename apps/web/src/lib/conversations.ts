@@ -26,7 +26,7 @@ export function sameActor(a: Pick<Actor, "kind" | "id">, b: Pick<Actor, "kind" |
 /** Its title, else the others in it. */
 export function conversationTitle(conversation: Conversation, participants: Participant[], me?: Actor | null): string {
   if (conversation.title) return conversation.title;
-  const others = participants.filter((p) => p.status !== "revoked" && !(me && sameActor(participantActor(p), me))).map((p) => p.actorName);
+  const others = participants.filter((p) => !(me && sameActor(participantActor(p), me))).map((p) => p.actorName);
   return others.join(", ") || "New conversation";
 }
 
