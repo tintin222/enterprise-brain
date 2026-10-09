@@ -36,9 +36,14 @@ export const paths = {
 
   // Operations
   chat: () => "/chat",
-  conversation: (id: string) => `/chat/${part(id)}`,
+  conversation: (id: string, query?: Query) => withQuery(`/chat/${part(id)}`, query),
+  /** A channel or direct message with the thread under one of its messages open. */
+  thread: (parentId: string, rootId: string) => `/chat/${part(parentId)}?thread=${part(rootId)}`,
+  threads: () => "/chat/threads",
   companyBrainChat: (query?: Query) => withQuery("/chat/for/ai_employee/company-brain", query),
   aiChat: (slug: string, query?: Query) => withQuery(`/chat/for/ai_employee/${part(slug)}`, query),
+  /** The viewer's direct message with a person. */
+  dm: (personId: string, query?: Query) => withQuery(`/chat/for/dm/${part(personId)}`, query),
   thingChat: (id: string, query?: Query) => withQuery(`/chat/for/thing/${part(id)}`, query),
   work: (ref?: string, query?: Query) => withQuery(ref ? `/work/${part(ref)}` : "/work", query),
   mail: (query?: Query) => withQuery("/mail", query),

@@ -52,3 +52,14 @@ describe("the two portals' addresses", () => {
     expect(twin("/studio/brain/e/1")).toBeNull();
   });
 });
+
+describe("chat addresses", () => {
+  it("builds channels, direct messages and threads", () => {
+    expect(paths.conversation("c-1")).toBe("/chat/c-1");
+    expect(paths.conversation("c-1", { thread: "m-9" })).toBe("/chat/c-1?thread=m-9");
+    expect(paths.thread("c-1", "m 9")).toBe("/chat/c-1?thread=m%209");
+    expect(paths.threads()).toBe("/chat/threads");
+    expect(paths.dm("u-7")).toBe("/chat/for/dm/u-7");
+    expect(paths.aiChat("invoice-helper", { work: 1 })).toBe("/chat/for/ai_employee/invoice-helper?work=1");
+  });
+});

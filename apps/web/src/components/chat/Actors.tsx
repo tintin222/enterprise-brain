@@ -5,9 +5,9 @@ import type { Actor } from "../../types.ts";
 import { Logo } from "../Logo.tsx";
 
 /** Who wrote it: initials for people, a bot for AI employees, the brain for the company brain, the app for system lines. */
-export function ActorAvatar({ actor, size = "md", className }: { actor: Actor; size?: "sm" | "md"; className?: string }) {
-  const box = size === "sm" ? "size-6 text-[10px]" : "size-8 text-xs";
-  const icon = size === "sm" ? "size-3.5" : "size-4";
+export function ActorAvatar({ actor, size = "md", className }: { actor: Actor; size?: "xs" | "sm" | "md"; className?: string }) {
+  const box = size === "xs" ? "size-5 text-[9px]" : size === "sm" ? "size-6 text-[10px]" : "size-8 text-xs";
+  const icon = size === "xs" ? "size-3" : size === "sm" ? "size-3.5" : "size-4";
   if (actor.kind === "ai_employee") {
     const Icon = actor.name === "Company brain" ? Brain : Bot;
     return (
@@ -23,7 +23,7 @@ export function ActorAvatar({ actor, size = "md", className }: { actor: Actor; s
       </span>
     );
   }
-  if (actor.kind === "system") return <Logo className={clsx("rounded-lg", size === "sm" ? "size-6" : "size-8", className)} />;
+  if (actor.kind === "system") return <Logo className={clsx("rounded-lg", size === "xs" ? "size-5" : size === "sm" ? "size-6" : "size-8", className)} />;
   return (
     <span
       className={clsx(

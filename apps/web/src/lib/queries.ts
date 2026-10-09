@@ -8,6 +8,7 @@ import type {
   CatalogResponse,
   ConnectorInstance,
   ConnectorManifest,
+  ConversationKind,
   ConversationSummary,
   ConversationView,
   AgentPerformance,
@@ -410,16 +411,23 @@ export function useReviews() {
 
 export type ConversationScope = "mine" | "department" | "all";
 
-/** The viewer's conversations (or their departments', or every one they may see), newest first. */
-export function useConversations(options: { scope?: ConversationScope; kind?: string; unread?: boolean; limit?: number } = {}) {
+/** The messages of a conversation, as the page keeps them. */
+export const messagesKey = (company: string, id: string) => [...keys.conversations(company), id, "messages"] as const;
+
+/**
+ * The viewer's conversations (`mine`: the sidebar), their departments' and the company's open ones
+ * (`department`: channels to browse), or every one they may see (`all`), newest first; `kinds` narrows them.
+ */
+export function useConversations(options: { scope?: ConversationScope; kinds?: ConversationKind[]; unread?: boolean; limit?: number; enabled?: boolean } = {}) {
   const { company, path } = useCompany();
+  const { enabled = true, ...rest } = options;
+  const kinds = rest.kinds?.join(",");
   return useQuery({
-    queryKey: [...keys.conversations(company), "list", options],
+    queryKey: [...keys.conversations(company), "list", { ...rest, kinds }],
     queryFn: () =>
-      api.get<ConversationSummary[]>(
-        path(`/conversations${qs({ scope: options.scope, kind: options.kind, unread: options.unread ? 1 : undefined, limit: options.limit })}`),
-      ),
+      api.get<ConversationSummary[]>(path(`/conversations${qs({ scope: rest.scope, kinds, unread: rest.unread ? 1 : undefined, limit: rest.limit })}`)),
     refetchInterval: 20_000,
+    enabled,
   });
 }
 
@@ -432,8 +440,12 @@ export function useConversation(id: string | undefined) {
   });
 }
 
-/** The conversation about a task, a thing of the brain, or the viewer's talk with an AI employee (made on first use). */
-export function useConversationFor(kind: "task" | "thing" | "ai_employee" | undefined, about: string | undefined) {
+/** What `/chat/for/:kind/:about` resolves: the conversation about a task, a thing, an AI employee (my talk), a person (our direct message) or a message (its thread). */
+export const FOR_KINDS = ["task", "thing", "ai_employee", "dm", "thread"] as const;
+export type ForKind = (typeof FOR_KINDS)[number];
+
+/** The conversation about something, made on first use (see `FOR_KINDS`). */
+export function useConversationFor(kind: ForKind | undefined, about: string | undefined) {
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
   return useQuery({
@@ -448,8 +460,8 @@ export function useConversationFor(kind: "task" | "thing" | "ai_employee" | unde
   });
 }
 
-/** What is new for the viewer in Chat: conversations that mention them, and their talks with AI employees. */
+/** What is new for the viewer in Chat: where they are named, and unread direct messages, talks and threads (channels wait quietly). */
 export function useChatBadge(): number {
-  const { data } = useConversations({ scope: "mine", unread: true });
-  return (data ?? []).filter((c) => c.mentionsMe > 0 || c.conversation.kind === "ai_employee").length;
+  const { data } = useConversations({ scope: "mine", unread: true, limit: 200 });
+  return (data ?? []).filter((c) => c.mentionsMe > 0 || ["dm", "ai_employee", "thread"].includes(c.conversation.kind)).length;
 }

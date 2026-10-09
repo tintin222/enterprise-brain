@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { companies, departments } from "@enterprise-brain/db";
+import { companies } from "@enterprise-brain/db";
 import type { CompanyRow, Person, Platform, UserRow } from "@enterprise-brain/runtime";
 import type { ServerConfig } from "../config.ts";
 import { HttpError } from "../http.ts";
@@ -182,14 +182,7 @@ export class AuthService {
   async openDepartmentIds(companyId: string): Promise<string[]> {
     const cached = this.openDepartments.get(companyId);
     if (cached && Date.now() - cached.at < 60_000) return cached.ids;
-    const rows = await this.platform.handle.db
-      .select({ id: departments.id, key: departments.key, templateId: departments.templateId, data: departments.data })
-      .from(departments)
-      .where(eq(departments.companyId, companyId));
-    const templates = this.platform.catalog.catalog.departments;
-    const ids = rows
-      .filter((d) => d.data.openToEveryone === true || templates.find((t) => t.id === (d.templateId ?? d.key))?.openToEveryone)
-      .map((d) => d.id);
+    const ids = await this.platform.catalog.openDepartmentIds(companyId);
     this.openDepartments.set(companyId, { ids, at: Date.now() });
     return ids;
   }

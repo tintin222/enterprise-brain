@@ -1,7 +1,9 @@
-import { and, asc, desc, eq, gt, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNotNull, like, lt, ne, or, sql } from "drizzle-orm";
 import type { BrainService } from "@enterprise-brain/brain";
 import {
   actorKey,
+  channelName,
+  isChannelName,
   parseMentions,
   plainText,
   sameActor,
@@ -18,6 +20,7 @@ import {
   chatMessages,
   conversationMessages,
   conversationParticipants,
+  conversationReactions,
   conversations,
   runs,
   type DatabaseHandle,
@@ -35,6 +38,16 @@ import type { WorkService } from "./work.ts";
 export type ConversationRow = typeof conversations.$inferSelect;
 export type ParticipantRow = typeof conversationParticipants.$inferSelect;
 export type MessageRow = typeof conversationMessages.$inferSelect;
+export type ReactionRow = typeof conversationReactions.$inferSelect;
+
+/** The kinds a thread can be opened under. */
+export const THREADABLE_KINDS: ConversationKind[] = ["channel", "dm", "ai_employee"];
+/** The kinds that are named at creation (a channel by its name, a direct message by its people, a thread by its root). */
+const NAMED_KINDS: ConversationKind[] = ["channel", "dm", "thread"];
+/** The built-in channel everyone is in. */
+export const GENERAL_CHANNEL = "general";
+/** How long a viewer's built-in memberships are taken as done before they are checked again. */
+const MEMBERSHIP_TTL = 5 * 60_000;
 
 /** What a conversation's open page hears about, live. */
 export type ConversationEvent =
@@ -48,14 +61,52 @@ export type ConversationEvent =
 export interface ConversationWithParticipants {
   conversation: ConversationRow;
   participants: ParticipantRow[];
+  /** A thread's channel or direct message (threads only; one level). */
+  parent?: ConversationWithParticipants;
 }
 
-/** A conversation in a list: with its people, what the viewer hasn't read, and the newest message. */
-export interface ConversationSummary extends ConversationWithParticipants {
+/** A thread's channel or direct message, as lists name it. */
+export type ConversationParent = Pick<ConversationRow, "id" | "kind" | "name" | "title">;
+
+/** A conversation in a list: with its first people, what the viewer hasn't read, and the newest message. */
+export interface ConversationSummary {
+  conversation: ConversationRow;
+  /** The first few (a channel can be large); `members` counts them all. */
+  participants: ParticipantRow[];
+  members: number;
   unread: number;
   mentionsMe: number;
   me: ParticipantRow | null;
+  parent: ConversationParent | null;
   lastMessage: (Pick<MessageRow, "id" | "seq" | "kind" | "author" | "createdAt"> & { text: string }) | null;
+}
+
+/** Who reacted to a message with one emoji. */
+export interface ReactionView {
+  emoji: string;
+  count: number;
+  me: boolean;
+  names: string[];
+}
+
+/** The replies under a message. */
+export interface ThreadSummary {
+  id: string;
+  replies: number;
+  lastReplyAt: Date | null;
+  repliers: Actor[];
+}
+
+/** A built-in channel: #general, or a department's. */
+export interface ChannelSpec {
+  /** "general", or the department id. */
+  aboutId: string;
+  name: string;
+  title?: string;
+  visibility: ConversationVisibility;
+  departmentId?: string | null;
+  /** The AI employees in it from the start. */
+  ais: Actor[];
 }
 
 export interface PostInput {
@@ -73,6 +124,12 @@ export interface CreateInput {
   kind: ConversationKind;
   aboutId?: string | null;
   title?: string;
+  /** A channel's name. */
+  name?: string | null;
+  /** A thread's channel or direct message. */
+  parentId?: string | null;
+  /** A direct message's people. */
+  dmKey?: string | null;
   departmentId?: string | null;
   visibility?: ConversationVisibility;
   createdBy: Actor;
@@ -112,13 +169,33 @@ export interface ConversationDeps {
 type MessageListener = (conversation: ConversationRow, message: MessageRow, participants: ParticipantRow[]) => void | Promise<void>;
 type CardListener = (conversation: ConversationRow, message: MessageRow, entry: QueueEntry, by: string) => void | Promise<void>;
 
-/** May this reader open the conversation? Admins everything; participants theirs; the rest by visibility. */
-export function canReadConversation(conversation: ConversationRow, participants: ParticipantRow[], reader: Reader): boolean {
+/**
+ * May this reader open the conversation? Admins everything; participants theirs; a thread as its channel or
+ * direct message; the rest by visibility.
+ */
+export function canReadConversation(
+  conversation: ConversationRow,
+  participants: ParticipantRow[],
+  reader: Reader,
+  parent?: ConversationWithParticipants,
+): boolean {
   if (reader.isAdmin) return true;
   if (reader.actor && participants.some((p) => p.actorKind === reader.actor!.kind && p.actorId === reader.actor!.id)) return true;
+  if (conversation.kind === "thread") return parent ? canReadConversation(parent.conversation, parent.participants, reader) : false;
   if (conversation.visibility === "company") return Boolean(reader.actor);
   if (conversation.visibility === "department") return Boolean(conversation.departmentId && reader.departmentIds.includes(conversation.departmentId));
   return false;
+}
+
+/** Who may leave: a channel's members, except #general and, for the people of a department, its channel. */
+export function canLeaveConversation(conversation: ConversationRow, memberOfDepartments: string[]): boolean {
+  if (conversation.kind !== "channel" || conversation.aboutId === GENERAL_CHANNEL) return false;
+  return !(conversation.aboutId && memberOfDepartments.includes(conversation.aboutId));
+}
+
+/** The key of a direct message: its people, sorted, so the same people always find the same one. */
+export function dmKeyOf(people: Pick<Actor, "kind" | "id">[]): string {
+  return [...new Set(people.filter((a) => a.kind === "person").map((a) => actorKey(a)))].sort().join("|");
 }
 
 export function participantActor(p: Pick<ParticipantRow, "actorKind" | "actorId" | "actorName">): Actor {
@@ -150,6 +227,8 @@ export class ConversationService {
   private readonly listeners = new Map<string, Map<(event: ConversationEvent) => void, Actor | null>>();
   private readonly messageListeners = new Set<MessageListener>();
   private readonly cardListeners = new Set<CardListener>();
+  /** Who was joined to their built-in channels, and when. */
+  private readonly joined = new Map<string, number>();
 
   constructor(private readonly deps: ConversationDeps) {
     deps.events.on("queue.added", async (event) => {
@@ -208,13 +287,17 @@ export class ConversationService {
         kind: input.kind,
         aboutId: input.aboutId ?? null,
         title: truncate((input.title ?? "").replace(/\s+/g, " ").trim(), 200),
+        name: input.name ?? null,
+        parentId: input.parentId ?? null,
+        dmKey: input.dmKey ?? null,
         departmentId: input.departmentId ?? null,
         visibility: input.visibility ?? "participants",
         createdBy: input.createdBy,
       })
       .returning();
     const members: { actor: Actor; role: string }[] = [];
-    if (input.createdBy.kind !== "system") members.push({ actor: input.createdBy, role: "owner" });
+    // A direct message has no owner: its people are equals.
+    if (input.createdBy.kind !== "system") members.push({ actor: input.createdBy, role: input.kind === "dm" ? "member" : "owner" });
     for (const actor of input.participants ?? []) {
       if (!members.some((m) => sameActor(m.actor, actor))) members.push({ actor, role: "member" });
     }
@@ -226,13 +309,13 @@ export class ConversationService {
         )
         .onConflictDoNothing();
     }
-    return { conversation: row!, participants: await this.participantsOf(row!.id) };
+    return this.withParent({ conversation: row!, participants: await this.participantsOf(row!.id) });
   }
 
-  /** The one conversation about a task, thing or Studio thread, made on first use. */
+  /** The one conversation about a task, thing, Studio thread, root message (a thread) or built-in channel, made on first use. */
   async ensureFor(
     companyId: string,
-    kind: "task" | "thing" | "studio",
+    kind: "task" | "thing" | "studio" | "thread" | "channel",
     aboutId: string,
     defaults: Omit<CreateInput, "kind" | "aboutId">,
   ): Promise<ConversationWithParticipants> {
@@ -255,7 +338,7 @@ export class ConversationService {
       .where(and(eq(conversations.companyId, companyId), eq(conversations.kind, kind), eq(conversations.aboutId, aboutId)))
       .orderBy(desc(conversations.createdAt))
       .limit(1);
-    return row ? { conversation: row, participants: await this.participantsOf(row.id) } : undefined;
+    return row ? this.withParent({ conversation: row, participants: await this.participantsOf(row.id) }) : undefined;
   }
 
   /** The conversation of a task: its department's people may read it; its AI employee is in it. */
@@ -319,11 +402,23 @@ export class ConversationService {
   }
 
   async find(companyId: string, id: string): Promise<ConversationWithParticipants | undefined> {
+    const found = await this.load(companyId, id);
+    return found ? this.withParent(found) : undefined;
+  }
+
+  private async load(companyId: string, id: string): Promise<ConversationWithParticipants | undefined> {
     const [row] = await this.db
       .select()
       .from(conversations)
       .where(and(eq(conversations.companyId, companyId), eq(conversations.id, id)));
     return row ? { conversation: row, participants: await this.participantsOf(row.id) } : undefined;
+  }
+
+  /** A thread comes with its channel or direct message: who may read it is decided there. */
+  private async withParent(found: ConversationWithParticipants): Promise<ConversationWithParticipants> {
+    if (found.conversation.kind === "thread" && found.conversation.parentId && !found.parent)
+      found.parent = await this.load(found.conversation.companyId, found.conversation.parentId);
+    return found;
   }
 
   async get(companyId: string, id: string): Promise<ConversationWithParticipants> {
@@ -363,21 +458,45 @@ export class ConversationService {
 
   /**
    * The conversations a reader may see, newest first: `mine` the ones they take part in; `department`
-   * those too, plus their departments' and the company's; `all` everything (admins).
+   * those too, plus their departments' and the company's; `all` everything (admins). Threads are listed
+   * to their participants only. `unread` counts what people and AI employees wrote, not the app's lines.
    */
   async list(
     companyId: string,
     reader: Reader,
-    filter: { scope?: "mine" | "department" | "all"; kind?: ConversationKind; unreadOnly?: boolean; limit?: number } = {},
+    filter: { scope?: "mine" | "department" | "all"; kinds?: ConversationKind[]; unreadOnly?: boolean; limit?: number } = {},
   ): Promise<ConversationSummary[]> {
+    const limit = filter.limit ?? 100;
+    const scope = filter.scope ?? (reader.isAdmin && !reader.actor ? "all" : "department");
     const conditions = [eq(conversations.companyId, companyId), eq(conversations.status, "open")];
-    if (filter.kind) conditions.push(eq(conversations.kind, filter.kind));
-    const rows = await this.db
-      .select()
-      .from(conversations)
-      .where(and(...conditions))
-      .orderBy(desc(conversations.lastMessageAt), desc(conversations.createdAt))
-      .limit(300);
+    if (filter.kinds?.length) conditions.push(inArray(conversations.kind, filter.kinds));
+    let rows: ConversationRow[];
+    if (scope === "mine") {
+      if (!reader.actor) return [];
+      rows = (
+        await this.db
+          .select({ conversation: conversations })
+          .from(conversations)
+          .innerJoin(
+            conversationParticipants,
+            and(
+              eq(conversationParticipants.conversationId, conversations.id),
+              eq(conversationParticipants.actorKind, reader.actor.kind),
+              eq(conversationParticipants.actorId, reader.actor.id),
+            ),
+          )
+          .where(and(...conditions))
+          .orderBy(desc(conversations.lastMessageAt), desc(conversations.createdAt))
+          .limit(filter.unreadOnly ? 500 : limit)
+      ).map((r) => r.conversation);
+    } else {
+      rows = await this.db
+        .select()
+        .from(conversations)
+        .where(and(...conditions))
+        .orderBy(desc(conversations.lastMessageAt), desc(conversations.createdAt))
+        .limit(500);
+    }
     if (!rows.length) return [];
     const participants = await this.db
       .select()
@@ -387,17 +506,12 @@ export class ConversationService {
           conversationParticipants.conversationId,
           rows.map((r) => r.id),
         ),
-      );
+      )
+      .orderBy(asc(conversationParticipants.joinedAt));
     const byConversation = new Map<string, ParticipantRow[]>();
     for (const p of participants) byConversation.set(p.conversationId, [...(byConversation.get(p.conversationId) ?? []), p]);
-    const mine = (c: ConversationRow) =>
-      Boolean(reader.actor && byConversation.get(c.id)?.some((p) => p.actorKind === reader.actor!.kind && p.actorId === reader.actor!.id));
-    const scope = filter.scope ?? (reader.isAdmin && !reader.actor ? "all" : "department");
-    const visible = rows.filter((c) => {
-      if (scope === "mine") return mine(c);
-      if (scope === "all") return reader.isAdmin || canReadConversation(c, byConversation.get(c.id) ?? [], reader);
-      return canReadConversation(c, byConversation.get(c.id) ?? [], reader);
-    });
+    const visible =
+      scope === "mine" ? rows : rows.filter((c) => (scope === "all" && reader.isAdmin) || canReadConversation(c, byConversation.get(c.id) ?? [], reader));
     const ids = visible.map((c) => c.id);
     if (!ids.length) return [];
     const last = await this.db
@@ -406,28 +520,67 @@ export class ConversationService {
       .innerJoin(conversations, and(eq(conversations.id, conversationMessages.conversationId), eq(conversations.lastSeq, conversationMessages.seq)))
       .where(inArray(conversationMessages.conversationId, ids));
     const lastById = new Map(last.map((l) => [l.message.conversationId, l.message]));
-    const mentionRows = reader.actor
+    // What the reader hasn't read, and where they are named in it, counted where they take part.
+    const actor = reader.actor;
+    const mine = actor
+      ? and(
+          eq(conversationParticipants.conversationId, conversationMessages.conversationId),
+          eq(conversationParticipants.actorKind, actor.kind),
+          eq(conversationParticipants.actorId, actor.id),
+        )
+      : undefined;
+    const counted = { conversationId: conversationMessages.conversationId, count: sql<number>`count(*)::int` };
+    const unreadRows = mine
       ? await this.db
-          .select({ conversationId: conversationMessages.conversationId, seq: conversationMessages.seq })
+          .select(counted)
           .from(conversationMessages)
+          .innerJoin(conversationParticipants, mine)
           .where(
             and(
               inArray(conversationMessages.conversationId, ids),
-              sql`${conversationMessages.mentions} @> ${JSON.stringify([{ kind: reader.actor.kind, id: reader.actor.id }])}::jsonb`,
+              gt(conversationMessages.seq, conversationParticipants.readSeq),
+              ne(conversationMessages.kind, "system"),
             ),
           )
+          .groupBy(conversationMessages.conversationId)
       : [];
+    const mentionRows =
+      mine && actor
+        ? await this.db
+            .select(counted)
+            .from(conversationMessages)
+            .innerJoin(conversationParticipants, mine)
+            .where(
+              and(
+                inArray(conversationMessages.conversationId, ids),
+                gt(conversationMessages.seq, conversationParticipants.readSeq),
+                sql`${conversationMessages.mentions} @> ${JSON.stringify([{ kind: actor.kind, id: actor.id, allowed: true }])}::jsonb`,
+              ),
+            )
+            .groupBy(conversationMessages.conversationId)
+        : [];
+    const unreadById = new Map(unreadRows.map((r) => [r.conversationId, r.count]));
+    const mentionsById = new Map(mentionRows.map((r) => [r.conversationId, r.count]));
+    const parentIds = [...new Set(visible.filter((c) => c.kind === "thread" && c.parentId).map((c) => c.parentId!))];
+    const parents = parentIds.length
+      ? await this.db
+          .select({ id: conversations.id, kind: conversations.kind, name: conversations.name, title: conversations.title })
+          .from(conversations)
+          .where(inArray(conversations.id, parentIds))
+      : [];
+    const parentById = new Map(parents.map((p) => [p.id, p]));
     const summaries = visible.map((conversation): ConversationSummary => {
       const theirs = byConversation.get(conversation.id) ?? [];
-      const me = reader.actor ? (theirs.find((p) => p.actorKind === reader.actor!.kind && p.actorId === reader.actor!.id) ?? null) : null;
-      const readSeq = me?.readSeq ?? 0;
+      const me = actor ? (theirs.find((p) => p.actorKind === actor.kind && p.actorId === actor.id) ?? null) : null;
       const lastMessage = lastById.get(conversation.id);
       return {
         conversation,
-        participants: theirs,
+        participants: theirs.slice(0, 8),
+        members: theirs.length,
         me,
-        unread: me ? Math.max(0, conversation.lastSeq - readSeq) : 0,
-        mentionsMe: mentionRows.filter((m) => m.conversationId === conversation.id && m.seq > readSeq).length,
+        unread: me ? (unreadById.get(conversation.id) ?? 0) : 0,
+        mentionsMe: me ? (mentionsById.get(conversation.id) ?? 0) : 0,
+        parent: (conversation.parentId && parentById.get(conversation.parentId)) || null,
         lastMessage: lastMessage
           ? {
               id: lastMessage.id,
@@ -440,8 +593,399 @@ export class ConversationService {
           : null,
       };
     });
-    const wanted = filter.unreadOnly ? summaries.filter((s) => s.unread > 0) : summaries;
-    return wanted.slice(0, filter.limit ?? 100);
+    const wanted = filter.unreadOnly ? summaries.filter((s) => s.unread > 0 || s.mentionsMe > 0) : summaries;
+    return wanted.slice(0, limit);
+  }
+
+  // -------------------------------------------------------------------------
+  // Channels
+  // -------------------------------------------------------------------------
+
+  /** A channel by its name (archived ones too: a name is never reused). */
+  async findByName(companyId: string, name: string): Promise<ConversationWithParticipants | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.companyId, companyId), eq(conversations.kind, "channel"), eq(conversations.name, name)))
+      .limit(1);
+    return row ? { conversation: row, participants: await this.participantsOf(row.id) } : undefined;
+  }
+
+  /** `base` as a channel name, or `base-2`, `base-3`… when channels with those names exist. */
+  async freeChannelName(companyId: string, base: string): Promise<string> {
+    const root = channelName(base) || "channel";
+    const taken = new Set(
+      (
+        await this.db
+          .select({ name: conversations.name })
+          .from(conversations)
+          .where(
+            and(
+              eq(conversations.companyId, companyId),
+              eq(conversations.kind, "channel"),
+              or(eq(conversations.name, root), like(conversations.name, `${root}-%`)),
+            ),
+          )
+      ).map((r) => r.name),
+    );
+    if (!taken.has(root)) return root;
+    for (let n = 2; ; n++) {
+      const candidate = `${channelName(root.slice(0, 60 - `-${n}`.length))}-${n}`;
+      if (!taken.has(candidate)) return candidate;
+    }
+  }
+
+  /** A new channel: open to the company or to a department, or private to its people. */
+  async createChannel(
+    companyId: string,
+    input: { name: string; title?: string; visibility: ConversationVisibility; departmentId?: string | null; createdBy: Actor; participants?: Actor[] },
+  ): Promise<ConversationWithParticipants> {
+    const name = channelName(input.name);
+    if (!isChannelName(name)) throw new ConversationError("A channel name has letters, digits and hyphens, up to 60", 400);
+    if (await this.findByName(companyId, name)) throw new ConversationError(`There is already a channel #${name}`, 409);
+    if (input.visibility === "department" && !input.departmentId) throw new ConversationError("A department channel needs its department", 400);
+    try {
+      return await this.create(companyId, {
+        kind: "channel",
+        name,
+        title: input.title ?? "",
+        visibility: input.visibility,
+        departmentId: input.departmentId ?? null,
+        createdBy: input.createdBy,
+        participants: input.participants,
+      });
+    } catch (error) {
+      // Two at once: the unique index let one through.
+      if (await this.findByName(companyId, name)) throw new ConversationError(`There is already a channel #${name}`, 409);
+      throw error;
+    }
+  }
+
+  /**
+   * The built-in channels (#general and one per department): made when missing and kept in step with
+   * their departments (title, who may read them, their AI employees). Tells how many were made.
+   */
+  async ensureChannels(companyId: string, specs: ChannelSpec[]): Promise<number> {
+    let made = 0;
+    for (const spec of specs) {
+      const existing = await this.findAbout(companyId, "channel", spec.aboutId);
+      if (!existing) {
+        await this.ensureFor(companyId, "channel", spec.aboutId, {
+          name: await this.freeChannelName(companyId, spec.name),
+          title: spec.title ?? "",
+          visibility: spec.visibility,
+          departmentId: spec.departmentId ?? null,
+          createdBy: SYSTEM_ACTOR,
+          participants: spec.ais,
+        });
+        made++;
+        continue;
+      }
+      const { conversation, participants } = existing;
+      const title = truncate((spec.title ?? "").replace(/\s+/g, " ").trim(), 200);
+      const departmentId = spec.departmentId ?? null;
+      if (conversation.title !== title || conversation.visibility !== spec.visibility || conversation.departmentId !== departmentId)
+        await this.db
+          .update(conversations)
+          .set({ title, visibility: spec.visibility, departmentId, updatedAt: new Date() })
+          .where(eq(conversations.id, conversation.id));
+      const missing = spec.ais.filter((ai) => !participants.some((p) => p.actorKind === ai.kind && p.actorId === ai.id));
+      if (missing.length)
+        await this.db
+          .insert(conversationParticipants)
+          .values(
+            missing.map((ai) => ({
+              companyId,
+              conversationId: conversation.id,
+              actorKind: ai.kind,
+              actorId: ai.id,
+              actorName: ai.name,
+              role: "member",
+              readSeq: conversation.lastSeq,
+            })),
+          )
+          .onConflictDoNothing();
+    }
+    if (made) this.joined.clear();
+    return made;
+  }
+
+  /**
+   * A person is in #general and in their departments' channels: joined where they are not yet, reading
+   * from now (the backlog is not unread for them). Remembered for a while, so lists don't check again.
+   */
+  async ensureMemberships(companyId: string, actor: Actor, departmentIds: string[]): Promise<void> {
+    const key = `${companyId}|${actorKey(actor)}|${[...departmentIds].sort().join(",")}`;
+    const at = this.joined.get(key);
+    if (at && Date.now() - at < MEMBERSHIP_TTL) return;
+    this.joined.set(key, Date.now());
+    const channels = await this.db
+      .select({ id: conversations.id, lastSeq: conversations.lastSeq })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.companyId, companyId),
+          eq(conversations.kind, "channel"),
+          eq(conversations.status, "open"),
+          inArray(conversations.aboutId, [GENERAL_CHANNEL, ...departmentIds]),
+        ),
+      );
+    if (!channels.length) return;
+    const mine = new Set(
+      (
+        await this.db
+          .select({ conversationId: conversationParticipants.conversationId })
+          .from(conversationParticipants)
+          .where(
+            and(
+              inArray(
+                conversationParticipants.conversationId,
+                channels.map((c) => c.id),
+              ),
+              eq(conversationParticipants.actorKind, actor.kind),
+              eq(conversationParticipants.actorId, actor.id),
+            ),
+          )
+      ).map((r) => r.conversationId),
+    );
+    const missing = channels.filter((c) => !mine.has(c.id));
+    if (!missing.length) return;
+    await this.db
+      .insert(conversationParticipants)
+      .values(
+        missing.map((c) => ({
+          companyId,
+          conversationId: c.id,
+          actorKind: actor.kind,
+          actorId: actor.id,
+          actorName: actor.name,
+          role: "member",
+          readSeq: c.lastSeq,
+        })),
+      )
+      .onConflictDoNothing();
+    for (const c of missing) this.publish(c.id, { type: "participants", participants: await this.participantsOf(c.id) });
+  }
+
+  /** Someone joins a channel they may read (open to the company, or to their department); they read from now. */
+  async join(companyId: string, id: string, actor: Actor, reader: Reader): Promise<ParticipantRow[]> {
+    const { conversation, participants } = await this.get(companyId, id);
+    if (conversation.kind !== "channel" || conversation.status !== "open") throw new ConversationError("Only an open channel can be joined", 400);
+    if (participants.some((p) => p.actorKind === actor.kind && p.actorId === actor.id)) return participants;
+    if (!canReadConversation(conversation, participants, reader))
+      throw new ConversationError("This channel is private: ask one of its members to bring you in", 403);
+    const joined = await this.addParticipant(companyId, id, actor, { readSeq: conversation.lastSeq });
+    await this.postSystem(companyId, id, `${actor.name} joined`, { joined: actorKey(actor) });
+    return joined;
+  }
+
+  /** A channel is closed: it stays readable, nothing more is written in it. #general and the departments' channels stay open. */
+  async archive(companyId: string, id: string, by: Actor): Promise<ConversationRow> {
+    const { conversation } = await this.get(companyId, id);
+    if (conversation.kind !== "channel") throw new ConversationError("Only a channel can be archived", 400);
+    if (conversation.aboutId) throw new ConversationError("#general and the departments' channels stay open", 400);
+    if (conversation.status !== "open") return conversation;
+    await this.postSystem(companyId, id, `${by.name} archived this channel`, { archived: true });
+    const [row] = await this.db.update(conversations).set({ status: "archived", updatedAt: new Date() }).where(eq(conversations.id, id)).returning();
+    return row!;
+  }
+
+  /** A channel's name or description changes (not a built-in channel's: those follow their department). */
+  async rename(companyId: string, id: string, input: { name?: string; title?: string }, by: Actor): Promise<ConversationRow> {
+    const { conversation } = await this.get(companyId, id);
+    if (conversation.kind !== "channel") throw new ConversationError("Only a channel can be renamed", 400);
+    if (conversation.aboutId) throw new ConversationError("#general and the departments' channels follow the company", 400);
+    const changes: { name?: string; title?: string } = {};
+    if (input.name !== undefined) {
+      const name = channelName(input.name);
+      if (!isChannelName(name)) throw new ConversationError("A channel name has letters, digits and hyphens, up to 60", 400);
+      if (name !== conversation.name) {
+        if (await this.findByName(companyId, name)) throw new ConversationError(`There is already a channel #${name}`, 409);
+        changes.name = name;
+      }
+    }
+    if (input.title !== undefined) {
+      const title = truncate(input.title.replace(/\s+/g, " ").trim(), 200);
+      if (title !== conversation.title) changes.title = title;
+    }
+    if (!Object.keys(changes).length) return conversation;
+    const [row] = await this.db
+      .update(conversations)
+      .set({ ...changes, updatedAt: new Date() })
+      .where(eq(conversations.id, id))
+      .returning();
+    const said = changes.name ? `renamed this channel #${changes.name}` : `changed the description to “${changes.title || "nothing"}”`;
+    await this.postSystem(companyId, id, `${by.name} ${said}`, { renamed: true });
+    return row!;
+  }
+
+  // -------------------------------------------------------------------------
+  // Direct messages and threads
+  // -------------------------------------------------------------------------
+
+  async findByDmKey(companyId: string, dmKey: string): Promise<ConversationWithParticipants | undefined> {
+    const [row] = await this.db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.companyId, companyId), eq(conversations.dmKey, dmKey)))
+      .limit(1);
+    return row ? { conversation: row, participants: await this.participantsOf(row.id) } : undefined;
+  }
+
+  /**
+   * The one direct message between these people (the one who asks included), made on first use. People
+   * only: a person talks with an AI employee in their talk with it (`talkWith`).
+   */
+  async ensureDm(companyId: string, people: Actor[], createdBy: Actor): Promise<ConversationWithParticipants> {
+    const everyone = people.filter((a, i) => people.findIndex((b) => sameActor(a, b)) === i);
+    if (!everyone.some((a) => sameActor(a, createdBy))) everyone.push(createdBy);
+    if (everyone.some((a) => a.kind !== "person"))
+      throw new ConversationError("A direct message is between people; an AI employee is talked to on its page", 400);
+    if (everyone.length < 2) throw new ConversationError("Pick someone to message", 400);
+    if (everyone.length > 9) throw new ConversationError("A direct message has at most 9 people; make a channel for more", 400);
+    const dmKey = dmKeyOf(everyone);
+    const existing = await this.findByDmKey(companyId, dmKey);
+    if (existing) return existing;
+    const title = everyone
+      .map((a) => a.name)
+      .sort((a, b) => a.localeCompare(b))
+      .join(", ");
+    try {
+      return await this.create(companyId, { kind: "dm", dmKey, title, visibility: "participants", createdBy, participants: everyone });
+    } catch (error) {
+      const again = await this.findByDmKey(companyId, dmKey);
+      if (again) return again;
+      throw error;
+    }
+  }
+
+  /** The thread under a message, made on first use: in a channel, a direct message or a talk, with the message's author in it. */
+  async ensureThread(companyId: string, parent: ConversationWithParticipants, root: MessageRow): Promise<ConversationWithParticipants> {
+    if (!THREADABLE_KINDS.includes(parent.conversation.kind as ConversationKind))
+      throw new ConversationError("Threads open under the messages of channels and direct messages", 400);
+    if (root.conversationId !== parent.conversation.id) throw new ConversationError("The message is not in this conversation", 400);
+    if (root.kind === "system") throw new ConversationError("The app's own lines have no threads", 400);
+    const existing = await this.findAbout(companyId, "thread", root.id);
+    if (existing) return existing;
+    const first = plainText(root.text).split("\n")[0]!.trim();
+    return this.ensureFor(companyId, "thread", root.id, {
+      parentId: parent.conversation.id,
+      title: truncate(first, 60) || (root.kind === "card" ? "A card" : "A message"),
+      visibility: parent.conversation.visibility as ConversationVisibility,
+      departmentId: parent.conversation.departmentId,
+      createdBy: SYSTEM_ACTOR,
+      participants: root.author.kind === "system" ? [] : [root.author as Actor],
+    });
+  }
+
+  /** A thread moved: its channel or direct message hears that the root message changed (its replies count). */
+  private async afterThreadMessage(companyId: string, thread: ConversationRow): Promise<void> {
+    if (!thread.parentId || !thread.aboutId) return;
+    const root = await this.message(companyId, thread.aboutId);
+    if (root) this.publish(thread.parentId, { type: "updated", message: root });
+  }
+
+  /** A message changed in place (a reaction, a card decided): its conversation hears it, and so does the thread under it. */
+  async publishMessageUpdated(message: MessageRow): Promise<void> {
+    this.publish(message.conversationId, { type: "updated", message });
+    const [thread] = await this.db
+      .select({ id: conversations.id })
+      .from(conversations)
+      .where(and(eq(conversations.kind, "thread"), eq(conversations.aboutId, message.id)))
+      .limit(1);
+    if (thread) this.publish(thread.id, { type: "updated", message });
+  }
+
+  /** The threads under these messages of one conversation: how many replies, when the last came, who replied. */
+  async threadsOf(companyId: string, parentId: string, messageIds: string[]): Promise<Map<string, ThreadSummary>> {
+    const out = new Map<string, ThreadSummary>();
+    if (!messageIds.length) return out;
+    const threads = await this.db
+      .select({ id: conversations.id, aboutId: conversations.aboutId, lastSeq: conversations.lastSeq, lastMessageAt: conversations.lastMessageAt })
+      .from(conversations)
+      .where(
+        and(
+          eq(conversations.companyId, companyId),
+          eq(conversations.kind, "thread"),
+          eq(conversations.parentId, parentId),
+          inArray(conversations.aboutId, messageIds),
+          gt(conversations.lastSeq, 0),
+        ),
+      );
+    if (!threads.length) return out;
+    const authors = await this.db
+      .select({ conversationId: conversationMessages.conversationId, author: conversationMessages.author })
+      .from(conversationMessages)
+      .where(
+        and(
+          inArray(
+            conversationMessages.conversationId,
+            threads.map((t) => t.id),
+          ),
+          ne(conversationMessages.kind, "system"),
+        ),
+      )
+      .orderBy(asc(conversationMessages.seq));
+    for (const thread of threads) {
+      const repliers: Actor[] = [];
+      for (const a of authors) {
+        if (a.conversationId !== thread.id || repliers.some((r) => sameActor(r, a.author as Actor))) continue;
+        repliers.push(a.author as Actor);
+        if (repliers.length >= 5) break;
+      }
+      out.set(thread.aboutId!, { id: thread.id, replies: thread.lastSeq, lastReplyAt: thread.lastMessageAt, repliers });
+    }
+    return out;
+  }
+
+  // -------------------------------------------------------------------------
+  // Reactions
+  // -------------------------------------------------------------------------
+
+  /** Someone reacts to a message with an emoji, or takes it back; everyone reading hears the message changed. */
+  async react(companyId: string, message: MessageRow, actor: Actor, emoji: string, on: boolean): Promise<void> {
+    if (on) {
+      await this.db
+        .insert(conversationReactions)
+        .values({ companyId, messageId: message.id, actor, actorKind: actor.kind, actorId: actor.id, emoji })
+        .onConflictDoNothing();
+    } else {
+      await this.db
+        .delete(conversationReactions)
+        .where(
+          and(
+            eq(conversationReactions.messageId, message.id),
+            eq(conversationReactions.actorKind, actor.kind),
+            eq(conversationReactions.actorId, actor.id),
+            eq(conversationReactions.emoji, emoji),
+          ),
+        );
+    }
+    await this.publishMessageUpdated(message);
+  }
+
+  /** The reactions on these messages: each emoji in the order it first came, how many, who, and whether `viewer` is among them. */
+  async reactionsOf(messageIds: string[], viewer: Pick<Actor, "kind" | "id"> | null): Promise<Map<string, ReactionView[]>> {
+    const out = new Map<string, ReactionView[]>();
+    if (!messageIds.length) return out;
+    const rows = await this.db
+      .select()
+      .from(conversationReactions)
+      .where(inArray(conversationReactions.messageId, messageIds))
+      .orderBy(asc(conversationReactions.createdAt));
+    for (const row of rows) {
+      const list = out.get(row.messageId) ?? [];
+      let view = list.find((v) => v.emoji === row.emoji);
+      if (!view) {
+        view = { emoji: row.emoji, count: 0, me: false, names: [] };
+        list.push(view);
+      }
+      view.count++;
+      if (view.names.length < 20) view.names.push(row.actor.name);
+      if (viewer && row.actorKind === viewer.kind && row.actorId === viewer.id) view.me = true;
+      out.set(row.messageId, list);
+    }
+    return out;
   }
 
   // -------------------------------------------------------------------------
@@ -452,7 +996,7 @@ export class ConversationService {
     companyId: string,
     conversationId: string,
     actor: Actor,
-    options: { role?: "owner" | "member"; invitedBy?: Actor } = {},
+    options: { role?: "owner" | "member"; invitedBy?: Actor; readSeq?: number } = {},
   ): Promise<ParticipantRow[]> {
     await this.db
       .insert(conversationParticipants)
@@ -464,6 +1008,7 @@ export class ConversationService {
         actorName: actor.name,
         role: options.role ?? "member",
         invitedBy: options.invitedBy ?? null,
+        readSeq: options.readSeq ?? 0,
       })
       .onConflictDoNothing();
     const participants = await this.participantsOf(conversationId);
@@ -567,8 +1112,12 @@ export class ConversationService {
           createdAt: now,
         })
         .returning();
+      // A free conversation takes its title from its first words; channels, direct messages and threads are named at creation.
       const title =
-        conversation.title || (input.kind !== "system" && input.author.kind !== "system" ? truncate(plainText(input.text).split("\n")[0]!, 60) : "");
+        conversation.title ||
+        (!NAMED_KINDS.includes(conversation.kind as ConversationKind) && input.kind !== "system" && input.author.kind !== "system"
+          ? truncate(plainText(input.text).split("\n")[0]!, 60)
+          : "");
       await this.db
         .update(conversations)
         .set({ lastSeq: seq, lastMessageAt: now, updatedAt: now, ...(title !== conversation.title ? { title } : {}) })
@@ -580,12 +1129,22 @@ export class ConversationService {
         await this.markRead(conversationId, input.author, seq);
       }
       // A colleague or an AI employee a person names joins the conversation (what an AI employee names does not: it only points).
+      // Not into a direct message, whose people are fixed, nor into a thread under one or under a private channel they are not in.
+      const parent = found.parent?.conversation;
       const joining = input.author.kind === "person" ? mentions.filter((m) => m.allowed && (m.kind === "ai_employee" || m.kind === "person")) : [];
       for (const mention of joining) {
         if (found.participants.some((p) => p.actorKind === mention.kind && p.actorId === mention.id)) continue;
         if (mention.kind === "ai_employee") {
           const agent = await this.deps.agents.find(companyId, mention.id);
           if (agent) await this.addParticipant(companyId, conversationId, agentActor(agent), { invitedBy: input.author });
+        } else if (conversation.kind === "dm" || parent?.kind === "dm") {
+          continue;
+        } else if (
+          parent &&
+          parent.visibility === "participants" &&
+          !found.parent!.participants.some((p) => p.actorKind === "person" && p.actorId === mention.id)
+        ) {
+          continue;
         } else {
           const person = await this.deps.people.get(companyId, mention.id).catch(() => undefined);
           if (person?.status === "active")
@@ -594,6 +1153,7 @@ export class ConversationService {
       }
       const after = await this.get(companyId, conversationId);
       this.publish(conversationId, { type: "message", message: message! });
+      if (after.conversation.kind === "thread") await this.afterThreadMessage(companyId, after.conversation);
       await this.recordInBrain(companyId, after.conversation, message!).catch((error) => console.error("[conversations] brain event:", error));
       for (const listener of this.messageListeners) {
         Promise.resolve(listener(after.conversation, message!, after.participants)).catch((error) => console.error("[conversations] listener:", error));
@@ -667,6 +1227,7 @@ export class ConversationService {
         .returning();
       await this.db.update(conversations).set({ lastSeq: seq, lastMessageAt: now, updatedAt: now }).where(eq(conversations.id, conversationId));
       this.publish(conversationId, { type: "message", message: message! });
+      if (found.conversation.kind === "thread") await this.afterThreadMessage(companyId, found.conversation);
       return message!;
     });
   }
@@ -688,7 +1249,7 @@ export class ConversationService {
       const data = await change(current);
       if (!data) return current;
       const [updated] = await this.db.update(conversationMessages).set({ data }).where(eq(conversationMessages.id, messageId)).returning();
-      this.publish(current.conversationId, { type: "updated", message: updated! });
+      await this.publishMessageUpdated(updated!);
       return updated!;
     });
   }
@@ -732,7 +1293,7 @@ export class ConversationService {
       companyId,
       {
         kind: "message",
-        title: truncate(`${message.author.name} in “${conversation.title || "a conversation"}”`, 300),
+        title: truncate(`${message.author.name} in ${placeName(conversation)}`, 300),
         body: truncate(plainText(message.text), 2000),
         about: [...things],
       },
@@ -847,25 +1408,36 @@ export class ConversationService {
   }
 
   /**
-   * Work given in a conversation ("Give as work"): when it is done, the AI employee answers there, replying
-   * to the message that gave it; when it fails, a line from the app says so.
+   * Work given in a conversation ("Give as work"): when it is done, the AI employee answers where it was
+   * given: in a channel or direct message in the thread under the message that gave it, in a talk or a
+   * thread right there, replying to that message. When it fails, a line from the app says so.
    */
   private async tellWhereGiven(companyId: string, task: TaskRow, event: { type: string; message: string; runId?: string | null }): Promise<void> {
     const where = await this.find(companyId, task.sourceRef!).catch(() => undefined);
     if (!where) return;
     const outcome = event.message.replace(/^(Done|Failed):\s*/, "");
     const agent = event.type === "done" ? await this.deps.agents.find(companyId, task.agentId) : undefined;
+    const giving = await this.givingMessage(companyId, where.conversation.id, task.id);
+    let target = where.conversation.id;
+    let replyToId = giving;
+    if (giving && (where.conversation.kind === "channel" || where.conversation.kind === "dm")) {
+      const root = await this.message(companyId, giving);
+      if (root) {
+        target = (await this.ensureThread(companyId, where, root)).conversation.id;
+        replyToId = null;
+      }
+    }
     if (!agent) {
       const line = event.type === "done" ? `${task.ref} is done: ${outcome}` : `${task.ref} failed: ${outcome}`;
-      await this.postSystem(companyId, where.conversation.id, truncate(line, 600), { task: { id: task.id, ref: task.ref }, taskEvent: event.type });
+      await this.postSystem(companyId, target, truncate(line, 600), { task: { id: task.id, ref: task.ref }, taskEvent: event.type });
       return;
     }
     // No answersSeq: the turn planner leaves an answer to given work alone; a reply to it reaches the AI employee.
-    await this.post(companyId, where.conversation.id, {
+    await this.post(companyId, target, {
       author: agentActor(agent),
       text: task.answer ?? outcome,
       runId: event.runId ?? null,
-      replyToId: await this.givingMessage(companyId, where.conversation.id, task.id),
+      replyToId,
       data: { task: { id: task.id, ref: task.ref, title: task.title }, taskEvent: "done" },
     });
   }
@@ -919,6 +1491,37 @@ export class ConversationService {
     ]
       .filter(Boolean)
       .join("\n\n");
+  }
+
+  /**
+   * The free topics of before channels existed become channels, or a direct message when they were two
+   * people's private talk (unless those two already have one: then a private channel). Idempotent.
+   */
+  async adoptTopics(companyId: string): Promise<number> {
+    const topics = await this.db
+      .select()
+      .from(conversations)
+      .where(and(eq(conversations.companyId, companyId), sql`${conversations.kind} = 'topic'`))
+      .orderBy(asc(conversations.createdAt));
+    for (const topic of topics) {
+      const participants = await this.participantsOf(topic.id);
+      const people = participants.filter((p) => p.actorKind === "person");
+      if (topic.visibility === "participants" && people.length === 2 && participants.length === 2) {
+        const dmKey = dmKeyOf(people.map(participantActor));
+        if (!(await this.findByDmKey(companyId, dmKey))) {
+          const title = people
+            .map((p) => p.actorName)
+            .sort((a, b) => a.localeCompare(b))
+            .join(", ");
+          await this.db.update(conversations).set({ kind: "dm", dmKey, title, updatedAt: new Date() }).where(eq(conversations.id, topic.id));
+          await this.db.update(conversationParticipants).set({ role: "member" }).where(eq(conversationParticipants.conversationId, topic.id));
+          continue;
+        }
+      }
+      const name = await this.freeChannelName(companyId, topic.title || "topic");
+      await this.db.update(conversations).set({ kind: "channel", name, updatedAt: new Date() }).where(eq(conversations.id, topic.id));
+    }
+    return topics.length;
   }
 
   // -------------------------------------------------------------------------
@@ -1018,4 +1621,17 @@ export class ConversationService {
   }
 }
 
-export { actorKey };
+/** How a conversation is named in a sentence: "#finance", "a direct message", or its title in quotes. */
+export function placeName(conversation: Pick<ConversationRow, "kind" | "name" | "title">): string {
+  if (conversation.kind === "channel") return `#${conversation.name}`;
+  if (conversation.kind === "dm") return "a direct message";
+  if (conversation.kind === "thread") return `a thread (“${conversation.title || "a message"}”)`;
+  return `“${conversation.title || "a conversation"}”`;
+}
+
+/** Where a conversation opens in the web app: a thread as its channel or direct message with the thread pane open. */
+export function conversationPath(conversation: Pick<ConversationRow, "id" | "kind" | "parentId" | "aboutId">): string {
+  if (conversation.kind === "thread" && conversation.parentId && conversation.aboutId)
+    return `/chat/${conversation.parentId}?thread=${encodeURIComponent(conversation.aboutId)}`;
+  return `/chat/${conversation.id}`;
+}

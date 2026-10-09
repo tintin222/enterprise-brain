@@ -243,8 +243,8 @@ describe("the company brain", () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
     expect((await list("deniz.aydin")).filter((m) => m.kind === "text" && m.author.kind === "ai_employee")).toEqual([]);
     expect((await thing("Customer complaints and 8D", "process")).events.some((e) => e.kind === "message" && /Deniz/.test(e.title))).toBe(false);
-    // Teaching happens in the brain's talk and in a thing's conversation, not in a topic.
-    const topic = (await call("deniz.aydin", "POST", "/conversations", { title: "Certificates" })).json() as {
+    // Teaching happens in the brain's talk and in a thing's conversation, not in a channel.
+    const topic = (await call("deniz.aydin", "POST", "/conversations", { kind: "channel", name: "certificates", visibility: "participants" })).json() as {
       conversation: { id: string };
       offers: { teach: boolean };
     };

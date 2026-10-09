@@ -11,7 +11,7 @@ import {
 import { companies, notifications, tasks, users, type DatabaseHandle } from "@enterprise-brain/db";
 import type { AgentRecord, AgentService } from "./agents.ts";
 import { isChatChannel, type ChannelAccounts } from "./channel-accounts.ts";
-import type { ConversationRow, ConversationService, MessageRow, ParticipantRow } from "./conversations.ts";
+import { conversationPath, type ConversationRow, type ConversationService, type MessageRow, type ParticipantRow } from "./conversations.ts";
 import type { PlatformEventMap, PlatformEvents } from "./events.ts";
 import type { ActionLinks } from "./links.ts";
 import type { MailService } from "./mail.ts";
@@ -484,6 +484,8 @@ export class NotificationService {
     let sent = 0;
     for (const userId of named) {
       if (this.conversations?.isWatched(conversation.id, { kind: "person", id: userId })) continue;
+      // Named in a private place they are not in (a direct message of others): nothing to read, so nothing to send.
+      if (conversation.visibility === "participants" && !participants.some((p) => p.actorKind === "person" && p.actorId === userId)) continue;
       const person = await this.deps.people.get(conversation.companyId, userId).catch(() => undefined);
       if (!person || person.status !== "active") continue;
       const wants = preferencesOf(person);
@@ -508,9 +510,9 @@ export class NotificationService {
         companyName: company.name,
         person,
         author: message.author.name,
-        conversationTitle: conversation.title || "a conversation",
+        conversationTitle: conversation.kind === "channel" ? `#${conversation.name}` : conversation.title || "a conversation",
         text: plainText(message.text),
-        link: `${this.publicUrl}/chat/${conversation.id}`,
+        link: `${this.publicUrl}${conversationPath(conversation)}`,
         preferences: `${this.publicUrl}/?notifications=1`,
       };
       if (await this.deliver(row, retryOrder(row, candidates), person, (channel) => channel.sendMention!(mail))) sent++;

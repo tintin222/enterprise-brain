@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { BRAIN_SOURCES, BrainCatalog, BrainService, BrainSources, sourceName, sourcePriority } from "@enterprise-brain/brain";
 import { loadCatalog } from "@enterprise-brain/catalog";
 import { createDefaultRegistry, type ConnectorRegistry, type ScreenOperator } from "@enterprise-brain/connectors";
-import type { Catalog } from "@enterprise-brain/core";
+import { channelName, type Catalog } from "@enterprise-brain/core";
 import { companies, createDatabase, type DatabaseHandle } from "@enterprise-brain/db";
 import { KnowledgeService } from "@enterprise-brain/knowledge";
 import { createEmbedderFromEnv, createLlmFromEnv, type Embedder, type LlmClient } from "@enterprise-brain/llm";
@@ -17,7 +17,7 @@ import { CatalogService } from "./catalog-service.ts";
 import { CoachingNotes } from "./coaching-notes.ts";
 import { ensureCompanyBrain } from "./company-brain.ts";
 import { TurnPlanner } from "./conversation-turns.ts";
-import { ConversationService } from "./conversations.ts";
+import { agentActor, ConversationService, GENERAL_CHANNEL, type ChannelSpec } from "./conversations.ts";
 import { MentionCards } from "./mentions.ts";
 import { ConnectorService } from "./connectors.ts";
 import { EmploymentService } from "./employment.ts";
@@ -43,6 +43,9 @@ import { TaskService } from "./tasks.ts";
 import { TriggerService } from "./triggers.ts";
 import { WatcherService } from "./watchers.ts";
 import { WorkService } from "./work.ts";
+
+/** How often a company's built-in channels are checked against its departments when lists ask. */
+const CHANNEL_SYNC_MS = 5 * 60_000;
 
 export type CompanyRow = typeof companies.$inferSelect;
 
@@ -78,6 +81,8 @@ export class Platform {
   readonly reports: ReportService;
   /** Conversations: people and AI employees in one thread. */
   readonly conversations: ConversationService;
+  /** When each company's built-in channels were last brought in step. */
+  private readonly channelsSyncedAt = new Map<string, number>();
   /** Who answers in a conversation, and when. */
   readonly turns: TurnPlanner;
   /** What an AI employee gets about the things a message names with "@". */
@@ -289,11 +294,44 @@ export class Platform {
 
   /**
    * What every company has, made or brought up to date when the app starts: the company brain as a
-   * participant, and the conversations people had before conversations existed.
+   * participant, the conversations people had before conversations existed, #general and the departments'
+   * channels, and the free topics of before channels as channels or direct messages.
    */
   async prepareCompany(companyId: string): Promise<void> {
     await ensureCompanyBrain(this.agents, companyId);
     await this.conversations.adoptLegacyChat(companyId);
+    await this.syncChannels(companyId, { force: true });
+    await this.conversations.adoptTopics(companyId);
+  }
+
+  /**
+   * #general and one channel per department, made when missing and kept in step with the departments
+   * (names, who may read them, their AI employees at work). Once in five minutes per company unless forced.
+   */
+  async syncChannels(companyId: string, options: { force?: boolean } = {}): Promise<void> {
+    const at = this.channelsSyncedAt.get(companyId);
+    if (!options.force && at && Date.now() - at < CHANNEL_SYNC_MS) return;
+    this.channelsSyncedAt.set(companyId, Date.now());
+    const [departments, open, agents] = await Promise.all([
+      this.catalog.departments(companyId),
+      this.catalog.openDepartmentIds(companyId),
+      this.agents.list(companyId),
+    ]);
+    const working = agents.filter((a) => a.row.status === "active" || a.row.status === "testing");
+    const specs: ChannelSpec[] = [
+      { aboutId: GENERAL_CHANNEL, name: GENERAL_CHANNEL, title: "Everyone in the company", visibility: "company", ais: [] },
+      ...departments.map(
+        (d): ChannelSpec => ({
+          aboutId: d.id,
+          name: channelName(d.key) || channelName(d.name) || "department",
+          title: d.name,
+          visibility: open.includes(d.id) ? "company" : "department",
+          departmentId: d.id,
+          ais: working.filter((a) => a.row.departmentId === d.id).map(agentActor),
+        }),
+      ),
+    ];
+    await this.conversations.ensureChannels(companyId, specs);
   }
 
   async companies(): Promise<CompanyRow[]> {

@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { actorString } from "../src/actor.ts";
-import { mentionToken, mentions, namesOnly, parseMentions, plainText } from "../src/conversation.ts";
+import { channelName, isChannelName, mentionToken, mentions, namesOnly, parseMentions, plainText } from "../src/conversation.ts";
+
+describe("channel names", () => {
+  it("turns words into a name and knows a good one", () => {
+    expect(channelName("Kaya Çelik invoices")).toBe("kaya-çelik-invoices");
+    expect(channelName("  #Finance & Accounting!! ")).toBe("finance-accounting");
+    expect(channelName("a".repeat(70))).toHaveLength(60);
+    expect(channelName("---")).toBe("");
+    for (const name of ["general", "finance", "kaya-çelik-invoices", "q3", "satış-2026"]) expect(isChannelName(name)).toBe(true);
+    for (const name of ["", "Finance", "-finance", "finance-", "two--hyphens", "with space", "#general"]) expect(isChannelName(name)).toBe(false);
+  });
+});
 
 describe("mention tokens", () => {
   const text = "@[Invoice Processor](ai_employee:3f2a) please check @[VBAK](thing:9c1e-aa) and @[VBAK](thing:9c1e-aa) again, cc @[Elif Arslan](person:u-7)";

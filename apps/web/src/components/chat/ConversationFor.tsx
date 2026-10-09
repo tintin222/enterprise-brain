@@ -1,15 +1,10 @@
 import { clsx } from "clsx";
-import { useConversationFor } from "../../lib/queries.ts";
+import { useConversationFor, type ForKind } from "../../lib/queries.ts";
 import { ErrorState, Spinner } from "../Spinner.tsx";
 import { ConversationView, type ConversationViewProps } from "./ConversationView.tsx";
 
-/** The conversation about a task, a thing of the brain, or the viewer's talk with an AI employee, made on first use. */
-export function ConversationFor({
-  kind,
-  about,
-  className,
-  ...rest
-}: { kind: "task" | "thing" | "ai_employee"; about: string } & Omit<ConversationViewProps, "id">) {
+/** The conversation about a task, a thing, an AI employee (my talk), a person (our direct message) or a message (its thread), made on first use. */
+export function ConversationFor({ kind, about, className, ...rest }: { kind: ForKind; about: string } & Omit<ConversationViewProps, "id">) {
   const found = useConversationFor(kind, about);
   if (found.isLoading) {
     return (

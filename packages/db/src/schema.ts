@@ -13,6 +13,7 @@ import {
   uniqueIndex,
   uuid,
   vector,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -692,20 +693,30 @@ export const chatMessages = pgTable(
 type StoredActor = { kind: string; id: string; name: string };
 
 /**
- * A conversation: people and AI employees in one thread, about a task, an AI employee, a thing of
- * the brain, a Studio thread, or a free topic. One per task, thing or Studio thread; a
- * person's talk with an AI employee is theirs (several per AI employee).
+ * A conversation: a channel its members share, a direct message between a few people, a thread
+ * under one message, or the conversation about a task, an AI employee, a thing of the brain or a
+ * Studio thread. One per task, thing, Studio thread, root message and built-in channel; a person's
+ * talk with an AI employee is theirs; one direct message per set of people.
  */
 export const conversations = pgTable(
   "conversations",
   {
     id: id(),
     companyId: companyId(),
-    /** topic · task · ai_employee · thing · studio */
+    /** channel · dm · thread · task · ai_employee · thing · studio */
     kind: text("kind").notNull(),
-    /** The task, AI employee, brain thing or Studio thread it is about. */
+    /**
+     * What it is about: the task, AI employee, brain thing or Studio thread; a thread's root message;
+     * "general" or the department id for a built-in channel.
+     */
     aboutId: text("about_id"),
     title: text("title").notNull().default(""),
+    /** A channel's name ("finance", shown as #finance), unique in the company. */
+    name: text("name"),
+    /** A thread's channel or direct message (its root message is `aboutId`). */
+    parentId: uuid("parent_id").references((): AnyPgColumn => conversations.id, { onDelete: "cascade" }),
+    /** A direct message's people, sorted: "person:<id>|person:<id>"; one direct message per set. */
+    dmKey: text("dm_key"),
     /** For `visibility = department`: whose people may read it. */
     departmentId: uuid("department_id").references(() => departments.id, { onDelete: "set null" }),
     /** participants · department · company */
@@ -721,9 +732,16 @@ export const conversations = pgTable(
   },
   (t) => [
     index("conversations_company_last").on(t.companyId, t.lastMessageAt),
+    index("conversations_parent").on(t.parentId),
     uniqueIndex("conversations_about")
       .on(t.companyId, t.kind, t.aboutId)
-      .where(sql`${t.kind} in ('task', 'thing', 'studio')`),
+      .where(sql`${t.kind} in ('task', 'thing', 'studio', 'thread', 'channel')`),
+    uniqueIndex("conversations_channel_name")
+      .on(t.companyId, t.name)
+      .where(sql`${t.kind} = 'channel' and ${t.name} is not null`),
+    uniqueIndex("conversations_dm_key")
+      .on(t.companyId, t.dmKey)
+      .where(sql`${t.dmKey} is not null`),
   ],
 );
 
@@ -795,6 +813,27 @@ export const conversationMessages = pgTable(
       .where(sql`${t.cardKey} is not null`),
     index("conversation_messages_mentions").using("gin", t.mentions),
     index("conversation_messages_company").on(t.companyId, t.createdAt),
+  ],
+);
+
+/** Someone reacted to a message with an emoji: once per person and emoji. */
+export const conversationReactions = pgTable(
+  "conversation_reactions",
+  {
+    id: id(),
+    companyId: companyId(),
+    messageId: uuid("message_id")
+      .notNull()
+      .references(() => conversationMessages.id, { onDelete: "cascade" }),
+    actor: jsonb("actor").$type<StoredActor>().notNull(),
+    actorKind: text("actor_kind").notNull(),
+    actorId: text("actor_id").notNull(),
+    emoji: text("emoji").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    uniqueIndex("conversation_reactions_once").on(t.messageId, t.actorKind, t.actorId, t.emoji),
+    index("conversation_reactions_message").on(t.messageId),
   ],
 );
 

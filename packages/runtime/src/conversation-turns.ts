@@ -4,7 +4,15 @@ import type { KnowledgeService } from "@enterprise-brain/knowledge";
 import type { LlmClient } from "@enterprise-brain/llm";
 import type { AgentRecord, AgentService } from "./agents.ts";
 import { COMPANY_BRAIN_SLUG } from "./company-brain.ts";
-import { agentActor, participantActor, type ConversationRow, type ConversationService, type MessageRow, type ParticipantRow } from "./conversations.ts";
+import {
+  agentActor,
+  participantActor,
+  placeName,
+  type ConversationRow,
+  type ConversationService,
+  type MessageRow,
+  type ParticipantRow,
+} from "./conversations.ts";
 import { BudgetError, RunError, type RunEngine } from "./engine.ts";
 import type { MentionCards } from "./mentions.ts";
 import { offlineAnswer } from "./offline-answer.ts";
@@ -32,7 +40,9 @@ const MAX_PER_HOUR = 20;
 const HOUR = 3_600_000;
 
 const KIND_WORDS: Record<string, string> = {
-  topic: "a topic several people and AI employees share",
+  channel: "a channel several people and AI employees share",
+  dm: "a direct message between a few people",
+  thread: "a thread under one message",
   task: "about a task",
   ai_employee: "a person talking with you",
   thing: "about one thing the company knows",
@@ -104,6 +114,7 @@ export class TurnPlanner {
           message.replyToId && conversation.kind !== "task" ? await this.deps.conversations.message(conversation.companyId, message.replyToId) : undefined;
         if (replied?.author.kind === "ai_employee") targets = [replied.author.id];
         else if (conversation.kind === "ai_employee" && conversation.aboutId) targets = [conversation.aboutId];
+        else if (conversation.kind === "thread") targets = await this.threadResponder(conversation, message);
         else if (conversation.kind === "task" && conversation.aboutId) {
           const task = await this.deps.tasks.byId(conversation.aboutId);
           if (task) targets = [task.agentId];
@@ -116,6 +127,23 @@ export class TurnPlanner {
       if (!agent) continue;
       void this.schedule(conversation, agent, { answersSeq: message.seq, hop, actor: actorString(message.author as Actor) });
     }
+  }
+
+  /**
+   * Who answers in a thread when nobody is named: the AI employee that last wrote in it (so "Thanks, send it
+   * today" under its answer reaches it), else the root message's author when it is an AI employee, else the
+   * AI employee of the talk the thread is under; in a channel's or direct message's thread otherwise, nobody.
+   */
+  private async threadResponder(thread: ConversationRow, message: MessageRow): Promise<string[]> {
+    const { companyId } = thread;
+    const before = await this.deps.conversations.messages(companyId, thread.id, { beforeSeq: message.seq, limit: 30 });
+    const latest = before.reverse().find((m) => m.kind === "text" && m.author.kind === "ai_employee");
+    if (latest) return [latest.author.id];
+    const root = thread.aboutId ? await this.deps.conversations.message(companyId, thread.aboutId) : undefined;
+    if (root?.author.kind === "ai_employee") return [root.author.id];
+    const parent = thread.parentId ? await this.deps.conversations.find(companyId, thread.parentId) : undefined;
+    if (parent?.conversation.kind === "ai_employee" && parent.conversation.aboutId) return [parent.conversation.aboutId];
+    return [];
   }
 
   /** A card in a conversation was handled: the AI employee that asked hears the answer (task conversations wake through their task). */
@@ -170,14 +198,16 @@ export class TurnPlanner {
     await Promise.race([Promise.allSettled([...this.running.values()]), new Promise((resolve) => setTimeout(resolve, timeoutMs).unref?.())]);
   }
 
-  private tooMany(conversationId: string): boolean {
+  /** Is this turn one too many: the first over the hour's limit ("now"), or one during the pause that follows ("still")? */
+  private tooMany(conversationId: string): "now" | "still" | false {
     const now = Date.now();
     const paused = this.pausedUntil.get(conversationId);
-    if (paused && paused > now) return true;
+    if (paused && paused > now) return "still";
     const times = (this.recent.get(conversationId) ?? []).filter((t) => now - t < HOUR);
     if (times.length >= MAX_PER_HOUR) {
       this.pausedUntil.set(conversationId, now + HOUR);
-      return true;
+      this.recent.delete(conversationId);
+      return "now";
     }
     times.push(now);
     this.recent.set(conversationId, times);
@@ -186,9 +216,9 @@ export class TurnPlanner {
 
   /** Too many AI turns here this hour: say so once, and do nothing more for an hour. */
   private async paused(conversation: ConversationRow): Promise<boolean> {
-    if (!this.tooMany(conversation.id)) return false;
-    const paused = this.pausedUntil.get(conversation.id) ?? 0;
-    if (paused > Date.now() - 1000)
+    const state = this.tooMany(conversation.id);
+    if (!state) return false;
+    if (state === "now")
       await this.deps.conversations.postSystem(conversation.companyId, conversation.id, "AI employees paused here for an hour: too many replies in a row.", {
         paused: true,
       });
@@ -264,7 +294,7 @@ export class TurnPlanner {
     }
   }
 
-  /** A turn in a topic, a talk or a thing's conversation: a run with no task, whose final text is the message. */
+  /** A turn in a channel, a direct message, a thread, a talk or a thing's conversation: a run with no task, whose final text is the message. */
   private async conversationTurn(conversation: ConversationRow, agent: AgentRecord, turn: TurnInput): Promise<void> {
     const { companyId } = conversation;
     const ai = agentActor(agent);
@@ -412,6 +442,10 @@ export class TurnPlanner {
       await this.deps.conversations.post(companyId, conversation.id, { author: ai, text, runId: latest.id, data: { answersSeq: turn.answersSeq, hop: 0 } });
   }
 
+  private threadLine(thread: ConversationRow): Promise<string> {
+    return threadLineOf(this.deps.conversations, thread);
+  }
+
   /** What the AI employee reads for a turn: where it is, who is there, what is new, what was named. */
   private async brief(
     conversation: ConversationRow,
@@ -422,17 +456,24 @@ export class TurnPlanner {
   ): Promise<string> {
     const people = await this.deps.people.list(conversation.companyId).catch(() => []);
     const titles = new Map(people.map((p) => [p.id, p.title]));
-    const who = participants.map((p) => {
+    const who = participants.slice(0, 40).map((p) => {
       if (p.actorKind === "ai_employee") return p.actorId === ai.id ? `${p.actorName} (you)` : `${p.actorName} (AI employee)`;
       const title = titles.get(p.actorId);
       return `${p.actorName} (person${title ? ` · ${title}` : ""})`;
     });
+    if (participants.length > who.length) who.push(`and ${participants.length - who.length} more`);
     const about =
       conversation.kind === "thing" && conversation.aboutId
         ? await this.deps.cards.card(conversation.companyId, { kind: "thing", id: conversation.aboutId, name: conversation.title }).catch(() => undefined)
         : undefined;
+    const where =
+      conversation.kind === "channel"
+        ? `You are in the channel #${conversation.name}${conversation.title ? ` (${conversation.title})` : ""}: ${KIND_WORDS.channel}.`
+        : conversation.kind === "thread"
+          ? await this.threadLine(conversation)
+          : `You are in the conversation "${conversation.title || "(untitled)"}" (${KIND_WORDS[conversation.kind] ?? conversation.kind}).`;
     return [
-      `You are in the conversation "${conversation.title || "(untitled)"}" (${KIND_WORDS[conversation.kind] ?? conversation.kind}).`,
+      where,
       `Participants: ${who.join(", ")}.`,
       ...(about ? ["", "It is about:", about] : []),
       ...(turn.decision ? ["", "What just happened:", turn.decision] : []),
@@ -444,6 +485,15 @@ export class TurnPlanner {
       "Your answer is your message in the conversation. Keep it short, answer only what is for you, and name people and things as @[Name](kind:id) when you point at them.",
     ].join("\n");
   }
+}
+
+/** The first line of a thread's brief: where it is, and the message it is under. */
+async function threadLineOf(conversations: ConversationService, thread: ConversationRow): Promise<string> {
+  const root = thread.aboutId ? await conversations.message(thread.companyId, thread.aboutId) : undefined;
+  const parent = thread.parentId ? await conversations.find(thread.companyId, thread.parentId) : undefined;
+  const place = parent ? placeName(parent.conversation) : "a conversation";
+  if (!root) return `You are in a thread in ${place} (${KIND_WORDS.thread}).`;
+  return `You are in the thread under ${root.author.kind === "system" ? "the app's" : `${root.author.name}'s`} message #${root.seq} in ${place}: “${truncate(plainText(root.text), 600)}”. Your answer is a reply in this thread.`;
 }
 
 interface TurnInput {

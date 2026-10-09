@@ -1,291 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { ArrowDown, ArrowLeft, Briefcase, CircleCheck, CornerUpLeft, ExternalLink, Lightbulb, MessagesSquare, Reply, UserPlus } from "lucide-react";
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link } from "react-router";
-import { api, fileUrl, subscribe } from "../../api.ts";
+import { ArrowDown, Hash, MessagesSquare } from "lucide-react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { api, subscribe } from "../../api.ts";
 import { useCompany } from "../../lib/company.tsx";
-import { KIND_META, VISIBILITY_LABELS, conversationTitle, participantActor, placeholderFor, sameActor } from "../../lib/conversations.ts";
-import { formatDate, formatDateTime } from "../../lib/format.ts";
-import { MENTION_ICONS } from "../../lib/mentions.ts";
-import { keys, useConversation } from "../../lib/queries.ts";
+import { conversationTitle, participantActor, placeholderFor } from "../../lib/conversations.ts";
+import { keys, messagesKey, useConversation } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
-import type { Actor, MentionHit, Message, Participant } from "../../types.ts";
-import { Badge } from "../Badge.tsx";
-import { Button, ButtonLink } from "../Button.tsx";
-import { Dialog } from "../Dialog.tsx";
-import { FileChip } from "../Dropzone.tsx";
-import { Markdown } from "../Markdown.tsx";
+import type { Actor, Message } from "../../types.ts";
+import { Button } from "../Button.tsx";
 import { ErrorState, Spinner } from "../Spinner.tsx";
-import { WorkItemCard } from "../WorkItemCard.tsx";
 import { ActorAvatar } from "./Actors.tsx";
 import { Composer, type ComposerIntent, type ComposerSend } from "./Composer.tsx";
-import { LearningCard } from "./LearningCard.tsx";
-import { useMentionHits } from "./MentionPicker.tsx";
+import { ConversationHeader } from "./ConversationHeader.tsx";
+import { MembersDialog } from "./MembersDialog.tsx";
+import { MessageRow, dayLabel, upsert } from "./MessageRow.tsx";
 
 const PAGE = 50;
 
-function upsert(list: Message[] | undefined, message: Message): Message[] {
-  const rest = (list ?? []).filter((m) => m.id !== message.id);
-  rest.push(message);
-  return rest.sort((a, b) => a.seq - b.seq);
-}
-
-function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
-
-function dayLabel(iso: string): string {
-  const date = new Date(iso);
-  const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(today.getDate() - 1);
-  const same = (a: Date, b: Date) => a.toDateString() === b.toDateString();
-  return same(date, today) ? "Today" : same(date, yesterday) ? "Yesterday" : formatDate(iso);
-}
-
-/** Two text messages by the same author within five minutes read as one. */
-function continues(previous: Message | undefined, message: Message): boolean {
-  if (!previous || previous.kind !== "text" || message.kind !== "text" || message.replyToId) return false;
-  if (!sameActor(previous.author, message.author)) return false;
-  return new Date(message.createdAt).getTime() - new Date(previous.createdAt).getTime() < 5 * 60_000;
-}
-
-function AuthorLine({ message, extra }: { message: Message; extra?: ReactNode }) {
-  const { author } = message;
-  return (
-    <p className="mb-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
-      <span className="font-semibold text-fg">{author.name}</span>
-      {author.kind === "ai_employee" && (
-        <Badge size="xs" tone="brand">
-          AI
-        </Badge>
-      )}
-      <time dateTime={message.createdAt} title={formatDateTime(message.createdAt)} className="text-faint">
-        {clock(message.createdAt)}
-      </time>
-      {extra}
-    </p>
-  );
-}
-
-/** Under a message given as work or taught to the brain: what became of it; under an answer to given work: its task. */
-function IntentFooter({ message }: { message: Message }) {
-  const data = message.data ?? {};
-  if (data.taskEvent === "done" && message.author.kind === "ai_employee") {
-    const done = data.task as { ref?: string } | undefined;
-    if (!done?.ref) return null;
-    return (
-      <Link
-        to={`/work/${encodeURIComponent(done.ref)}`}
-        className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 hover:underline dark:text-emerald-300"
-      >
-        <CircleCheck className="size-3" /> {done.ref} is done · Open the task
-      </Link>
-    );
-  }
-  if (data.intent === "teach") {
-    return (
-      <p className="mt-1 flex items-center gap-1 text-[11px] text-muted">
-        <Lightbulb className="size-3" /> Taught the company brain
-      </p>
-    );
-  }
-  const task = data.intent === "work" ? (data.task as { ref?: string } | undefined) : undefined;
-  if (!task?.ref) return null;
-  const to = data.to as Actor | undefined;
-  return (
-    <Link
-      to={`/work/${encodeURIComponent(task.ref)}`}
-      className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-brand-700 hover:underline dark:text-brand-300"
-    >
-      <Briefcase className="size-3" /> Given{to ? ` to ${to.name}` : ""} as {task.ref}
-    </Link>
-  );
-}
-
-function MessageRow({
-  message,
-  previous,
-  replyTo,
-  onReply,
-  onChanged,
-}: {
-  message: Message;
-  previous?: Message;
-  replyTo?: Message;
-  onReply?: (message: Message) => void;
-  onChanged: (message: Message) => void;
-}) {
-  const { company } = useCompany();
-  if (message.kind === "system") {
-    return (
-      <li className="flex justify-center px-4 py-1.5">
-        <p className="max-w-xl text-center text-xs text-muted">
-          {message.plain}{" "}
-          <time dateTime={message.createdAt} title={formatDateTime(message.createdAt)} className="text-faint">
-            · {clock(message.createdAt)}
-          </time>
-        </p>
-      </li>
-    );
-  }
-  if (message.kind === "card") {
-    return (
-      <li className="px-4 py-2 sm:px-6">
-        <div className="flex gap-3">
-          <ActorAvatar actor={message.author} />
-          <div className="min-w-0 max-w-2xl flex-1">
-            <AuthorLine message={message} />
-            {message.card?.type === "learning" ? (
-              <LearningCard message={message} card={message.card} onChanged={onChanged} />
-            ) : message.card ? (
-              <WorkItemCard entry={message.card} showAgent={false} />
-            ) : (
-              <p className="rounded-xl border border-dashed border-line px-4 py-3 text-sm text-muted">This item is no longer there.</p>
-            )}
-          </div>
-        </div>
-      </li>
-    );
-  }
-  const continued = continues(previous, message);
-  const steps =
-    message.author.kind === "ai_employee" && message.runId ? (
-      <Link to={`/runs/${message.runId}`} className="text-faint hover:text-fg hover:underline">
-        how it worked
-      </Link>
-    ) : null;
-  return (
-    <li className={clsx("group relative px-4 sm:px-6", continued ? "py-0.5" : "pt-3 pb-0.5")}>
-      <div className="flex gap-3">
-        {continued ? (
-          <span
-            className="w-8 shrink-0 pt-1 text-right text-[10px] leading-4 text-faint opacity-0 group-hover:opacity-100"
-            title={formatDateTime(message.createdAt)}
-          >
-            {clock(message.createdAt)}
-          </span>
-        ) : (
-          <ActorAvatar actor={message.author} />
-        )}
-        <div className="min-w-0 flex-1">
-          {!continued && <AuthorLine message={message} extra={steps} />}
-          {message.replyToId && (
-            <p className="mb-1 flex items-center gap-1 truncate text-xs text-muted">
-              <CornerUpLeft className="size-3 shrink-0" />
-              {replyTo ? (
-                <>
-                  Replying to <span className="font-medium text-fg/80">{replyTo.author.name}</span>: {replyTo.plain.slice(0, 80)}
-                </>
-              ) : (
-                "Replying to an earlier message"
-              )}
-            </p>
-          )}
-          {message.text.trim() && (
-            <Markdown compact breaks={message.author.kind !== "ai_employee"} mentions={message.mentions} className="text-sm">
-              {message.text}
-            </Markdown>
-          )}
-          {message.files.length > 0 && (
-            <div className="mt-1.5 flex flex-wrap gap-1.5">
-              {message.files.map((file) => (
-                <a key={file.id} href={fileUrl(company, file.id, true)} target="_blank" rel="noopener noreferrer" className="inline-flex max-w-full">
-                  <FileChip name={file.name} size={file.size} className="hover:border-brand-400" />
-                </a>
-              ))}
-            </div>
-          )}
-          <IntentFooter message={message} />
-        </div>
-      </div>
-      {onReply && (
-        <button
-          type="button"
-          onClick={() => onReply(message)}
-          className="absolute top-1 right-4 hidden items-center gap-1 rounded-md border border-line bg-surface px-1.5 py-0.5 text-[11px] text-muted shadow-xs group-hover:inline-flex hover:text-fg sm:right-6"
-          aria-label={`Reply to ${message.author.name}`}
-        >
-          <Reply className="size-3" /> Reply
-        </button>
-      )}
-    </li>
-  );
-}
-
-function ParticipantsStack({ participants }: { participants: Participant[] }) {
-  const shown = participants.slice(0, 5);
-  return (
-    <div className="hidden items-center sm:flex" title={participants.map((p) => p.actorName).join(", ")}>
-      <div className="flex -space-x-1">
-        {shown.map((p) => (
-          <ActorAvatar key={p.id} actor={participantActor(p)} size="sm" className="ring-2 ring-surface" />
-        ))}
-      </div>
-      {participants.length > shown.length && <span className="ml-1.5 text-xs text-muted">+{participants.length - shown.length}</span>}
-    </div>
-  );
-}
-
-/** Bring a person or an AI employee in: they see the whole conversation. */
-function InviteDialog({
-  conversationId,
-  participants,
-  open,
-  onClose,
-}: {
-  conversationId: string;
-  participants: Participant[];
-  open: boolean;
-  onClose: () => void;
-}) {
-  const { company, path } = useCompany();
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const [q, setQ] = useState("");
-  const hits = useMentionHits(open ? q : null, { conversationId, kinds: ["person", "ai_employee"] });
-  const present = new Set(participants.map((p) => `${p.actorKind}:${p.actorId}`));
-  const invite = useMutation({
-    mutationFn: (hit: MentionHit) => api.post(path(`/conversations/${encodeURIComponent(conversationId)}/participants`), { kind: hit.kind, id: hit.id }),
-    onSuccess: (_, hit) => {
-      toast.success(`${hit.name} is in the conversation`);
-      void queryClient.invalidateQueries({ queryKey: [...keys.conversations(company), conversationId], exact: true });
-    },
-    onError: (error) => toast.error(error),
-  });
-  const candidates = (hits.data ?? []).filter((h) => !present.has(`${h.kind}:${h.id}`));
-  return (
-    <Dialog open={open} onClose={onClose} title="Bring someone in" description="People of your departments, and AI employees. They see the whole conversation.">
-      <input className="input" placeholder="A name…" value={q} onChange={(e) => setQ(e.target.value)} autoFocus aria-label="Who to bring in" />
-      <ul className="mt-3 max-h-72 divide-y divide-line overflow-y-auto rounded-lg border border-line">
-        {candidates.length === 0 && <li className="px-3 py-3 text-sm text-muted">{hits.isFetching ? "Looking…" : "Nobody else to add."}</li>}
-        {candidates.map((hit) => {
-          const Icon = MENTION_ICONS[hit.kind];
-          return (
-            <li key={`${hit.kind}:${hit.id}`} className="flex items-center gap-3 px-3 py-2">
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-subtle text-muted">
-                <Icon className="size-4" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium text-fg">{hit.name}</span>
-                {hit.detail && <span className="block truncate text-xs text-muted">{hit.detail}</span>}
-              </span>
-              <Button size="xs" variant="soft" icon={UserPlus} loading={invite.isPending && invite.variables?.id === hit.id} onClick={() => invite.mutate(hit)}>
-                Add
-              </Button>
-            </li>
-          );
-        })}
-      </ul>
-    </Dialog>
-  );
-}
-
 export interface ConversationViewProps {
   id: string;
-  /** Inside another page (a task, an AI employee): without the header. */
+  /** Inside another page (a task, an AI employee, a thread pane): without the header, with the compact composer. */
   embedded?: boolean;
+  /** The header to show instead of the usual one (`null` for none). */
+  header?: ReactNode;
   className?: string;
   /** Narrow screens: back to the list. */
   onBack?: () => void;
@@ -298,6 +36,13 @@ export interface ConversationViewProps {
   onSentInitial?: () => void;
   /** Open the composer ready to give work or to teach the brain (where offered). */
   initialIntent?: ComposerIntent;
+  /** Where threads are offered (channels, direct messages, talks): "Reply in thread" and the replies line under messages. */
+  onOpenThread?: (message: Message) => void;
+  /** A thread pane: the message the thread is under changed (a reaction on it, say). */
+  onRootUpdated?: (message: Message) => void;
+  /** Shown above the messages (a thread's root message). */
+  lead?: ReactNode;
+  canReact?: boolean;
 }
 
 /**
@@ -307,6 +52,7 @@ export interface ConversationViewProps {
 export function ConversationView({
   id,
   embedded,
+  header,
   className,
   onBack,
   emptyTitle = "Nothing said yet",
@@ -315,14 +61,18 @@ export function ConversationView({
   initialText,
   onSentInitial,
   initialIntent,
+  onOpenThread,
+  onRootUpdated,
+  lead,
+  canReact = true,
 }: ConversationViewProps) {
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
   const toast = useToast();
   const view = useConversation(id);
-  const messagesKey = useMemo(() => [...keys.conversations(company), id, "messages"] as const, [company, id]);
+  const key = messagesKey(company, id);
   const messages = useQuery({
-    queryKey: messagesKey,
+    queryKey: key,
     queryFn: () => api.get<Message[]>(path(`/conversations/${encodeURIComponent(id)}/messages?limit=${PAGE}`)),
     staleTime: Infinity,
   });
@@ -331,8 +81,7 @@ export function ConversationView({
   const lastSeqRef = useRef(0);
   if (lastSeq > lastSeqRef.current) lastSeqRef.current = lastSeq;
   const [working, setWorking] = useState<Map<string, Actor>>(() => new Map());
-  const [replyTo, setReplyTo] = useState<Message | null>(null);
-  const [inviting, setInviting] = useState(false);
+  const [members, setMembers] = useState(false);
   const [noMore, setNoMore] = useState(false);
   const [fresh, setFresh] = useState(0);
   const stuck = useRef(true);
@@ -342,7 +91,20 @@ export function ConversationView({
   const invalidateLists = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: [...keys.conversations(company), "list"] });
   }, [queryClient, company]);
-  const apply = useCallback((message: Message) => queryClient.setQueryData<Message[]>(messagesKey, (old) => upsert(old, message)), [queryClient, messagesKey]);
+  const invalidateView = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: [...keys.conversations(company), id], exact: true });
+  }, [queryClient, company, id]);
+  const apply = useCallback(
+    (message: Message) => {
+      // What this conversation's stream says about a message of another one (a thread's root) is not ours to list.
+      if (message.conversationId !== id) {
+        onRootUpdated?.(message);
+        return;
+      }
+      queryClient.setQueryData<Message[]>(key, (old) => upsert(old, message));
+    },
+    [queryClient, key, id, onRootUpdated],
+  );
   const onEvent = useCallback(
     (event: string, data: unknown) => {
       if (event === "message" || event === "card") {
@@ -356,16 +118,16 @@ export function ConversationView({
         const { actor, on } = data as { actor: Actor; on: boolean };
         setWorking((current) => {
           const next = new Map(current);
-          const key = `${actor.kind}:${actor.id}`;
-          if (on) next.set(key, actor);
-          else next.delete(key);
+          const actorKey = `${actor.kind}:${actor.id}`;
+          if (on) next.set(actorKey, actor);
+          else next.delete(actorKey);
           return next;
         });
       } else if (event === "participants") {
-        void queryClient.invalidateQueries({ queryKey: [...keys.conversations(company), id], exact: true });
+        invalidateView();
       }
     },
-    [apply, queryClient, company, id, invalidateLists],
+    [apply, queryClient, company, invalidateLists, invalidateView],
   );
 
   // Live: once the first page is here, listen from its last message on; when the server closes the
@@ -449,7 +211,7 @@ export function ConversationView({
       const el = scroller.current;
       if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop };
       if (older.length < PAGE) setNoMore(true);
-      queryClient.setQueryData<Message[]>(messagesKey, (old) => older.reduce((acc, m) => upsert(acc, m), old ?? []));
+      queryClient.setQueryData<Message[]>(key, (old) => older.reduce((acc, m) => upsert(acc, m), old ?? []));
     },
     onError: (error) => toast.error(error),
   });
@@ -466,10 +228,19 @@ export function ConversationView({
       scrollToBottom();
       invalidateLists();
       // The first message makes the poster a participant: the header follows.
-      if (!view.data?.me) void queryClient.invalidateQueries({ queryKey: [...keys.conversations(company), id], exact: true });
+      if (!view.data?.me) invalidateView();
     },
-    [path, id, apply, scrollToBottom, invalidateLists, view.data?.me, queryClient, company],
+    [path, id, apply, scrollToBottom, invalidateLists, view.data?.me, invalidateView],
   );
+
+  const join = useMutation({
+    mutationFn: () => api.post(path(`/conversations/${encodeURIComponent(id)}/join`)),
+    onSuccess: () => {
+      invalidateView();
+      invalidateLists();
+    },
+    onError: (error) => toast.error(error),
+  });
 
   const sentInitial = useRef(false);
   useEffect(() => {
@@ -495,52 +266,20 @@ export function ConversationView({
     );
   }
 
-  const { conversation, participants, me, canInvite, about, offers } = view.data;
-  const meta = KIND_META[conversation.kind];
-  const KindIcon = meta.icon;
-  const title = conversationTitle(conversation, participants, me ? participantActor(me) : null);
+  const { conversation, participants, me, offers } = view.data;
+  const myself = me ? participantActor(me) : null;
   const byId = new Map(list.map((m) => [m.id, m]));
   const archived = conversation.status !== "open";
   const empty = list.length === 0 && messages.isSuccess;
+  // A channel open to you that you are not in yet: read it, join it to write.
+  const outside = conversation.kind === "channel" && !me;
   // Messages are numbered from 1 without gaps: earlier ones exist while the first shown is not #1.
   const hasEarlier = !noMore && (list[0]?.seq ?? 1) > 1;
   let lastDay = "";
 
   return (
     <div className={clsx("flex min-h-0 flex-col", className)}>
-      {!embedded && (
-        <header className="flex shrink-0 items-center gap-3 border-b border-line bg-surface px-4 py-2.5 sm:px-6">
-          {onBack && (
-            <button
-              type="button"
-              onClick={onBack}
-              className="-ml-1 rounded-lg p-1.5 text-muted hover:bg-subtle hover:text-fg lg:hidden"
-              aria-label="Back to conversations"
-            >
-              <ArrowLeft className="size-5" />
-            </button>
-          )}
-          <KindIcon className="hidden size-5 shrink-0 text-muted sm:block" />
-          <div className="min-w-0 flex-1">
-            <h1 className="truncate text-sm font-semibold text-fg">{title}</h1>
-            <p className="truncate text-xs text-muted">
-              {meta.label} · {VISIBILITY_LABELS[conversation.visibility]} ·{" "}
-              {participants.length === 1 ? "1 participant" : `${participants.length} participants`}
-            </p>
-          </div>
-          <ParticipantsStack participants={participants} />
-          {about && (
-            <ButtonLink to={about.href} size="sm" variant="ghost" icon={ExternalLink}>
-              <span className="hidden sm:inline">{about.label}</span>
-            </ButtonLink>
-          )}
-          {(canInvite || me) && !archived && (
-            <Button size="sm" icon={UserPlus} onClick={() => setInviting(true)}>
-              <span className="hidden sm:inline">Invite</span>
-            </Button>
-          )}
-        </header>
-      )}
+      {!embedded && header === undefined ? <ConversationHeader view={view.data} onBack={onBack} onMembers={() => setMembers(true)} /> : header}
       <div
         ref={scroller}
         onScroll={(e) => {
@@ -550,6 +289,7 @@ export function ConversationView({
         }}
         className="min-h-0 flex-1 overflow-y-auto py-3"
       >
+        {lead}
         {messages.error && (
           <div className="px-6">
             <ErrorState error={messages.error} onRetry={() => void messages.refetch()} />
@@ -565,11 +305,15 @@ export function ConversationView({
         {empty && (
           <div className="flex flex-col items-center px-6 py-10 text-center">
             <div className="flex size-12 items-center justify-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-400/15 dark:text-brand-300">
-              <MessagesSquare className="size-6" />
+              {conversation.kind === "channel" ? <Hash className="size-6" /> : <MessagesSquare className="size-6" />}
             </div>
-            <h2 className="mt-4 text-base font-semibold text-fg">{emptyTitle}</h2>
-            <p className="mt-1 max-w-md text-sm text-muted">{emptyDescription}</p>
-            {suggestions.length > 0 && !archived && (
+            <h2 className="mt-4 text-base font-semibold text-fg">
+              {conversation.kind === "channel" ? `This is the start of #${conversation.name}` : emptyTitle}
+            </h2>
+            <p className="mt-1 max-w-md text-sm text-muted">
+              {conversation.kind === "channel" ? conversation.title || "Nothing has been said here yet." : emptyDescription}
+            </p>
+            {suggestions.length > 0 && !archived && !outside && (
               <div className="mt-6 grid w-full max-w-2xl gap-2 sm:grid-cols-2">
                 {suggestions.map((s) => (
                   <button
@@ -603,8 +347,9 @@ export function ConversationView({
                   message={message}
                   previous={separator ? undefined : list[i - 1]}
                   replyTo={message.replyToId ? byId.get(message.replyToId) : undefined}
-                  onReply={archived ? undefined : setReplyTo}
                   onChanged={apply}
+                  onOpenThread={archived ? undefined : onOpenThread}
+                  canReact={canReact && !archived && Boolean(me)}
                 />
               </Fragment>
             );
@@ -634,22 +379,29 @@ export function ConversationView({
       )}
       <div className={clsx("shrink-0 border-t border-line bg-surface", embedded ? "px-3 py-2.5" : "px-4 py-3 sm:px-6")}>
         {archived ? (
-          <p className="text-center text-sm text-muted">This conversation is archived.</p>
+          <p className="text-center text-sm text-muted">This {conversation.kind === "channel" ? "channel" : "conversation"} is archived.</p>
+        ) : outside ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-subtle px-4 py-3">
+            <p className="text-sm text-fg">
+              You are reading <span className="font-semibold">{conversationTitle(conversation, participants, myself)}</span>. Join it to write here.
+            </p>
+            <Button variant="primary" size="sm" icon={Hash} loading={join.isPending} onClick={() => join.mutate()}>
+              Join {conversationTitle(conversation, participants, myself)}
+            </Button>
+          </div>
         ) : (
           <Composer
             conversationId={id}
             onSend={send}
-            replyTo={replyTo ? { id: replyTo.id, author: replyTo.author.name, text: replyTo.plain.slice(0, 120) } : null}
-            onCancelReply={() => setReplyTo(null)}
             compact={embedded}
             autoFocus={!embedded}
-            placeholder={placeholderFor(conversation, participants)}
+            placeholder={placeholderFor(conversation, participants, myself)}
             offers={offers}
             initialIntent={initialIntent}
           />
         )}
       </div>
-      <InviteDialog conversationId={id} participants={participants} open={inviting} onClose={() => setInviting(false)} />
+      {!embedded && <MembersDialog view={view.data} open={members} onClose={() => setMembers(false)} />}
     </div>
   );
 }

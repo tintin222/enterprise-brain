@@ -1,13 +1,44 @@
 import { z } from "zod";
 
 /**
- * Conversations: one thread for people and AI employees, about a task, an AI employee, a thing
- * of the brain, or a free topic. Messages name people and assets with "@" mentions, written in
- * the text as tokens so an AI can reach what was named.
+ * Conversations: channels, direct messages and threads for people and AI employees, and the
+ * conversations about a task, an AI employee or a thing of the brain. Messages name people and
+ * assets with "@" mentions, written in the text as tokens so an AI can reach what was named.
  */
 
-export const CONVERSATION_KINDS = ["topic", "task", "ai_employee", "thing", "studio"] as const;
+/**
+ * channel: a named place its members share · dm: a direct message between a few people · thread: the replies
+ * under one message · task, ai_employee (a person's talk with one), thing: about that · studio: a Studio thread.
+ */
+export const CONVERSATION_KINDS = ["channel", "dm", "thread", "task", "ai_employee", "thing", "studio"] as const;
 export type ConversationKind = (typeof CONVERSATION_KINDS)[number];
+
+/** A channel's name ("finance", shown as #finance): lowercase letters and digits of any script, hyphens between, up to 60. */
+export const CHANNEL_NAME = /^[\p{L}\p{N}](?:[\p{L}\p{N}-]{0,58}[\p{L}\p{N}])?$/u;
+
+export function isChannelName(name: string): boolean {
+  return CHANNEL_NAME.test(name) && name === name.toLowerCase() && !name.includes("--");
+}
+
+/** Words as a channel name: lowercase, runs of anything else become one hyphen, at most 60 characters. */
+export function channelName(text: string): string {
+  return text
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60)
+    .replace(/-+$/g, "");
+}
+
+/** The emoji a message can be reacted to with (the picker offers these, the server takes no others). */
+export const REACTION_EMOJI = ["👍", "❤️", "😂", "🎉", "✅", "👀", "🙏", "🚀", "🤔", "👏", "🔥", "💯", "😮", "😢", "⏳", "❌"] as const;
+
+/** The emoji as the list spells it (a heart with or without its variation selector is the same heart), or nothing. */
+export function reactionEmoji(text: string): string | undefined {
+  const bare = (s: string) => s.normalize("NFC").replace(/\uFE0F/g, "");
+  return REACTION_EMOJI.find((e) => bare(e) === bare(text));
+}
 
 /** participants: only the people in it · department: everyone of its department · company: everyone signed in. */
 export const CONVERSATION_VISIBILITIES = ["participants", "department", "company"] as const;

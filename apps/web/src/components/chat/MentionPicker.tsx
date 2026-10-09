@@ -8,7 +8,7 @@ import { keys } from "../../lib/queries.ts";
 import type { MentionHit, MentionKind } from "../../types.ts";
 
 /** What "@" offers for a query: people, AI employees, things of the brain, data, files and tasks the viewer may see. */
-export function useMentionHits(query: string | null, options: { conversationId?: string | null; kinds?: MentionKind[] } = {}) {
+export function useMentionHits(query: string | null, options: { conversationId?: string | null; kinds?: MentionKind[]; scope?: "company" } = {}) {
   const { company, path } = useCompany();
   const [debounced, setDebounced] = useState(query);
   useEffect(() => {
@@ -21,8 +21,13 @@ export function useMentionHits(query: string | null, options: { conversationId?:
   }, [query]);
   const kinds = options.kinds?.join(",");
   return useQuery({
-    queryKey: [...keys.conversations(company), "mention", { q: debounced, conversation: options.conversationId ?? null, kinds: kinds ?? null }],
-    queryFn: () => api.get<MentionHit[]>(path(`/mention${qs({ q: debounced, conversation: options.conversationId ?? undefined, kinds })}`)),
+    queryKey: [
+      ...keys.conversations(company),
+      "mention",
+      { q: debounced, conversation: options.conversationId ?? null, kinds: kinds ?? null, scope: options.scope ?? null },
+    ],
+    queryFn: () =>
+      api.get<MentionHit[]>(path(`/mention${qs({ q: debounced, conversation: options.conversationId ?? undefined, kinds, scope: options.scope })}`)),
     enabled: debounced !== null,
     placeholderData: (previous) => previous,
     staleTime: 20_000,

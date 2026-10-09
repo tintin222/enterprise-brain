@@ -173,6 +173,14 @@ export class CatalogService {
     return this.handle.db.select().from(departments).where(eq(departments.companyId, companyId));
   }
 
+  /** The departments open to everyone (shared services: their template or their own data says so). */
+  async openDepartmentIds(companyId: string): Promise<string[]> {
+    const rows = await this.departments(companyId);
+    return rows
+      .filter((d) => d.data.openToEveryone === true || this.catalog.departments.find((t) => t.id === (d.templateId ?? d.key))?.openToEveryone)
+      .map((d) => d.id);
+  }
+
   /** A department's monthly budget for its AI employees together (null: none). */
   async setDepartmentBudget(companyId: string, departmentId: string, monthlyBudgetUsd: number | null, actor: string): Promise<DepartmentRow> {
     if (monthlyBudgetUsd !== null && !(monthlyBudgetUsd >= 0)) throw new Error("The monthly budget must be zero or more");

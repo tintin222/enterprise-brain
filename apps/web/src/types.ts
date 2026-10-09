@@ -677,7 +677,8 @@ export interface Actor {
   name: string;
 }
 
-export type ConversationKind = "topic" | "task" | "ai_employee" | "thing" | "studio";
+/** channel · dm (a direct message) · thread (the replies under one message) · task · ai_employee (my talk with one) · thing · studio */
+export type ConversationKind = "channel" | "dm" | "thread" | "task" | "ai_employee" | "thing" | "studio";
 export type ConversationVisibility = "participants" | "department" | "company";
 export type MentionKind = "person" | "ai_employee" | "thing" | "table" | "app" | "calculation" | "file" | "document" | "task";
 export type MessageKind = "text" | "system" | "card";
@@ -685,8 +686,14 @@ export type MessageKind = "text" | "system" | "card";
 export interface Conversation {
   id: string;
   kind: ConversationKind;
+  /** The task, AI employee or thing it is about; a thread's root message; "general" or the department id of a built-in channel. */
   aboutId: string | null;
   title: string;
+  /** A channel's name, shown as #name. */
+  name: string | null;
+  /** A thread's channel or direct message. */
+  parentId: string | null;
+  dmKey: string | null;
   departmentId: string | null;
   visibility: ConversationVisibility;
   createdBy: Actor;
@@ -718,10 +725,42 @@ export interface ConversationView {
   /** The viewer's own participation, when they are in it. */
   me: Participant | null;
   canInvite: boolean;
-  /** The page it is about: its task, its AI employee, or its thing in the brain. */
+  /** Rename and archive (a channel's owner, its department's managers, admins). */
+  canManage: boolean;
+  /** Leave (not #general, not one's own department's channel, not a direct message or a thread). */
+  canLeave: boolean;
+  /** The page it is about: its task, its AI employee, or its thing in the brain; a thread's parent. */
   about: { href: string; label: string } | null;
   /** What the composer offers besides Send here. */
   offers: ComposerOffers;
+  /** A thread's channel or direct message. */
+  parent: ConversationParent | null;
+  /** A thread's root message. */
+  root: Message | null;
+}
+
+export interface ConversationParent {
+  id: string;
+  kind: ConversationKind;
+  name: string | null;
+  title: string;
+}
+
+/** Who reacted to a message with one emoji. */
+export interface ReactionView {
+  emoji: string;
+  count: number;
+  /** The viewer is among them. */
+  me: boolean;
+  names: string[];
+}
+
+/** The replies under a message. */
+export interface ThreadSummary {
+  id: string;
+  replies: number;
+  lastReplyAt: string | null;
+  repliers: Actor[];
 }
 
 /** Teaching the brain (its talk, a thing's conversation), and giving work (to whom when the words name nobody). */
@@ -753,10 +792,14 @@ export interface LearningCardView {
 /** One conversation in a list: what the viewer hasn't read, and the newest message. */
 export interface ConversationSummary {
   conversation: Conversation;
+  /** The first few (channels can be large); `members` counts them all. */
   participants: Participant[];
+  members: number;
   unread: number;
   mentionsMe: number;
   me: Participant | null;
+  /** A thread's channel or direct message. */
+  parent: ConversationParent | null;
   lastMessage: { id: string; seq: number; kind: MessageKind; author: Actor; createdAt: string; text: string } | null;
 }
 
@@ -788,6 +831,9 @@ export interface Message {
   createdAt: string;
   /** The text with tokens as plain "@Name". */
   plain: string;
+  reactions: ReactionView[];
+  /** The replies under it, when there are any (null in a thread, a task's or a thing's conversation). */
+  thread: ThreadSummary | null;
 }
 
 /** What the "@" picker offers. */

@@ -1,20 +1,31 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { LearnChange, applyLearning } from "@enterprise-brain/brain";
-import { CONVERSATION_KINDS, brainPath, plainText, type Actor, type Mention, type MentionKind } from "@enterprise-brain/core";
+import {
+  CONVERSATION_KINDS,
+  brainPath,
+  plainText,
+  reactionEmoji,
+  type Actor,
+  type ConversationKind,
+  type Mention,
+  type MentionKind,
+} from "@enterprise-brain/core";
 import {
   COMPANY_BRAIN_SLUG,
   OPEN_TASK_STATUSES,
+  THREADABLE_KINDS,
   agentActor,
+  canLeaveConversation,
   isCompanyBrain,
   type AgentRecord,
   type ConversationEvent,
   type ConversationRow,
+  type ConversationWithParticipants,
   type MessageRow,
-  type ParticipantRow,
   type QueueEntry,
 } from "@enterprise-brain/runtime";
-import { actorOfViewer, canInvite, readerOf, requireConversation } from "../auth/conversations.ts";
+import { actorOfViewer, canInvite, canManageConversation, canSeeConversation, ownDepartmentIds, readerOf, requireConversation } from "../auth/conversations.ts";
 import { canHandleWork, canSeeDepartment, canShapeBrain, isForViewer, viewerOf, type Viewer } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { giveWork } from "../give-work.ts";
@@ -83,16 +94,30 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
   /** A conversation the viewer may open (404 otherwise). */
   const open = async (request: FastifyRequest, companyId: string, id: string) => {
     const found = await platform.conversations.get(companyId, id);
-    requireConversation(viewerOf(request), found.conversation, found.participants);
+    requireConversation(viewerOf(request), found);
     return found;
   };
+
+  /** The company as views need it: its id for the data, its slug for links. */
+  type Company = { id: string; slug: string };
 
   /** The names and pages behind an AI employee, for chips. */
   const agentsById = async (companyId: string) => new Map((await platform.agents.list(companyId, { includeSystem: true })).map((a) => [a.row.id, a]));
 
-  /** A message as the page shows it: chips with links, files with names, cards as live work entries. */
-  const messageViews = async (viewer: Viewer, companySlug: string, companyId: string, rows: MessageRow[]) => {
+  /**
+   * A message as the page shows it: chips with links, files with names, cards as live work entries, who
+   * reacted, and the thread under it (`conversation` is the one the messages are in; threads are summed up
+   * for channels, direct messages and talks).
+   */
+  const messageViews = async (viewer: Viewer, companySlug: string, companyId: string, rows: MessageRow[], conversation?: ConversationRow) => {
     const agents = await agentsById(companyId);
+    const me = actorOfViewer(viewer);
+    const ids = rows.map((r) => r.id);
+    const reactions = await platform.conversations.reactionsOf(ids, me.kind === "system" ? null : me);
+    const threads =
+      conversation && THREADABLE_KINDS.includes(conversation.kind as ConversationKind)
+        ? await platform.conversations.threadsOf(companyId, conversation.id, ids)
+        : new Map();
     const people = new Map((await platform.people.list(companyId)).map((p) => [p.id, p]));
     const files = new Map<string, { id: string; name: string; mimeType: string; size: number } | null>();
     const fileOf = async (id: string) => {
@@ -150,16 +175,24 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
         files: attachments,
         card: row.card ? (row.card.type === "learning" ? learningView(viewer, row) : await cardOf(row.card)) : null,
         plain: plainText(row.text),
+        reactions: reactions.get(row.id) ?? [],
+        thread: threads.get(row.id) ?? null,
       });
     }
     return views;
   };
 
-  /** The page a conversation is about: its task, its AI employee, or its thing in the brain. */
+  /** The page a conversation is about: its task, its AI employee, its thing in the brain; a thread's channel or direct message. */
   const aboutOf = async (companyId: string, conversation: ConversationRow): Promise<{ href: string; label: string } | null> => {
     if (!conversation.aboutId) return null;
     try {
       switch (conversation.kind) {
+        case "thread": {
+          const parent = conversation.parentId ? await platform.conversations.find(companyId, conversation.parentId) : undefined;
+          if (!parent) return null;
+          const { kind, name, title } = parent.conversation;
+          return { href: `/chat/${parent.conversation.id}`, label: kind === "channel" ? `#${name}` : title || "the conversation" };
+        }
         case "task": {
           const task = await platform.tasks.byId(conversation.aboutId);
           return task ? { href: `/work/${encodeURIComponent(task.ref)}`, label: task.ref } : null;
@@ -183,12 +216,27 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
     }
   };
 
-  /** What the composer offers here besides Send: teaching the brain (its talk, a thing's conversation), giving work. */
-  const offersOf = async (viewer: Viewer, companyId: string, conversation: ConversationRow): Promise<Offers> => {
+  /**
+   * What the composer offers here besides Send: teaching the brain (its talk, a thing's conversation), giving
+   * work (to the AI employee of the talk; in a thread, to the AI employee whose message it is under).
+   */
+  const offersOf = async (viewer: Viewer, companyId: string, conversation: ConversationRow, parent?: ConversationRow): Promise<Offers> => {
     const none: Offers = { teach: false, work: null };
     if (conversation.status !== "open" || conversation.kind === "task" || conversation.kind === "studio") return none;
     if (actorOfViewer(viewer).kind !== "person") return none;
     if (conversation.kind === "thing") return { teach: true, work: { to: null } };
+    if (conversation.kind === "thread") {
+      // Work goes to the AI employee the thread is with: the one that wrote last in it, else the one whose message it is under.
+      const recent = (await platform.conversations.messages(companyId, conversation.id, { limit: 30 })).reverse();
+      const latest = recent.find((m) => m.kind === "text" && m.author.kind === "ai_employee");
+      const root = latest ? undefined : conversation.aboutId ? await platform.conversations.message(companyId, conversation.aboutId) : undefined;
+      const aiId = latest?.author.id ?? (root?.author.kind === "ai_employee" ? root.author.id : undefined);
+      const author = aiId ? await platform.agents.find(companyId, aiId) : undefined;
+      if (author && takesWork(author) && canSeeDepartment(viewer, author.row.departmentId)) {
+        return { teach: false, work: { to: { id: author.row.id, slug: author.row.slug, name: author.definition.name } } };
+      }
+      return parent ? offersOf(viewer, companyId, parent) : { teach: false, work: { to: null } };
+    }
     if (conversation.kind === "ai_employee" && conversation.aboutId) {
       const agent = await platform.agents.find(companyId, conversation.aboutId);
       if (agent && isCompanyBrain(agent.row)) return { teach: true, work: { to: null } };
@@ -199,92 +247,157 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
     return { teach: false, work: { to: null } };
   };
 
-  const conversationView = async (viewer: Viewer, companyId: string, conversation: ConversationRow, participants: ParticipantRow[]) => {
+  const conversationView = async (viewer: Viewer, company: Company, found: ConversationWithParticipants) => {
+    const { conversation, participants, parent } = found;
     const me = actorOfViewer(viewer);
+    const mine = participants.find((p) => p.actorKind === me.kind && p.actorId === me.id) ?? null;
+    const root = conversation.kind === "thread" && conversation.aboutId ? await platform.conversations.message(company.id, conversation.aboutId) : undefined;
     return {
       conversation,
       participants,
-      me: participants.find((p) => p.actorKind === me.kind && p.actorId === me.id) ?? null,
+      me: mine,
       canInvite: canInvite(viewer, conversation, participants),
-      about: await aboutOf(companyId, conversation),
-      offers: await offersOf(viewer, companyId, conversation),
+      canManage: canManageConversation(viewer, conversation, participants),
+      canLeave: Boolean(mine) && canLeaveConversation(conversation, ownDepartmentIds(viewer)),
+      parent: parent ? { id: parent.conversation.id, kind: parent.conversation.kind, name: parent.conversation.name, title: parent.conversation.title } : null,
+      root: root ? (await messageViews(viewer, company.slug, company.id, [root], parent?.conversation))[0] : null,
+      about: await aboutOf(company.id, conversation),
+      offers: await offersOf(viewer, company.id, conversation, parent?.conversation),
     };
   };
 
+  /** A person of the company who may be written to. */
+  const activePerson = async (companyId: string, id: string): Promise<Actor> => {
+    const person = await platform.people.get(companyId, id).catch(() => undefined);
+    if (!person || person.status !== "active") throw new HttpError(404, "There is no such person here");
+    return { kind: "person", id: person.id, name: person.name };
+  };
+
+  /**
+   * The viewer's conversations (`scope=mine`, the sidebar), their departments' and the company's open ones
+   * (`department`: a channel to browse), or everything (`all`, admins). Lists the kinds asked for. First,
+   * the built-in channels are brought in step and the viewer joined to theirs.
+   */
   app.get("/api/companies/:company/conversations", async (request) => {
     const company = await companyOf(platform, request);
     const query = z
       .object({
         scope: z.enum(["mine", "department", "all"]).optional(),
-        kind: z.enum(CONVERSATION_KINDS).optional(),
+        kinds: z.string().optional(),
         unread: z.string().optional(),
         limit: z.coerce.number().int().min(1).max(200).optional(),
       })
       .parse(request.query);
     const viewer = viewerOf(request);
+    const me = actorOfViewer(viewer);
+    if (me.kind === "person") {
+      await platform.syncChannels(company.id);
+      await platform.conversations.ensureMemberships(company.id, me, ownDepartmentIds(viewer));
+    }
+    const kinds = query.kinds
+      ?.split(",")
+      .map((k) => k.trim())
+      .filter((k): k is ConversationKind => (CONVERSATION_KINDS as readonly string[]).includes(k));
     return platform.conversations.list(company.id, readerOf(viewer), {
       scope: query.scope,
-      kind: query.kind,
+      kinds,
       unreadOnly: query.unread === "1",
       limit: query.limit,
     });
   });
 
-  /** A topic: the first message makes it; its title is the first line. */
+  /** A new channel (public to the company or a department, or private), or the direct message with some people (or the talk with one AI employee). */
   app.post("/api/companies/:company/conversations", async (request) => {
     const company = await companyOf(platform, request);
     const viewer = viewerOf(request);
     const body = z
-      .object({
-        title: z.string().max(200).optional(),
-        text: z.string().max(20_000).optional(),
-        fileIds: z.array(z.string()).max(20).optional(),
-        participants: z
-          .array(z.object({ kind: z.enum(["person", "ai_employee"]), id: z.string() }))
-          .max(50)
-          .optional(),
-        visibility: z.enum(["participants", "department", "company"]).optional(),
-        departmentId: z.string().uuid().nullable().optional(),
-      })
+      .discriminatedUnion("kind", [
+        z.object({
+          kind: z.literal("channel"),
+          name: z.string().min(1).max(80),
+          title: z.string().max(200).optional(),
+          visibility: z.enum(["participants", "department", "company"]).default("company"),
+          departmentId: z.string().uuid().nullable().optional(),
+          participants: z
+            .array(z.object({ kind: z.enum(["person", "ai_employee"]), id: z.string() }))
+            .max(50)
+            .optional(),
+          text: z.string().max(20_000).optional(),
+          fileIds: z.array(z.string()).max(20).optional(),
+        }),
+        z.object({
+          kind: z.literal("dm"),
+          participants: z
+            .array(z.object({ kind: z.enum(["person", "ai_employee"]), id: z.string() }))
+            .min(1)
+            .max(8),
+          text: z.string().max(20_000).optional(),
+          fileIds: z.array(z.string()).max(20).optional(),
+        }),
+      ])
       .parse(request.body ?? {});
-    if (body.visibility === "department") {
-      if (!body.departmentId || !canSeeDepartment(viewer, body.departmentId))
-        throw new HttpError(400, "Choose one of your departments for a department conversation");
-    }
     const me = actorOfViewer(viewer);
-    const participants: Actor[] = [];
-    for (const p of body.participants ?? []) {
-      if (p.kind === "person") {
-        const person = await platform.people.get(company.id, p.id).catch(() => undefined);
-        if (person && person.status === "active") participants.push({ kind: "person", id: person.id, name: person.name });
+    if (me.kind !== "person") throw new HttpError(400, "Sign in to start a conversation");
+    let found: ConversationWithParticipants;
+    if (body.kind === "channel") {
+      if (body.visibility === "department" && (!body.departmentId || !canSeeDepartment(viewer, body.departmentId)))
+        throw new HttpError(400, "Choose one of your departments for a department channel");
+      const participants: Actor[] = [];
+      for (const p of body.participants ?? []) {
+        if (p.kind === "person") participants.push(await activePerson(company.id, p.id));
+        else {
+          const agent = await platform.agents.find(company.id, p.id);
+          if (agent && canSeeDepartment(viewer, agent.row.departmentId)) participants.push(agentActor(agent));
+        }
+      }
+      found = await platform.conversations.createChannel(company.id, {
+        name: body.name,
+        title: body.title,
+        visibility: body.visibility,
+        departmentId: body.visibility === "department" ? body.departmentId : null,
+        createdBy: me,
+        participants,
+      });
+    } else {
+      const ais = body.participants.filter((p) => p.kind === "ai_employee");
+      if (ais.length) {
+        if (ais.length > 1 || body.participants.length > 1) throw new HttpError(400, "A direct message is with people, or a talk with one AI employee");
+        const agent = await platform.agents.get(company.id, ais[0]!.id);
+        if (!canSeeDepartment(viewer, agent.row.departmentId)) throw new HttpError(404, `AI employee "${ais[0]!.id}" not found`);
+        found = await platform.conversations.talkWith(company.id, agent, me);
       } else {
-        const agent = await platform.agents.find(company.id, p.id);
-        if (agent && canSeeDepartment(viewer, agent.row.departmentId)) participants.push(agentActor(agent));
+        const people: Actor[] = [];
+        for (const p of body.participants) people.push(await activePerson(company.id, p.id));
+        found = await platform.conversations.ensureDm(company.id, people, me);
       }
     }
-    const created = await platform.conversations.create(company.id, {
-      kind: "topic",
-      title: body.title,
-      visibility: body.visibility ?? "participants",
-      departmentId: body.visibility === "department" ? body.departmentId : null,
-      createdBy: me,
-      participants,
-    });
     if (body.text?.trim()) {
       const mentions = await checkMentions(platform, viewer, company.id, body.text);
-      await platform.conversations.post(company.id, created.conversation.id, { author: me, text: body.text, mentions, fileIds: body.fileIds });
+      await platform.conversations.post(company.id, found.conversation.id, { author: me, text: body.text, mentions, fileIds: body.fileIds });
+      found = await platform.conversations.get(company.id, found.conversation.id);
     }
-    const found = await platform.conversations.get(company.id, created.conversation.id);
-    return conversationView(viewer, company.id, found.conversation, found.participants);
+    return conversationView(viewer, company, found);
   });
 
-  /** The conversation about a task, a thing, or my talk with an AI employee (made on first use). */
+  /**
+   * The conversation about a task, a thing, my talk with an AI employee, my direct message with a person,
+   * or the thread under a message (made on first use).
+   */
   app.get("/api/companies/:company/conversations/for/:kind/:about", async (request) => {
     const company = await companyOf(platform, request);
     const viewer = viewerOf(request);
-    const { kind, about } = z.object({ kind: z.enum(["task", "thing", "ai_employee"]), about: z.string().min(1) }).parse(request.params);
-    let found;
-    if (kind === "task") {
+    const { kind, about } = z.object({ kind: z.enum(["task", "thing", "ai_employee", "dm", "thread"]), about: z.string().min(1) }).parse(request.params);
+    let found: ConversationWithParticipants;
+    if (kind === "thread") {
+      const root = z.string().uuid().safeParse(about).success ? await platform.conversations.message(company.id, about) : undefined;
+      if (!root) throw new HttpError(404, "There is no such message");
+      const parent = await open(request, company.id, root.conversationId);
+      found = await platform.conversations.ensureThread(company.id, parent, root);
+    } else if (kind === "dm") {
+      const me = actorOfViewer(viewer);
+      if (me.kind === "system") throw new HttpError(400, "Sign in to write to someone");
+      found = await platform.conversations.ensureDm(company.id, [await activePerson(company.id, about)], me);
+    } else if (kind === "task") {
       const task = await platform.tasks.get(company.id, about);
       const agent = await platform.agents.find(company.id, task.agentId);
       if (!canSeeDepartment(viewer, agent?.row.departmentId)) throw new HttpError(404, `Task ${about} not found`);
@@ -299,14 +412,49 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
       if (me.kind === "system") throw new HttpError(400, "Sign in to talk with an AI employee");
       found = await platform.conversations.talkWith(company.id, agent, me);
     }
-    return conversationView(viewer, company.id, found.conversation, found.participants);
+    return conversationView(viewer, company, found);
   });
 
   app.get("/api/companies/:company/conversations/:id", async (request) => {
     const company = await companyOf(platform, request);
     const { id } = request.params as { id: string };
     const found = await open(request, company.id, id);
-    return conversationView(viewerOf(request), company.id, found.conversation, found.participants);
+    return conversationView(viewerOf(request), company, found);
+  });
+
+  /** Join a channel open to you (the company's, or your department's); you read from now on. */
+  app.post("/api/companies/:company/conversations/:id/join", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    const viewer = viewerOf(request);
+    const me = actorOfViewer(viewer);
+    if (me.kind !== "person") throw new HttpError(400, "Sign in to join a channel");
+    await open(request, company.id, id);
+    const participants = await platform.conversations.join(company.id, id, me, readerOf(viewer));
+    return { participants };
+  });
+
+  /** Close a channel: it stays readable, nothing more is written. Its owner, the managers of its department, admins. */
+  app.post("/api/companies/:company/conversations/:id/archive", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    const viewer = viewerOf(request);
+    const found = await open(request, company.id, id);
+    if (!canManageConversation(viewer, found.conversation, found.participants)) throw new HttpError(403, "Only the channel's owner or a manager archives it");
+    await platform.conversations.archive(company.id, id, actorOfViewer(viewer));
+    return conversationView(viewer, company, await platform.conversations.get(company.id, id));
+  });
+
+  /** Rename a channel or change its description. Its owner, the managers of its department, admins. */
+  app.patch("/api/companies/:company/conversations/:id", async (request) => {
+    const company = await companyOf(platform, request);
+    const { id } = request.params as { id: string };
+    const body = z.object({ name: z.string().min(1).max(80).optional(), title: z.string().max(200).optional() }).parse(request.body ?? {});
+    const viewer = viewerOf(request);
+    const found = await open(request, company.id, id);
+    if (!canManageConversation(viewer, found.conversation, found.participants)) throw new HttpError(403, "Only the channel's owner or a manager renames it");
+    await platform.conversations.rename(company.id, id, body, actorOfViewer(viewer));
+    return conversationView(viewer, company, await platform.conversations.get(company.id, id));
   });
 
   app.get("/api/companies/:company/conversations/:id/messages", async (request) => {
@@ -319,9 +467,9 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
         limit: z.coerce.number().int().min(1).max(200).default(50),
       })
       .parse(request.query);
-    await open(request, company.id, id);
+    const found = await open(request, company.id, id);
     const rows = await platform.conversations.messages(company.id, id, { beforeSeq: query.before, afterSeq: query.after, limit: query.limit });
-    return messageViews(viewerOf(request), company.slug, company.id, rows);
+    return messageViews(viewerOf(request), company.slug, company.id, rows, found.conversation);
   });
 
   app.post("/api/companies/:company/conversations/:id/messages", async (request) => {
@@ -371,8 +519,27 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
       replyToId: body.replyToId ?? null,
       data,
     });
-    return (await messageViews(viewer, company.slug, company.id, [message]))[0];
+    return (await messageViews(viewer, company.slug, company.id, [message], found.conversation))[0];
   });
+
+  /** React to a message with one of the emoji offered (PUT), or take the reaction back (DELETE). */
+  for (const method of ["put", "delete"] as const) {
+    app[method]("/api/companies/:company/conversations/:id/messages/:messageId/reactions/:emoji", async (request) => {
+      const company = await companyOf(platform, request);
+      const { id, messageId, emoji: raw } = z.object({ id: z.string(), messageId: z.string().uuid(), emoji: z.string().min(1).max(16) }).parse(request.params);
+      const viewer = viewerOf(request);
+      const me = actorOfViewer(viewer);
+      if (me.kind !== "person") throw new HttpError(400, "Sign in to react");
+      const emoji = reactionEmoji(raw);
+      if (!emoji) throw new HttpError(400, "Pick one of the emoji offered");
+      const found = await open(request, company.id, id);
+      if (found.conversation.status !== "open") throw new HttpError(409, "This conversation is archived");
+      const row = await platform.conversations.message(company.id, messageId);
+      if (!row || row.conversationId !== id) throw new HttpError(404, "There is no such message here");
+      await platform.conversations.react(company.id, row, me, emoji, method === "put");
+      return (await messageViews(viewer, company.slug, company.id, [row], found.conversation))[0];
+    });
+  }
 
   app.post("/api/companies/:company/conversations/:id/read", async (request) => {
     const company = await companyOf(platform, request);
@@ -392,6 +559,9 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
     const body = z.object({ kind: z.enum(["person", "ai_employee"]), id: z.string().min(1) }).parse(request.body);
     const viewer = viewerOf(request);
     const found = await open(request, company.id, id);
+    if (found.conversation.kind === "dm" && body.kind === "person")
+      throw new HttpError(400, "A direct message's people are fixed: start a new one with everyone in it");
+    if (found.conversation.status !== "open") throw new HttpError(409, "This conversation is archived");
     if (
       !canInvite(viewer, found.conversation, found.participants) &&
       !found.participants.some((p) => p.actorKind === actorOfViewer(viewer).kind && p.actorId === actorOfViewer(viewer).id)
@@ -400,8 +570,7 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
     }
     let actor: Actor;
     if (body.kind === "person") {
-      const person = await platform.people.get(company.id, body.id);
-      actor = { kind: "person", id: person.id, name: person.name };
+      actor = await activePerson(company.id, body.id);
     } else {
       const agent = await platform.agents.get(company.id, body.id);
       if (!canSeeDepartment(viewer, agent.row.departmentId)) throw new HttpError(404, `AI employee "${body.id}" not found`);
@@ -421,7 +590,18 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
     const leaving = me.kind === kind && me.id === actor;
     if (!leaving && !canInvite(viewer, found.conversation, found.participants))
       throw new HttpError(403, "Only the conversation's owner or a manager removes participants");
+    if (kind === "person") {
+      const { conversation } = found;
+      if (conversation.kind === "dm" || conversation.kind === "thread" || conversation.kind === "ai_employee")
+        throw new HttpError(400, leaving ? "A direct message is not left; it just stays quiet" : "A direct message's people are fixed");
+      if (leaving && !canLeaveConversation(conversation, ownDepartmentIds(viewer)))
+        throw new HttpError(400, conversation.aboutId === "general" ? "Everyone is in #general" : "You are in your department's channel");
+    }
     const participants = await platform.conversations.removeParticipant(company.id, id, { kind, id: actor });
+    if (kind === "person" && found.participants.some((p) => p.actorKind === kind && p.actorId === actor)) {
+      const name = found.participants.find((p) => p.actorKind === kind && p.actorId === actor)!.actorName;
+      await platform.conversations.postSystem(company.id, id, leaving ? `${name} left` : `${viewer.name} removed ${name}`, { left: `${kind}:${actor}` });
+    }
     return { participants };
   });
 
@@ -448,7 +628,7 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
       const result = await applyLearning(platform.brain, company.id, changes, { name: viewer.name, email: viewer.email, mayEdit: canShapeBrain(viewer) });
       return { ...current.data, learning: { ...learning, status: "kept", kept, result, ...settled } };
     });
-    return (await messageViews(viewer, company.slug, company.id, [updated]))[0];
+    return (await messageViews(viewer, company.slug, company.id, [updated], found.conversation))[0];
   });
 
   /** Live: new messages, who is working, cards that were handled, participants. */
@@ -457,12 +637,13 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
     const { id } = request.params as { id: string };
     const { after } = z.object({ after: z.coerce.number().int().optional() }).parse(request.query);
     const viewer = viewerOf(request);
-    await open(request, company.id, id);
+    const found = await open(request, company.id, id);
     const stream = sse(reply);
     const send = async (event: ConversationEvent) => {
       try {
         if (event.type === "message" || event.type === "card" || event.type === "updated") {
-          const [view] = await messageViews(viewer, company.slug, company.id, [event.message]);
+          // A root message of this conversation whose thread moved comes back as "updated": summed up for this conversation.
+          const [view] = await messageViews(viewer, company.slug, company.id, [event.message], found.conversation);
           stream.send(event.type, { message: view });
         } else stream.send(event.type, event);
       } catch (error) {
@@ -480,13 +661,21 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
   app.get("/api/companies/:company/mention", async (request) => {
     const company = await companyOf(platform, request);
     const query = z
-      .object({ q: z.string().max(200).default(""), conversation: z.string().uuid().optional(), kinds: z.string().optional() })
+      .object({
+        q: z.string().max(200).default(""),
+        conversation: z.string().uuid().optional(),
+        kinds: z.string().optional(),
+        /** company: every active person (to write to, to bring into a channel), not only those of the viewer's departments. */
+        scope: z.enum(["company"]).optional(),
+      })
       .parse(request.query);
     const viewer = viewerOf(request);
     const wanted = new Set((query.kinds?.split(",").filter((k) => (MENTION_KINDS as string[]).includes(k)) as MentionKind[] | undefined) ?? MENTION_KINDS);
     const q = query.q.trim().toLowerCase();
     const matches = (name: string, detail = "") => !q || name.toLowerCase().includes(q) || detail.toLowerCase().includes(q);
-    const participants = query.conversation ? ((await platform.conversations.find(company.id, query.conversation))?.participants ?? []) : [];
+    const found = query.conversation ? await platform.conversations.find(company.id, query.conversation) : undefined;
+    if (found && !canSeeConversation(viewer, found)) throw new HttpError(404, "Conversation not found");
+    const participants = found?.participants ?? [];
     const inConversation = new Set(participants.map((p) => `${p.actorKind}:${p.actorId}`));
     const hits: MentionHit[] = [];
 
@@ -495,6 +684,7 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
       for (const person of await platform.people.list(company.id)) {
         if (person.status !== "active") continue;
         if (
+          query.scope !== "company" &&
           !viewer.isAdmin &&
           person.id !== viewer.userId &&
           person.role !== "admin" &&
