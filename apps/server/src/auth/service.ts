@@ -1,8 +1,9 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { companies } from "@enterprise-brain/db";
 import type { CompanyRow, Person, Platform, UserRow } from "@enterprise-brain/runtime";
-import type { ServerConfig } from "../config.ts";
+import type { GateConfig, ServerConfig } from "../config.ts";
 import { HttpError } from "../http.ts";
 import { OidcClient, OidcError, googleProvider, microsoftProvider, type OidcProvider } from "./oidc.ts";
 import { clearCookie, readCookie, setCookie, viewerFromPerson, type Viewer } from "./viewer.ts";
@@ -10,6 +11,12 @@ import { clearCookie, readCookie, setCookie, viewerFromPerson, type Viewer } fro
 export const SESSION_COOKIE = "eb_session";
 const SIGN_IN_COOKIE = "eb_sign_in";
 const SIGN_IN_WINDOW_MS = 10 * 60_000;
+/** The gate of a demo installation: a sealed cookie says the browser has entered the user name and password. */
+export const GATE_COOKIE = "eb_gate";
+const GATE_MS = 30 * 24 * 3600_000;
+
+/** none: no gate on this installation · locked: this browser has not entered it · unlocked: it has, within 30 days. */
+export type GateState = "none" | "locked" | "unlocked";
 
 /** Sign-in settings an admin keeps in Settings (company.settings.signIn); secrets are encrypted. */
 export interface SignInSettings {
@@ -205,6 +212,51 @@ export class AuthService {
     const token = readCookie(request, SESSION_COOKIE);
     if (token) await this.platform.people.deleteSession(token);
     clearCookie(reply, SESSION_COOKIE, this.secure);
+  }
+
+  // -------------------------------------------------------------------------
+  // The gate: one user name and password for everyone, before the sign-in page
+  // -------------------------------------------------------------------------
+
+  /** The gate in front of the sign-in page (demo installations), if any. */
+  get gate(): GateConfig | undefined {
+    return this.config.auth?.gate;
+  }
+
+  /** Marks which user name and password a cookie was made for: a changed password locks every browser again. */
+  private gateFingerprint(gate: GateConfig): string {
+    return createHash("sha256").update(`${gate.user.toLowerCase()}\n${gate.password}`).digest("hex").slice(0, 16);
+  }
+
+  gateState(request: FastifyRequest): GateState {
+    const gate = this.gate;
+    if (!gate) return "none";
+    try {
+      const raw = readCookie(request, GATE_COOKIE);
+      if (!raw) return "locked";
+      const pass = this.platform.secretBox.decrypt<{ fp?: string; expires?: number }>(raw);
+      return pass.fp === this.gateFingerprint(gate) && typeof pass.expires === "number" && pass.expires > Date.now() ? "unlocked" : "locked";
+    } catch {
+      return "locked";
+    }
+  }
+
+  /** Do this user name (any case, spaces around ignored) and password open the gate? Compared in constant time. */
+  checkGate(user: string, password: string): boolean {
+    const gate = this.gate;
+    if (!gate) return false;
+    const digest = (value: string) => createHash("sha256").update(value).digest();
+    const userMatches = timingSafeEqual(digest(user.trim().toLowerCase()), digest(gate.user.toLowerCase()));
+    const passwordMatches = timingSafeEqual(digest(password), digest(gate.password));
+    return userMatches && passwordMatches;
+  }
+
+  /** This browser entered the gate: remembered for 30 days. */
+  unlockGate(reply: FastifyReply): void {
+    const gate = this.gate;
+    if (!gate) return;
+    const pass = { fp: this.gateFingerprint(gate), expires: Date.now() + GATE_MS };
+    setCookie(reply, GATE_COOKIE, this.platform.secretBox.encrypt(pass), { maxAgeSeconds: GATE_MS / 1000, secure: this.secure });
   }
 
   // -------------------------------------------------------------------------

@@ -40,6 +40,13 @@ export default function SignIn() {
       </Frame>
     );
   }
+  if (state.gate === "locked") {
+    return (
+      <Frame>
+        <GateCard state={state} />
+      </Frame>
+    );
+  }
   if (state.mode === "open" || state.viewer) return <Navigate to={returnTo} replace />;
   if (state.setupRequired) {
     return (
@@ -225,6 +232,76 @@ function DemoPeople({ people, returnTo }: { people: DemoPerson[]; returnTo: stri
           </li>
         ))}
       </ul>
+    </Card>
+  );
+}
+
+/** The gate of a demo installation: one user name and password for everyone, before the sign-in page shows. */
+function GateCard({ state }: { state: AuthState }) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState({ user: "", password: "" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post("/api/auth/gate", form);
+      // The state comes back unlocked: this same page then shows the sign-in and the demo people.
+      await queryClient.invalidateQueries({ queryKey: ["auth"] });
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card>
+      <Header title="Sign in" subtitle={state.company ? `to ${state.company.name}'s Enterprise Brain` : "Enterprise Brain"} />
+      <p className="mb-5 flex items-start gap-2 text-sm text-muted">
+        <ShieldCheck className="mt-0.5 size-4 shrink-0 text-brand-600 dark:text-brand-300" />
+        This installation is protected. Enter the user name and password you were given; your browser remembers them for 30 days.
+      </p>
+      <form onSubmit={(e) => void submit(e)} className="space-y-4">
+        <div>
+          <label className="label" htmlFor="gate-user">
+            User name
+          </label>
+          <input
+            id="gate-user"
+            autoFocus
+            autoComplete="username"
+            className="input"
+            value={form.user}
+            onChange={(e) => setForm({ ...form, user: e.target.value })}
+          />
+        </div>
+        <div>
+          <label className="label" htmlFor="gate-password">
+            Password
+          </label>
+          <div className="relative">
+            <KeyRound className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-faint" />
+            <input
+              id="gate-password"
+              type="password"
+              autoComplete="current-password"
+              className="input pl-9"
+              value={form.password}
+              onChange={(e) => setForm({ ...form, password: e.target.value })}
+            />
+          </div>
+        </div>
+        {error && (
+          <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+            {error}
+          </p>
+        )}
+        <Button type="submit" variant="primary" size="lg" icon={LogIn} loading={busy} disabled={!form.user.trim() || !form.password} className="w-full">
+          Continue
+        </Button>
+      </form>
     </Card>
   );
 }

@@ -40,6 +40,23 @@ import { workRoutes } from "./routes/work.ts";
 /** Routes reachable without signing in (they carry their own credentials, or are the sign-in itself). */
 const PUBLIC_PREFIXES = ["/api/health", "/api/info", "/api/public/", "/api/hermes/", "/api/auth/", "/api/channels/"];
 
+/**
+ * Routes that answer while the gate of a demo installation is locked for the browser: health and info,
+ * the gate itself (and the state that says it is locked), the sign-in redirects, and the machine routes,
+ * which carry their own keys and tokens.
+ */
+const GATE_FREE = [
+  "/api/health",
+  "/api/info",
+  "/api/auth/state",
+  "/api/auth/gate",
+  "/api/auth/oidc/",
+  "/api/public/",
+  "/api/hermes/",
+  "/api/channels/",
+  "/mcp",
+];
+
 const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /**
@@ -82,6 +99,10 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
     const withApiKey = Boolean(ctx.config.apiKey) && bearer(request) === ctx.config.apiKey;
     if (!withApiKey && (url.startsWith("/api/auth/") || readCookie(request, SESSION_COOKIE)) && fromAnotherSite(request, ctx.config.publicUrl)) {
       return reply.code(403).send({ error: "This request came from another site" });
+    }
+    // A demo installation behind a gate: until this browser has entered it, nothing else answers, an old session included.
+    if (!withApiKey && auth.gateState(request) === "locked" && !GATE_FREE.some((p) => url === p || url.startsWith(p))) {
+      return reply.code(401).send({ error: "Sign in to continue" });
     }
     if (PUBLIC_PREFIXES.some((p) => url === p || url.startsWith(p))) return;
     if (withApiKey) {

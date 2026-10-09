@@ -398,6 +398,8 @@ export interface DemoPerson {
 
 export interface AuthState {
   mode: "accounts" | "open";
+  /** A demo installation's gate: none, or locked (this browser has not entered its user name and password) or unlocked. */
+  gate: "none" | "locked" | "unlocked";
   company: { slug: string; name: string } | null;
   /** Nobody has an account yet: the first person to arrive becomes the admin. */
   setupRequired: boolean;

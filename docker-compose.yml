@@ -53,6 +53,11 @@ services:
       EB_SEED_DEMO: ${EB_SEED_DEMO:-true}
       # People sign in. Microsoft 365 and Google can also be set up in the app (Settings → People and roles).
       EB_AUTH: ${EB_AUTH:-accounts}
+      # A demo installation is behind one user name and password for everyone, entered once per browser:
+      # admin / KahveKeyfi+5 unless EB_GATE_USER and EB_GATE_PASSWORD say otherwise. EB_GATE=off removes it.
+      EB_GATE: ${EB_GATE:-on}
+      EB_GATE_USER: ${EB_GATE_USER:-admin}
+      EB_GATE_PASSWORD: ${EB_GATE_PASSWORD:-}
       EB_AUTH_MICROSOFT_CLIENT_ID: ${EB_AUTH_MICROSOFT_CLIENT_ID:-}
       EB_AUTH_MICROSOFT_CLIENT_SECRET: ${EB_AUTH_MICROSOFT_CLIENT_SECRET:-}
       EB_AUTH_MICROSOFT_TENANT: ${EB_AUTH_MICROSOFT_TENANT:-}

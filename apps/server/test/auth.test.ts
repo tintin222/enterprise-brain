@@ -4,6 +4,7 @@ import type { AddressInfo } from "node:net";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { microsoftProvider } from "../src/auth/oidc.ts";
+import { gateConfig } from "../src/config.ts";
 import { seedDemoPeople } from "../src/seed.ts";
 import { createTestApp, type TestApp } from "./helpers.ts";
 
@@ -307,5 +308,57 @@ describe("machines: the API key and MCP", () => {
     expect((await t.app.inject({ url: "/api/companies/acme/agents", headers: { authorization: "Bearer machine-key" } })).statusCode).toBe(200);
     expect((await t.app.inject({ url: "/api/companies/acme/agents", headers: { authorization: "Bearer wrong" } })).statusCode).toBe(401);
     expect((await t.app.inject({ method: "POST", url: "/mcp", payload: {} })).statusCode).toBe(401);
+  });
+});
+
+describe("the gate in front of a demo installation", () => {
+  let t: TestApp;
+  const GATED = { auth: { ...ACCOUNTS.auth, gate: { user: "admin", password: "KahveKeyfi+5" } } };
+
+  beforeAll(async () => {
+    t = await createTestApp({ config: GATED });
+    await seedDemoPeople(t.platform, (await t.platform.company("acme"))!);
+  });
+  afterAll(() => t?.close());
+
+  it("shows nothing and signs nobody in until the browser has entered the user name and password", async () => {
+    const state = (await t.app.inject("/api/auth/state")).json();
+    expect(state).toMatchObject({ mode: "accounts", gate: "locked", setupRequired: false, viewer: null, providers: [], demo: [] });
+    expect(state.company.name).toBeTruthy();
+    expect((await t.app.inject({ method: "POST", url: "/api/auth/demo", payload: { email: "elif.arslan@acme.com.tr" } })).statusCode).toBe(401);
+    expect((await t.app.inject({ method: "POST", url: "/api/auth/signin", payload: { email: "x@acme.com.tr", password: "y" } })).statusCode).toBe(401);
+    expect((await t.app.inject("/api/me")).statusCode).toBe(401);
+    expect((await t.app.inject("/api/companies/acme/agents")).json()).toEqual({ error: "Sign in to continue" });
+    expect((await t.app.inject("/api/auth/oidc/microsoft/start")).headers.location).toBe("/signin");
+    expect((await t.app.inject("/api/health")).statusCode).toBe(200);
+  });
+
+  it("opens with the right user name and password, remembered by a sealed cookie for 30 days", async () => {
+    const wrong = await t.app.inject({ method: "POST", url: "/api/auth/gate", payload: { user: "admin", password: "kahvekeyfi+5" } });
+    expect(wrong.statusCode).toBe(401);
+    expect(wrong.json().error).toBe("Wrong user name or password");
+    const opened = await t.app.inject({ method: "POST", url: "/api/auth/gate", payload: { user: " Admin ", password: "KahveKeyfi+5" } });
+    expect(opened.statusCode, opened.body).toBe(200);
+    expect(String(opened.headers["set-cookie"])).toMatch(/HttpOnly; SameSite=Lax; Max-Age=2592000/);
+    const gate = cookieFrom(opened, "eb_gate");
+    const state = (await t.app.inject({ url: "/api/auth/state", headers: { cookie: gate } })).json();
+    expect(state.gate).toBe("unlocked");
+    expect(state.demo.map((p: { name: string }) => p.name)).toContain("Elif Arslan");
+    const signedIn = await t.app.inject({ method: "POST", url: "/api/auth/demo", headers: { cookie: gate }, payload: { email: "elif.arslan@acme.com.tr" } });
+    expect(signedIn.statusCode, signedIn.body).toBe(200);
+    const session = cookieFrom(signedIn);
+    expect((await t.app.inject({ url: "/api/me", headers: { cookie: `${gate}; ${session}` } })).statusCode).toBe(200);
+    // The gate holds for a session made without it, and a forged cookie opens nothing.
+    expect((await t.app.inject({ url: "/api/me", headers: { cookie: session } })).json()).toEqual({ error: "Sign in to continue" });
+    expect((await t.app.inject({ url: "/api/auth/state", headers: { cookie: "eb_gate=v1.forged.cookie.value" } })).json().gate).toBe("locked");
+  });
+
+  it("comes from the environment: on by default for demo installations, off in open mode or with EB_GATE=off, a password anywhere", () => {
+    expect(gateConfig({}, true, "accounts")).toEqual({ user: "admin", password: "KahveKeyfi+5" });
+    expect(gateConfig({ EB_GATE_USER: "demo", EB_GATE_PASSWORD: "s3cret" }, true, "accounts")).toEqual({ user: "demo", password: "s3cret" });
+    expect(gateConfig({}, false, "accounts")).toBeUndefined();
+    expect(gateConfig({ EB_GATE_PASSWORD: "s3cret" }, false, "accounts")).toEqual({ user: "admin", password: "s3cret" });
+    expect(gateConfig({ EB_GATE: "off" }, true, "accounts")).toBeUndefined();
+    expect(gateConfig({}, true, "open")).toBeUndefined();
   });
 });

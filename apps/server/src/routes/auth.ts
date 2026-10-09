@@ -50,32 +50,60 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
   const { platform } = ctx;
   const auth = ctx.auth!;
 
-  /** Everything the sign-in page and the app shell need to know about who is here. */
+  /** A demo installation behind a gate: nobody signs in before this browser has entered its user name and password. */
+  const requireUnlocked = (request: FastifyRequest) => {
+    if (auth.gateState(request) === "locked") throw new HttpError(401, "Enter the user name and password of this installation first");
+  };
+
+  /**
+   * Everything the sign-in page and the app shell need to know about who is here. While the gate of a
+   * demo installation is locked for this browser, only that: no people, no providers, no viewer.
+   */
   app.get("/api/auth/state", async (request) => {
     const company = await auth.company().catch(() => undefined);
-    const viewer = (await auth.viewerFromRequest(request)) ?? (auth.mode === "open" ? OPEN_VIEWER : undefined);
-    const setupRequired = auth.mode === "accounts" && Boolean(company) && (await platform.people.count(company!.id)) === 0;
+    const gate = auth.gateState(request);
+    const locked = gate === "locked";
+    const viewer = locked ? undefined : ((await auth.viewerFromRequest(request)) ?? (auth.mode === "open" ? OPEN_VIEWER : undefined));
+    const setupRequired = !locked && auth.mode === "accounts" && Boolean(company) && (await platform.people.count(company!.id)) === 0;
     return {
       mode: auth.mode,
+      gate,
       company: company ? { slug: company.slug, name: company.name } : null,
       setupRequired,
       viewer: viewer ? viewerJson(viewer) : null,
-      providers: company ? auth.providers(company).map((p) => ({ id: p.id, label: p.label })) : [],
-      demo: company
-        ? (await auth.demoPeople(company)).sort(byRank).map((p) => ({
-            email: p.email,
-            name: p.name,
-            title: p.title,
-            isAdmin: p.role === "admin",
-            departments: p.departments.map((d) => ({ name: d.name, role: d.role })),
-          }))
-        : [],
+      providers: company && !locked ? auth.providers(company).map((p) => ({ id: p.id, label: p.label })) : [],
+      demo:
+        company && !locked
+          ? (await auth.demoPeople(company)).sort(byRank).map((p) => ({
+              email: p.email,
+              name: p.name,
+              title: p.title,
+              isAdmin: p.role === "admin",
+              departments: p.departments.map((d) => ({ name: d.name, role: d.role })),
+            }))
+          : [],
     };
+  });
+
+  /** The gate of a demo installation: one user name and password for everyone, remembered by the browser for 30 days. */
+  app.post("/api/auth/gate", async (request, reply) => {
+    if (!auth.gate) throw new HttpError(400, "There is no gate on this installation");
+    const body = z.object({ user: z.string().max(200), password: z.string().max(200) }).parse(request.body);
+    const key = `${request.ip}|gate`;
+    checkThrottle(key);
+    if (!auth.checkGate(body.user, body.password)) {
+      recordFailure(key);
+      throw new HttpError(401, "Wrong user name or password");
+    }
+    ATTEMPTS.delete(key);
+    auth.unlockGate(reply);
+    return { ok: true };
   });
 
   /** First start: the first person becomes the admin. Only while nobody has an account. */
   app.post("/api/auth/setup", async (request, reply) => {
     if (auth.mode !== "accounts") throw new HttpError(400, "Sign-in is off (EB_AUTH=open)");
+    requireUnlocked(request);
     const company = await auth.company();
     if ((await platform.people.count(company.id)) > 0) throw new HttpError(409, "This installation is already set up. Sign in instead.");
     const body = z.object({ name: z.string().min(1), email: z.string(), password: z.string() }).parse(request.body);
@@ -86,6 +114,7 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
   });
 
   app.post("/api/auth/signin", async (request, reply) => {
+    requireUnlocked(request);
     const company = await auth.company();
     const body = z.object({ email: z.string(), password: z.string() }).parse(request.body);
     const key = throttleKey(request, body.email);
@@ -102,6 +131,7 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
 
   /** One-click sign-in as a seeded demo person (demo installations only). */
   app.post("/api/auth/demo", async (request, reply) => {
+    requireUnlocked(request);
     const company = await auth.company();
     const { email } = z.object({ email: z.string() }).parse(request.body);
     const demo = await auth.demoPeople(company);
@@ -119,6 +149,7 @@ export async function authRoutes(app: FastifyInstance, ctx: AppContext) {
   app.get("/api/auth/oidc/:provider/start", async (request, reply) => {
     const { provider } = request.params as { provider: string };
     const { returnTo } = request.query as { returnTo?: string };
+    if (auth.gateState(request) === "locked") return reply.redirect("/signin");
     try {
       return reply.redirect(await auth.beginOidc(reply, provider, returnTo));
     } catch (error) {

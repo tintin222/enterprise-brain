@@ -23,6 +23,12 @@ export interface OidcProviderEnv {
   hostedDomain?: string;
 }
 
+/** One user name and password everyone enters before the sign-in page (a demo installation on the internet). */
+export interface GateConfig {
+  user: string;
+  password: string;
+}
+
 export interface AuthConfig {
   /**
    * "accounts" (default): people sign in, and see what their role and departments allow.
@@ -31,6 +37,22 @@ export interface AuthConfig {
   mode: "accounts" | "open";
   sessionHours: number;
   providers: OidcProviderEnv[];
+  /** Set: the gate in front of the sign-in page, remembered by each browser for 30 days. */
+  gate?: GateConfig;
+}
+
+/** What a demo installation asks for before its sign-in page, unless EB_GATE_USER / EB_GATE_PASSWORD say otherwise. */
+export const DEMO_GATE: GateConfig = { user: "admin", password: "KahveKeyfi+5" };
+
+/**
+ * The gate from the environment: EB_GATE_PASSWORD (and EB_GATE_USER, default "admin") put it in front of
+ * any installation with sign-in; a demo installation has it by default (DEMO_GATE); EB_GATE=off removes it.
+ */
+export function gateConfig(env: NodeJS.ProcessEnv, seedDemo: boolean, mode: "accounts" | "open"): GateConfig | undefined {
+  if (mode !== "accounts" || env.EB_GATE === "off") return undefined;
+  const password = env.EB_GATE_PASSWORD || (seedDemo ? DEMO_GATE.password : "");
+  if (!password) return undefined;
+  return { user: (env.EB_GATE_USER || DEMO_GATE.user).trim() || DEMO_GATE.user, password };
 }
 
 export interface ServerConfig {
@@ -83,6 +105,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const webDist = env.EB_WEB_DIST ?? resolve(repoRoot, "apps/web/dist");
   // Relative paths are taken from the repository root (the server itself runs in apps/server).
   const dataDir = resolve(repoRoot, env.EB_DATA_DIR ?? ".data");
+  const seedDemo = env.EB_SEED_DEMO !== "false";
+  const mode = env.EB_AUTH === "open" ? "open" : "accounts";
   return {
     port,
     host,
@@ -98,7 +122,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
       // Replaces the catalog's placeholder addresses (careers@company.com) in installed templates.
       mailDomain: env.EB_MAIL_DOMAIN || ((env.EB_COMPANY_SLUG ?? "acme") === "acme" ? "acme.com.tr" : undefined),
     },
-    seedDemo: env.EB_SEED_DEMO !== "false",
+    seedDemo,
     webDist: existsSync(webDist) ? webDist : undefined,
     paperclip: env.PAPERCLIP_URL
       ? {
@@ -113,8 +137,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     brainSyncMinutes: Math.max(0, Number(env.EB_BRAIN_SYNC_MINUTES ?? 60) || 0),
     teams: env.EB_BOTFRAMEWORK_OPENID_URL ? { openIdUrl: env.EB_BOTFRAMEWORK_OPENID_URL } : undefined,
     auth: {
-      mode: env.EB_AUTH === "open" ? "open" : "accounts",
+      mode,
       sessionHours: Number(env.EB_SESSION_HOURS ?? 12) || 12,
+      gate: gateConfig(env, seedDemo, mode),
       providers: [
         ...(env.EB_AUTH_MICROSOFT_CLIENT_ID && env.EB_AUTH_MICROSOFT_CLIENT_SECRET
           ? [
