@@ -121,9 +121,14 @@ export function useApprovals(status?: string, poll = 20_000) {
   });
 }
 
-export function useBuilderSessions() {
+/** Guided interviews (managers and IT: pass `enabled: false` for anyone else). */
+export function useBuilderSessions(options: { enabled?: boolean } = {}) {
   const { company, path } = useCompany();
-  return useQuery({ queryKey: [...keys.builder(company), "list"], queryFn: () => api.get<BuilderSessionSummary[]>(path("/builder/sessions")) });
+  return useQuery({
+    queryKey: [...keys.builder(company), "list"],
+    queryFn: () => api.get<BuilderSessionSummary[]>(path("/builder/sessions")),
+    enabled: options.enabled ?? true,
+  });
 }
 
 export function useBuilderSession(id: string | undefined) {
@@ -141,9 +146,14 @@ export function useBuilderSession(id: string | undefined) {
   });
 }
 
-export function useStudioThreads() {
+/** Conversations with the Studio agent (managers and IT: pass `enabled: false` for anyone else). */
+export function useStudioThreads(options: { enabled?: boolean } = {}) {
   const { company, path } = useCompany();
-  return useQuery({ queryKey: [...keys.studio(company), "list"], queryFn: () => api.get<StudioThreadSummary[]>(path("/studio/threads")) });
+  return useQuery({
+    queryKey: [...keys.studio(company), "list"],
+    queryFn: () => api.get<StudioThreadSummary[]>(path("/studio/threads")),
+    enabled: options.enabled ?? true,
+  });
 }
 
 /** A Studio conversation, followed closely while the Studio works. */

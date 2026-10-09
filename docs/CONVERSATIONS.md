@@ -98,7 +98,7 @@ A message's `data.intent` (`teach` or `work`) marks it: the planner gives it no 
 
 **Server** (`apps/server/src`): `routes/conversations.ts` (the API, `offers`, the learn route and the `/mention` picker; see `docs/API.md`), `mentions.ts` (`checkMentions`: `allowed` by the author's visibility), `auth/conversations.ts` (who may read, who may invite, `colleaguesFor`: the AI employees a person may see), `give-work.ts` (`giveWork`: one way to give work, used by `POST /tasks` and by Give as work; a task from Chat has `trigger: "chat"`, source "chat" and the conversation as its `sourceRef`).
 
-**Web** (`apps/web/src`): `pages/chat/Chat.tsx` (`?teach=1` and `?work=1` choose the way to send), `components/chat/` (`Composer` with the "@" picker and the Send menu, `ConversationView` live over the server's event stream, `LearningCard`, `ConversationList`, `ConversationFor`), chips drawn by `Markdown` for `@[Name](kind:id)` tokens; `components/NeedBox.tsx` (the Home box on the composer); the task page, the AI employee's page, the brain and the Home box open their conversations.
+**Web** (`apps/web/src`): `pages/chat/Chat.tsx` (`?teach=1` and `?work=1` choose the way to send), `components/chat/` (`Composer` with the "@" picker and the Send menu, `ConversationView` live over the server's event stream, `LearningCard`, `ConversationList`, `ConversationFor`), chips drawn by `Markdown` for `@[Name](kind:id)` tokens (a thing opens in the Studio's brain, a document beside the search results, the rest in Operations; links written before the two portals are rewritten as they are shown); `components/NeedBox.tsx` (the Home box on the composer); the task page, the AI employee's page, the brain and the Home box open their conversations.
 
 ## Phases
 

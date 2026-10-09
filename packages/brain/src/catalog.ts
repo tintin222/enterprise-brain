@@ -167,7 +167,7 @@ export class BrainCatalog {
       if (remembered !== connectionId) await this.brain.update(companyId, database.id, { data: { connection_id: connectionId } }, options.actor);
     } else {
       const demo = this.deps.demoSchema?.(database.key);
-      if (!demo) throw new BrainError("Choose the connection to read it through: an SQL database connection in Settings → Connections", 400);
+      if (!demo) throw new BrainError("Choose the connection to read it through: an SQL database connection in Studio → Settings → Connections", 400);
       schema = only ? { ...demo, tables: demo.tables.filter((t) => (t.schema ?? "").toLowerCase() === only.toLowerCase()) } : demo;
       from = "the demo database";
     }

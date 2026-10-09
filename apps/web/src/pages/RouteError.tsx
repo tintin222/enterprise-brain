@@ -1,10 +1,12 @@
 import { TriangleAlert } from "lucide-react";
-import { isRouteErrorResponse, Link, useRouteError } from "react-router";
+import { isRouteErrorResponse, Link, useLocation, useRouteError } from "react-router";
 import { errorMessage } from "../api.ts";
+import { paths, portalOf } from "../lib/paths.ts";
 
 /** Last-resort error screen for rendering errors and failed lazy chunks. */
 export function RouteError() {
   const error = useRouteError();
+  const portal = portalOf(useLocation().pathname);
   const status = isRouteErrorResponse(error) ? error.status : undefined;
   const chunk = error instanceof Error && /dynamically imported module|Loading chunk|Importing a module script failed/i.test(error.message);
   return (
@@ -29,8 +31,8 @@ export function RouteError() {
           >
             Reload
           </button>
-          <Link to="/" className="rounded-lg border border-line-strong px-4 py-2 text-sm font-medium hover:bg-subtle">
-            Go to dashboard
+          <Link to={paths.home(portal)} className="rounded-lg border border-line-strong px-4 py-2 text-sm font-medium hover:bg-subtle">
+            {portal === "studio" ? "Go to the Studio home" : "Go to Home"}
           </Link>
         </div>
       </div>

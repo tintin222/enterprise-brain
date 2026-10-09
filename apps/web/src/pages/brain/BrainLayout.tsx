@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Brain, Cable, LayoutDashboard, MessageCircleQuestion, Search, Share2 } from "lucide-react";
+import { ArrowUpRight, Brain, Cable, LayoutDashboard, MessageCircleQuestion, Search, Share2 } from "lucide-react";
 import { Suspense, useEffect, useRef, useState } from "react";
-import { NavLink, Outlet, useLocation, useNavigate } from "react-router";
+import { NavLink, Outlet, useLocation, useMatch, useNavigate } from "react-router";
 import { api, qs } from "../../api.ts";
 import { FoldButton, RailLink, railLinkClass } from "../../components/SideMenu.tsx";
 import { LoadingBlock } from "../../components/Spinner.tsx";
 import { useCompany } from "../../lib/company.tsx";
+import { paths, STUDIO } from "../../lib/paths.ts";
 import { useStoredFlag } from "../../lib/preferences.ts";
 import type { BrainDimension, BrainKind, BrainModel, BrainEntitySummary } from "../../types.ts";
 import { DIMENSION_ICONS, KindIcon, brainKeys, brainPath, kindOf, useBrainEntity, useBrainModel, useBrainOverview } from "./brain.tsx";
@@ -96,10 +97,11 @@ function BrainSearch({ className, autoFocus }: { className?: string; autoFocus?:
 }
 
 const TOP = [
-  { to: "/brain", label: "Overview", icon: LayoutDashboard, end: true },
-  { to: "/chat/for/ai_employee/company-brain", label: "Ask", icon: MessageCircleQuestion },
-  { to: "/brain/map", label: "Map", icon: Share2 },
-  { to: "/brain/sources", label: "Sources", icon: Cable },
+  { to: paths.brain.home(), label: "Overview", icon: LayoutDashboard, end: true },
+  // Asking happens in Chat, in Operations.
+  { to: paths.companyBrainChat(), label: "Ask", icon: MessageCircleQuestion, title: "Ask the company brain in Chat" },
+  { to: paths.brain.map(), label: "Map", icon: Share2 },
+  { to: paths.brain.sources(), label: "Sources", icon: Cable },
 ];
 
 function linkClass({ isActive }: { isActive: boolean }) {
@@ -185,7 +187,7 @@ function AreaFlyout({
             <NavLink
               key={kind.key}
               role="menuitem"
-              to={`/brain/k/${kind.key}`}
+              to={paths.brain.kind(kind.key)}
               className={({ isActive }) => linkClass({ isActive: isActive || kind.key === current })}
               title={kind.description}
             >
@@ -205,11 +207,10 @@ export default function BrainLayout() {
   const { data: model } = useBrainModel();
   const { data: overview } = useBrainOverview();
   const counts = overview?.counts ?? {};
-  const { pathname } = useLocation();
   const navigate = useNavigate();
-  const kindPath = pathname.match(/^\/brain\/k\/([^/]+)/)?.[1] ?? "";
+  const kindPath = useMatch(`${STUDIO}/brain/k/:kind`)?.params.kind ?? "";
   // A thing's page belongs to its kind in the menu (the page already loaded it).
-  const { data: thing } = useBrainEntity(pathname.match(/^\/brain\/e\/([^/]+)/)?.[1]);
+  const { data: thing } = useBrainEntity(useMatch(`${STUDIO}/brain/e/:id`)?.params.id);
   const currentKind = kindPath || thing?.kind || "";
   // On laptops the page gets the room: collapsed to icons until the person expands it.
   const [folded, setFolded] = useStoredFlag("eb.brain.menu.folded", () => window.innerWidth < 1440);
@@ -237,8 +238,8 @@ export default function BrainLayout() {
             <Search className="size-[18px]" />
           </button>
           <span className="my-1 h-px w-8 shrink-0 bg-line" />
-          {TOP.map(({ to, label, icon, end }) => (
-            <RailLink key={to} to={to} end={end} icon={icon} label={label} />
+          {TOP.map(({ to, label, icon, end, title }) => (
+            <RailLink key={to} to={to} end={end} icon={icon} label={title ?? label} />
           ))}
           <span className="my-1 h-px w-8 shrink-0 bg-line" />
           {model?.dimensions.map((dimension) => (
@@ -279,10 +280,11 @@ export default function BrainLayout() {
           </div>
           <nav className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3" aria-label="Company brain">
             <ul className="space-y-0.5">
-              {TOP.map(({ to, label, icon: Icon, end }) => (
+              {TOP.map(({ to, label, icon: Icon, end, title }) => (
                 <li key={to}>
-                  <NavLink to={to} end={end} className={linkClass}>
+                  <NavLink to={to} end={end} title={title} className={linkClass}>
                     <Icon className="size-4 shrink-0" /> {label}
+                    {title && <ArrowUpRight className="ml-auto size-3.5 text-faint" />}
                   </NavLink>
                 </li>
               ))}
@@ -302,7 +304,7 @@ export default function BrainLayout() {
                     {kinds.map((kind) => (
                       <li key={kind.key}>
                         <NavLink
-                          to={`/brain/k/${kind.key}`}
+                          to={paths.brain.kind(kind.key)}
                           className={({ isActive }) => linkClass({ isActive: isActive || kind.key === currentKind })}
                           title={kind.description}
                         >
@@ -322,8 +324,8 @@ export default function BrainLayout() {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="space-y-2 border-b border-line bg-surface px-4 py-2.5 lg:hidden">
           <div className="flex gap-1 overflow-x-auto">
-            {TOP.map(({ to, label, icon: Icon, end }) => (
-              <NavLink key={to} to={to} end={end} className={(state) => clsx(linkClass(state), "shrink-0")}>
+            {TOP.map(({ to, label, icon: Icon, end, title }) => (
+              <NavLink key={to} to={to} end={end} title={title} className={(state) => clsx(linkClass(state), "shrink-0")}>
                 <Icon className="size-4" /> {label}
               </NavLink>
             ))}
@@ -332,7 +334,7 @@ export default function BrainLayout() {
             <select
               className="input h-9 flex-1 py-1 text-[13px]"
               value={kindPath}
-              onChange={(e) => e.target.value && navigate(`/brain/k/${e.target.value}`)}
+              onChange={(e) => e.target.value && navigate(paths.brain.kind(e.target.value))}
               aria-label="Kind of thing"
             >
               <option value="">Browse…</option>

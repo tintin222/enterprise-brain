@@ -9,6 +9,7 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { Page } from "../../components/Layout.tsx";
 import { ErrorState, Skeleton } from "../../components/Spinner.tsx";
 import { timeAgo } from "../../lib/format.ts";
+import { paths } from "../../lib/paths.ts";
 import { useStoredFlag } from "../../lib/preferences.ts";
 import { KindIcon, ThingChip, brainPath, kindIcon, kindOf, lowerName, useBrainEntities, useBrainModel, useMayEditBrain } from "./brain.tsx";
 import { ReportCards } from "./data.tsx";
@@ -139,7 +140,7 @@ export default function BrainList() {
                     Add {lowerName(kind.name)}
                   </Button>
                 )}
-                <ButtonLink to="/brain/sources" icon={Cable}>
+                <ButtonLink to={paths.brain.sources()} icon={Cable}>
                   Choose sources
                 </ButtonLink>
               </>
@@ -214,7 +215,7 @@ export default function BrainList() {
       )}
       {adding && kindKey === "knowhow" && !mayEdit ? (
         // Anyone adds know-how by teaching the company brain, in their talk with it.
-        <Navigate to="/chat/for/ai_employee/company-brain?teach=1" />
+        <Navigate to={paths.companyBrainChat({ teach: 1 })} />
       ) : adding ? (
         <EntityForm open onClose={() => setAdding(false)} kind={kindKey} />
       ) : null}

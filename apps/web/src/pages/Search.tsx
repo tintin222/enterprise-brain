@@ -6,13 +6,16 @@ import { api, qs } from "../api.ts";
 import { Badge, StatusPill } from "../components/Badge.tsx";
 import { Button } from "../components/Button.tsx";
 import { Card } from "../components/Card.tsx";
+import { DocumentDrawer } from "../components/DocumentDrawer.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { Page } from "../components/Layout.tsx";
 import { ErrorState, Skeleton } from "../components/Spinner.tsx";
+import { useIsManager } from "../lib/auth.tsx";
 import { useCompany } from "../lib/company.tsx";
 import { humanize, truncate } from "../lib/format.ts";
 import { archetypeIcon } from "../lib/icons.tsx";
 import { archetypeLabel } from "../lib/labels.ts";
+import { paths, usePortal } from "../lib/paths.ts";
 import { keys, useAgents } from "../lib/queries.ts";
 import type { BrainEntitySummary, CatalogSearchResult, SearchHit, SearchResponse } from "../types.ts";
 import { useDocumentTitle } from "../lib/title.ts";
@@ -68,13 +71,13 @@ export function Highlighted({ text, query, max = 320 }: { text: string; query: s
 function catalogLink(r: CatalogSearchResult): string {
   switch (r.kind) {
     case "department":
-      return `/catalog/departments/${r.id}`;
+      return paths.readyMade(r.id);
     case "process":
-      return `/catalog/departments/${r.department ?? r.id.split(".")[0]}`;
+      return paths.readyMade(r.department ?? r.id.split(".")[0]);
     case "use-case":
-      return `/catalog?tab=usecases`;
+      return paths.readyMade(undefined, { tab: "usecases" });
     default:
-      return `/catalog?tab=agents&template=${encodeURIComponent(r.id)}`;
+      return paths.readyMade(undefined, { tab: "agents", template: r.id });
   }
 }
 
@@ -82,9 +85,18 @@ const SUGGESTIONS = ["annual leave", "travel policy hotel limit", "VPN access", 
 
 export default function Search() {
   const { company, path } = useCompany();
+  const portal = usePortal();
+  const manager = useIsManager();
   useDocumentTitle("Search");
   const [params, setParams] = useSearchParams();
   const q = params.get("q") ?? "";
+  // A document of the knowledge base, open beside the results (links from Chat land here too).
+  const doc = params.get("doc");
+  const closeDoc = () => {
+    const next = new URLSearchParams(params);
+    next.delete("doc");
+    setParams(next, { replace: true });
+  };
   const [input, setInput] = useState(q);
   useEffect(() => setInput(q), [q]);
 
@@ -190,7 +202,7 @@ export default function Search() {
                 )}
                 {brain.data && brain.data.length > 0 && (
                   <Link
-                    to={`/chat/for/ai_employee/company-brain?q=${encodeURIComponent(q)}`}
+                    to={paths.companyBrainChat({ q })}
                     className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
                   >
                     Ask the brain <ArrowRight className="size-3" />
@@ -246,11 +258,13 @@ export default function Search() {
                   compact
                   icon={SearchIcon}
                   title="Nothing in the knowledge base"
-                  description="Try other words, or add the document to a collection."
+                  description={manager ? "Try other words, or add the document to a collection." : "Try other words."}
                   action={
-                    <Link to="/settings/knowledge" className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-300">
-                      Open the knowledge base
-                    </Link>
+                    manager ? (
+                      <Link to={paths.settings("knowledge")} className="text-sm font-medium text-brand-600 hover:underline dark:text-brand-300">
+                        Open the knowledge base
+                      </Link>
+                    ) : undefined
                   }
                 />
               )}
@@ -259,7 +273,7 @@ export default function Search() {
                   <Card key={h.chunkId} className="p-4 transition-colors hover:border-brand-300 dark:hover:border-brand-400/40">
                     <div className="flex flex-wrap items-center gap-2">
                       <Link
-                        to={`/settings/knowledge?collection=${encodeURIComponent(h.collectionKey)}&doc=${encodeURIComponent(h.documentId)}`}
+                        to={paths.search(portal, { q, doc: h.documentId })}
                         className="text-[15px] font-semibold text-brand-700 hover:underline dark:text-brand-300"
                       >
                         {h.title}
@@ -297,7 +311,7 @@ export default function Search() {
                     return (
                       <li key={a.id}>
                         <Link
-                          to={`/ai/${a.slug}`}
+                          to={paths.ai(a.slug, portal)}
                           className="flex items-start gap-3 rounded-xl border border-line bg-surface p-3 hover:border-brand-300 dark:hover:border-brand-400/40"
                         >
                           <Icon className="mt-0.5 size-4 shrink-0 text-brand-600 dark:text-brand-300" />
@@ -340,18 +354,19 @@ export default function Search() {
                   </li>
                 ))}
               </ul>
-              {q && (
+              {q && manager && (
                 <Link
-                  to={`/hire/studio/new`}
+                  to={paths.interview("new")}
                   className="mt-3 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:underline dark:text-brand-300"
                 >
-                  Nothing fits? Hire one in the Studio <ArrowRight className="size-3" />
+                  Nothing fits? Build one in the Studio <ArrowRight className="size-3" />
                 </Link>
               )}
             </section>
           </aside>
         </div>
       )}
+      <DocumentDrawer id={doc} onClose={closeDoc} />
     </Page>
   );
 }

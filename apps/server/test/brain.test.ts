@@ -194,20 +194,32 @@ describe("the company brain", () => {
       changes: { type: string; name: string; about: { id: string }[] }[];
       result: { done: string[] } | null;
     };
-    type Msg = { id: string; kind: string; author: { kind: string; name: string }; text: string; data: Record<string, unknown>; card: Card | null };
+    type Msg = {
+      id: string;
+      kind: string;
+      author: { kind: string; name: string };
+      text: string;
+      data: Record<string, unknown>;
+      card: Card | null;
+      mentions: { kind: string; id: string; href: string | null }[];
+    };
     const process = await thing("Customer complaints and 8D", "process");
     const client = await thing("Gulf Water", "client");
     const about = (await call("deniz.aydin", "GET", `/conversations/for/thing/${process.id}`)).json() as {
       conversation: { id: string };
       offers: { teach: boolean };
+      about: { href: string; label: string } | null;
     };
     expect(about.offers.teach).toBe(true);
+    // The conversation leads to the thing's page, in the Studio's brain.
+    expect(about.about).toEqual({ href: `/studio/brain/e/${process.id}`, label: "Customer complaints and 8D" });
     const id = about.conversation.id;
     const text = `@[Gulf Water](thing:${client.id}) always asks for the test certificates in English and Arabic.`;
     expect((await call("deniz.aydin", "POST", `/conversations/${id}/messages`, { text, intent: "teach", fileIds: ["a-file"] })).statusCode).toBe(400);
     const taught = await call("deniz.aydin", "POST", `/conversations/${id}/messages`, { text, intent: "teach" });
     expect(taught.statusCode, taught.body).toBe(200);
     expect((taught.json() as Msg).data.intent).toBe("teach");
+    expect((taught.json() as Msg).mentions).toMatchObject([{ kind: "thing", id: client.id, href: `/studio/brain/e/${client.id}` }]);
     const list = async (who: string) => (await call(who, "GET", `/conversations/${id}/messages`)).json() as Msg[];
     const card = await until(async () => (await list("deniz.aydin")).find((m) => m.card?.type === "learning"), "the learning card");
     expect(card.author.name).toBe("Company brain");
@@ -251,18 +263,19 @@ describe("the company brain", () => {
         ),
       "the brain's answer",
     );
-    expect(answer.text).toMatch(/\[Customer complaints and 8D\]\(\/brain\/e\/[0-9a-f-]{36}\)/);
+    expect(answer.text).toMatch(/\[Customer complaints and 8D\]\(\/studio\/brain\/e\/[0-9a-f-]{36}\)/);
     expect(answer.text).toMatch(/\*\*Who knows it:\*\* .*Kerem Yıldız/);
   });
 
   it("lists a person or an AI employee once in the @ picker: the one that reaches them, not the brain's copy", async () => {
-    type Hit = { kind: string; name: string };
-    const kindsOf = async (query: string, name: string) =>
-      ((await call("mehmet.oz", "GET", `/mention${query}`)).json() as Hit[]).filter((h) => h.name === name).map((h) => h.kind);
+    type Hit = { kind: string; id: string; name: string; href: string | null };
+    const hitsOf = async (query: string, name: string) => ((await call("mehmet.oz", "GET", `/mention${query}`)).json() as Hit[]).filter((h) => h.name === name);
+    const kindsOf = async (query: string, name: string) => (await hitsOf(query, name)).map((h) => h.kind);
     expect(await kindsOf("?q=Invoice%20Processor", "Invoice Processor")).toEqual(["ai_employee"]);
     expect(await kindsOf("?q=Burak", "Burak Şahin")).toEqual(["person"]);
-    // Asked for things of the brain only, its copy is what there is.
-    expect(await kindsOf("?q=Invoice%20Processor&kinds=thing", "Invoice Processor")).toEqual(["thing"]);
+    // Asked for things of the brain only, its copy is what there is, linked to its page in the Studio's brain.
+    const [copy] = await hitsOf("?q=Invoice%20Processor&kinds=thing", "Invoice Processor");
+    expect(copy).toMatchObject({ kind: "thing", href: `/studio/brain/e/${copy!.id}` });
   });
 });
 
@@ -364,7 +377,7 @@ describe("Claude with the company brain", () => {
     expect(answer.text).toBe("Kerem Yıldız and Selin Acar know it best.");
     expect(assistantTools).toEqual(expect.arrayContaining(["knowledge_search", "company_search", "company_open", "company_list", "company_activity"]));
     expect(assistantSystem).toContain(COMPANY_GUIDANCE);
-    expect(seen.chat?.[0]).toMatch(/\[Customer complaints and 8D\]\(\/brain\/e\//);
+    expect(seen.chat?.[0]).toMatch(/\[Customer complaints and 8D\]\(\/studio\/brain\/e\//);
     expect(seen.chat?.[1]).toContain("- Who knows it: ");
   });
 

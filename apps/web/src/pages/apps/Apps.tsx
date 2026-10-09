@@ -1,10 +1,10 @@
-import { Archive, Calculator, Globe, LayoutGrid, Plus, Table2 } from "lucide-react";
+import { Archive, Calculator, Globe, LayoutGrid, Plus, Table2, WandSparkles } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { NewAppDialog } from "../../components/apps/NewAppDialog.tsx";
 import { NewCalculationDialog } from "../../components/calculations/NewCalculationDialog.tsx";
 import { Badge } from "../../components/Badge.tsx";
-import { Button } from "../../components/Button.tsx";
+import { Button, ButtonLink } from "../../components/Button.tsx";
 import { Card, PageHeader, SectionTitle } from "../../components/Card.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Page } from "../../components/Layout.tsx";
@@ -12,6 +12,7 @@ import { ErrorState, Skeleton } from "../../components/Spinner.tsx";
 import { NewTableDialog, useTableDepartments } from "../../components/tables/NewTableDialog.tsx";
 import { plural, timeAgo } from "../../lib/format.ts";
 import { namedIcon } from "../../lib/icons.tsx";
+import { paths, usePortal, type Portal } from "../../lib/paths.ts";
 import { useApps, useCalculations, useDepartments, useTables } from "../../lib/queries.ts";
 import type { AppView, CalculationView, TableView } from "../../types.ts";
 
@@ -65,11 +66,11 @@ function Tile({
   );
 }
 
-function AppTile({ app }: { app: AppView }) {
+function AppTile({ app, portal }: { app: AppView; portal: Portal }) {
   const Icon = namedIcon(app.icon, LayoutGrid);
   return (
     <Tile
-      to={`/apps/${app.key}`}
+      to={paths.app(app.key, portal)}
       tone="app"
       icon={<Icon className="size-[18px]" />}
       title={app.name}
@@ -80,10 +81,10 @@ function AppTile({ app }: { app: AppView }) {
   );
 }
 
-function TableTile({ table }: { table: TableView }) {
+function TableTile({ table, portal }: { table: TableView; portal: Portal }) {
   return (
     <Tile
-      to={`/tables/${table.key}`}
+      to={paths.table(table.key, portal)}
       tone="table"
       icon={<Table2 className="size-[18px]" />}
       title={table.name}
@@ -96,11 +97,11 @@ function TableTile({ table }: { table: TableView }) {
 
 const RUNS: Record<string, string> = { daily: "every day", weekly: "every Monday", monthly: "every month" };
 
-function CalculationTile({ calculation }: { calculation: CalculationView }) {
+function CalculationTile({ calculation, portal }: { calculation: CalculationView; portal: Portal }) {
   const last = calculation.last;
   return (
     <Tile
-      to={`/calculations/${calculation.key}`}
+      to={paths.calculation(calculation.key, portal)}
       tone="calculation"
       icon={<Calculator className="size-[18px]" />}
       title={calculation.name}
@@ -123,8 +124,10 @@ function byDepartment<T extends { departmentId: string | null }>(items: T[], nam
   return [...groups.entries()];
 }
 
-/** Apps: the apps and tables the viewer's departments keep. */
+/** Apps: the apps and tables the viewer's departments keep. Used in Operations; made and changed in the Studio. */
 export default function Apps() {
+  const portal = usePortal();
+  const studio = portal === "studio";
   const [archived, setArchived] = useState(false);
   const apps = useApps(archived);
   const all = useTables(archived);
@@ -133,7 +136,8 @@ export default function Apps() {
   const calculations = useCalculations(archived);
   const departments = useDepartments();
   const { departments: mine, companyWide } = useTableDepartments();
-  const canMake = companyWide || mine.length > 0;
+  const mayMake = companyWide || mine.length > 0;
+  const canMake = studio && mayMake;
   const [making, setMaking] = useState<"app" | "table" | "calculation" | null>(null);
   const name = new Map((departments.data ?? []).map((d) => [d.id, d.name]));
   const loading = apps.isLoading || tables.isLoading;
@@ -144,23 +148,33 @@ export default function Apps() {
       <PageHeader
         icon={LayoutGrid}
         title="Apps"
-        description="What your departments keep track of, and the screens they work it on. Say what you need in plain words: the Studio makes the app and its table, and your AI employees can file into it too."
+        description={
+          studio
+            ? "Make and change what your departments keep track of, and the screens they work it on. Say what you need in plain words: the Studio makes the app and its table, and your AI employees can file into it too."
+            : "What your departments keep track of, and the screens they work it on."
+        }
         actions={
-          canMake && (
-            <>
-              <Button icon={Table2} onClick={() => setMaking("table")}>
-                New table
-              </Button>
-              {(tables.data?.length ?? 0) > 0 && (
-                <Button icon={Calculator} onClick={() => setMaking("calculation")}>
-                  New calculation
-                </Button>
-              )}
-              <Button variant="primary" icon={Plus} onClick={() => setMaking("app")}>
-                New app
-              </Button>
-            </>
-          )
+          !studio
+            ? mayMake && (
+                <ButtonLink to={paths.apps("studio")} icon={WandSparkles}>
+                  Build in the Studio
+                </ButtonLink>
+              )
+            : canMake && (
+                <>
+                  <Button icon={Table2} onClick={() => setMaking("table")}>
+                    New table
+                  </Button>
+                  {(tables.data?.length ?? 0) > 0 && (
+                    <Button icon={Calculator} onClick={() => setMaking("calculation")}>
+                      New calculation
+                    </Button>
+                  )}
+                  <Button variant="primary" icon={Plus} onClick={() => setMaking("app")}>
+                    New app
+                  </Button>
+                </>
+              )
         }
       />
       {(apps.error || tables.error) && <ErrorState error={apps.error ?? tables.error} onRetry={() => void apps.refetch()} />}
@@ -184,6 +198,10 @@ export default function Apps() {
                 <Button variant="primary" icon={Plus} onClick={() => setMaking("app")}>
                   New app
                 </Button>
+              ) : mayMake ? (
+                <ButtonLink to={paths.apps("studio")} variant="primary" icon={WandSparkles}>
+                  Build one in the Studio
+                </ButtonLink>
               ) : undefined
             }
           />
@@ -196,7 +214,7 @@ export default function Apps() {
                 <SectionTitle>{`Apps · ${group}`}</SectionTitle>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {list.map((app) => (
-                    <AppTile key={app.id} app={app} />
+                    <AppTile key={app.id} app={app} portal={portal} />
                   ))}
                 </div>
               </div>
@@ -210,7 +228,7 @@ export default function Apps() {
                 <SectionTitle>{`Calculations · ${group}`}</SectionTitle>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {list.map((calculation) => (
-                    <CalculationTile key={calculation.id} calculation={calculation} />
+                    <CalculationTile key={calculation.id} calculation={calculation} portal={portal} />
                   ))}
                 </div>
               </div>
@@ -224,7 +242,7 @@ export default function Apps() {
                 <SectionTitle>{`Tables · ${group}`}</SectionTitle>
                 <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {list.map((table) => (
-                    <TableTile key={table.id} table={table} />
+                    <TableTile key={table.id} table={table} portal={portal} />
                   ))}
                 </div>
               </div>
@@ -237,9 +255,13 @@ export default function Apps() {
           {archived ? "Back to the ones in use" : "Archived apps and tables"}
         </Button>
       </div>
-      <NewAppDialog open={making === "app"} onClose={() => setMaking(null)} />
-      <NewTableDialog open={making === "table"} onClose={() => setMaking(null)} />
-      <NewCalculationDialog open={making === "calculation"} onClose={() => setMaking(null)} />
+      {canMake && (
+        <>
+          <NewAppDialog open={making === "app"} onClose={() => setMaking(null)} />
+          <NewTableDialog open={making === "table"} onClose={() => setMaking(null)} />
+          <NewCalculationDialog open={making === "calculation"} onClose={() => setMaking(null)} />
+        </>
+      )}
     </Page>
   );
 }

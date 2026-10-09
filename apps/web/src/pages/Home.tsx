@@ -15,6 +15,7 @@ import { ErrorState, Skeleton } from "../components/Spinner.tsx";
 import { WorkItemCard } from "../components/WorkItemCard.tsx";
 import { useCompany } from "../lib/company.tsx";
 import { plural, timeAgo } from "../lib/format.ts";
+import { paths } from "../lib/paths.ts";
 import { keys, useHome, useRecurring, useWork } from "../lib/queries.ts";
 import { useDocumentTitle } from "../lib/title.ts";
 import { useToast } from "../lib/toast.tsx";
@@ -100,8 +101,8 @@ function AiEmployeesToday({ home }: { home: HomeData }) {
             }
             action={
               home.person.isManager ? (
-                <ButtonLink to="/hire" size="sm" variant="primary" icon={UserPlus}>
-                  Hire
+                <ButtonLink to={paths.home("studio")} size="sm" variant="primary" icon={UserPlus}>
+                  Hire in the Studio
                 </ButtonLink>
               ) : undefined
             }

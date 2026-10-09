@@ -10,10 +10,12 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { Page } from "../../components/Layout.tsx";
 import { ErrorState, Skeleton } from "../../components/Spinner.tsx";
 import { Tabs } from "../../components/Tabs.tsx";
+import { useIsManager } from "../../lib/auth.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { humanize } from "../../lib/format.ts";
 import { archetypeIcon, namedIcon } from "../../lib/icons.tsx";
 import { ARCHETYPE_LABELS, archetypeLabel, categoryLabel, triggerShort } from "../../lib/labels.ts";
+import { paths } from "../../lib/paths.ts";
 import { keys, useAgents, useCatalog, useDepartments } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { AgentRow, CatalogResponse, UseCase } from "../../types.ts";
@@ -36,7 +38,7 @@ function Departments({ catalog }: { catalog: CatalogResponse }) {
         return (
           <Link
             key={d.id}
-            to={`/hire/ready-made/${d.id}`}
+            to={paths.readyMade(d.id)}
             className="group flex flex-col rounded-xl border border-line bg-surface p-5 shadow-xs transition-colors hover:border-brand-300 dark:hover:border-brand-400/40"
           >
             <div className="flex items-start justify-between gap-3">
@@ -166,6 +168,8 @@ function AgentTemplates({ catalog, installed, onOpen }: { catalog: CatalogRespon
 
 function UseCases({ catalog, installed }: { catalog: CatalogResponse; installed: AgentRow[] }) {
   const { company, path } = useCompany();
+  // As the server allows: managers install.
+  const manager = useIsManager();
   const queryClient = useQueryClient();
   const toast = useToast();
   const install = useMutation({
@@ -210,7 +214,7 @@ function UseCases({ catalog, installed }: { catalog: CatalogResponse; installed:
                   Open
                 </ButtonLink>
               )}
-              {!ready && u.defaultAgent && (
+              {!ready && u.defaultAgent && manager && (
                 <Button
                   size="sm"
                   variant="soft"

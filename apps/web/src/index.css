@@ -103,6 +103,14 @@
   color-scheme: dark;
 }
 
+/* The Studio: the same palette on a faintly violet canvas, so people see which portal they are in. */
+:root[data-portal="studio"] {
+  --eb-canvas: #f4f3fc;
+}
+.dark[data-portal="studio"] {
+  --eb-canvas: #0d0b1d;
+}
+
 @layer base {
   html,
   body,

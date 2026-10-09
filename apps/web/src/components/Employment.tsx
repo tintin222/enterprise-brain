@@ -164,7 +164,7 @@ export function EmploymentPanel({ detail }: { detail: AgentDetail }) {
             {employment.stoppedByBudget && (
               <p className="mt-2 text-sm font-medium text-red-600 dark:text-red-400">
                 {employment.departmentBudget?.reached && !(budget !== null && employment.costThisMonthUsd >= budget)
-                  ? `Stopped: ${employment.departmentBudget.name} reached this month's budget. A manager of the department can raise it in Settings → Costs.`
+                  ? `Stopped: ${employment.departmentBudget.name} reached this month's budget. A manager of the department can raise it in Studio → Settings → Costs.`
                   : "Stopped: it reached this month's budget."}
               </p>
             )}

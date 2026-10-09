@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { api } from "../../api.ts";
 import { useCompany } from "../../lib/company.tsx";
+import { paths, usePortal } from "../../lib/paths.ts";
 import { keys } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { AppProposal, AppView } from "../../types.ts";
@@ -25,6 +26,7 @@ export function NewAppDialog({ open, onClose, initial }: { open: boolean; onClos
   const { company, path } = useCompany();
   const toast = useToast();
   const navigate = useNavigate();
+  const portal = usePortal();
   const queryClient = useQueryClient();
   const { departments, companyWide } = useTableDepartments();
   const [description, setDescription] = useState("");
@@ -66,7 +68,7 @@ export function NewAppDialog({ open, onClose, initial }: { open: boolean; onClos
       await queryClient.invalidateQueries({ queryKey: keys.apps(company) });
       await queryClient.invalidateQueries({ queryKey: keys.tables(company) });
       onClose();
-      navigate(`/apps/${app.key}`);
+      navigate(paths.app(app.key, portal));
     },
   });
 

@@ -11,6 +11,7 @@ import { Page } from "../../components/Layout.tsx";
 import { ErrorState, Skeleton } from "../../components/Spinner.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { formatDate } from "../../lib/format.ts";
+import { paths } from "../../lib/paths.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { BrainOverview, BrainSource } from "../../types.ts";
 import {
@@ -42,7 +43,7 @@ const QUESTIONS = [
 function AskBox() {
   const navigate = useNavigate();
   const [text, setText] = useState("");
-  const ask = (question: string) => question.trim() && navigate(`/chat/for/ai_employee/company-brain?q=${encodeURIComponent(question.trim())}`);
+  const ask = (question: string) => question.trim() && navigate(paths.companyBrainChat({ q: question.trim() }));
   return (
     <div className="rounded-2xl border border-brand-200 bg-gradient-to-br from-brand-50 to-violet-50 p-4 dark:border-brand-400/25 dark:from-brand-400/10 dark:to-violet-400/10">
       <form
@@ -113,7 +114,7 @@ function Empty({ onFilled }: { onFilled: () => void }) {
                 Fill it from the demo sources
               </Button>
             )}
-            <ButtonLink to="/brain/sources" icon={Cable}>
+            <ButtonLink to={paths.brain.sources()} icon={Cable}>
               Choose sources
             </ButtonLink>
           </div>
@@ -154,7 +155,7 @@ function Areas({ overview }: { overview: BrainOverview }) {
         return (
           <Link
             key={dimension.key}
-            to={`/brain/k/${first?.key ?? ""}`}
+            to={paths.brain.kind(first?.key ?? "")}
             className="group rounded-xl border border-line bg-surface p-3.5 shadow-xs hover:border-line-strong hover:shadow-sm"
             title={dimension.description}
           >
@@ -189,7 +190,7 @@ function Projects({ overview }: { overview: BrainOverview }) {
         subtitle="Where each one stands"
         icon={Target}
         actions={
-          <ButtonLink to="/brain/k/project" size="xs" variant="ghost" iconRight={ArrowRight}>
+          <ButtonLink to={paths.brain.kind("project")} size="xs" variant="ghost" iconRight={ArrowRight}>
             All
           </ButtonLink>
         }
@@ -427,7 +428,7 @@ export default function BrainHome() {
         }
         actions={
           <>
-            <ButtonLink to="/chat/for/ai_employee/company-brain?teach=1" icon={Lightbulb}>
+            <ButtonLink to={paths.companyBrainChat({ teach: 1 })} icon={Lightbulb}>
               Tell the brain
             </ButtonLink>
             {mayEdit && (

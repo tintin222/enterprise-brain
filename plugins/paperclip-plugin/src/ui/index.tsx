@@ -14,12 +14,13 @@ interface Summary {
 }
 
 const box: React.CSSProperties = { border: "1px solid rgba(127,127,127,.25)", borderRadius: 12, padding: 16 };
+// Operations (the daily work) at the root; the Studio (building AI employees, the brain, settings) under /studio.
 const links = [
-  { label: "Agent Builder", path: "/builder/new" },
-  { label: "Catalog", path: "/catalog" },
-  { label: "Approvals", path: "/approvals" },
-  { label: "Inbox", path: "/inbox" },
-  { label: "Knowledge", path: "/knowledge" },
+  { label: "Work", path: "/work" },
+  { label: "Mail", path: "/mail" },
+  { label: "Studio", path: "/studio" },
+  { label: "Ready-made", path: "/studio/ready-made" },
+  { label: "Knowledge", path: "/studio/settings/knowledge" },
 ];
 
 /** Full page: the Enterprise Brain console embedded in Paperclip, with quick links. */
@@ -30,7 +31,7 @@ export function EnterpriseBrainPage({ context }: PluginPageProps) {
     return (
       <div style={{ padding: 24, maxWidth: 640 }}>
         <h2 style={{ marginTop: 0 }}>Enterprise Brain</h2>
-        <p>Set the Enterprise Brain URL in this plugin's settings to embed the console here (Agent Builder, department catalog, approvals).</p>
+        <p>Set the Enterprise Brain URL in this plugin's settings to embed the console here (the work, approvals, and the Studio).</p>
       </div>
     );
   }

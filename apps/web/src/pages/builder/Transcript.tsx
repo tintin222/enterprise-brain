@@ -7,6 +7,7 @@ import { Logo } from "../../components/Logo.tsx";
 import { Markdown } from "../../components/Markdown.tsx";
 import { initials, timeAgo, formatDateTime } from "../../lib/format.ts";
 import { stakeholderLabel } from "../../lib/labels.ts";
+import { paths } from "../../lib/paths.ts";
 import type { BuilderMessage, SampleAnalysis, SessionView } from "../../types.ts";
 import type { SessionActions } from "./actions.ts";
 import { QuestionRound } from "./QuestionCards.tsx";
@@ -261,10 +262,10 @@ export function Transcript({
           )}
           {m.data?.agentId && view.agent && (
             <div className="mt-3 flex flex-wrap gap-2 border-t border-line pt-3">
-              <ButtonLink size="sm" variant="soft" to={`/ai/${view.agent.slug}/app`}>
+              <ButtonLink size="sm" variant="soft" to={paths.aiScreen(view.agent.slug)}>
                 Open its page
               </ButtonLink>
-              <ButtonLink size="sm" variant="ghost" to={`/ai/${view.agent.slug}`}>
+              <ButtonLink size="sm" variant="ghost" to={paths.ai(view.agent.slug, "studio")}>
                 Agent details
               </ButtonLink>
             </div>

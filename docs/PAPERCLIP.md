@@ -211,7 +211,7 @@ Plugin settings are per company in Paperclip. For each company, open the plugin'
 What the plugin adds:
 
 - **Tools** for all agents: `knowledge_search`, `list_agents`, `run_agent` (free-form task or structured input), `get_run`, `list_approvals`. Paperclip routes them through its tool gateway, with policy, audit and approvals.
-- **Page**: the Enterprise Brain console embedded in Paperclip (Agent Builder, catalog, approvals, knowledge), opened from an **Enterprise Brain** entry in the sidebar.
+- **Page**: the Enterprise Brain console embedded in Paperclip, with quick links to Work, Mail, the Studio, Ready-made and the knowledge base, opened from an **Enterprise Brain** entry in the sidebar.
 - **Dashboard widget** with active agents, runs, pending approvals and cost.
 
 The plugin is tested with Paperclip's official SDK test harness (`@paperclipai/plugin-sdk/testing`).

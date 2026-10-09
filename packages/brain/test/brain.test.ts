@@ -198,7 +198,7 @@ describe("finding things", () => {
     const text = describeEntity(await brain.get(companyId, process.id));
     expect(text).toContain("# Customer complaints and 8D — Process");
     expect(text).toContain("  1. Contain — Merve Aksoy (in SAP)");
-    expect(text).toMatch(/- Who knows it: \[Kerem Yıldız\]\(\/brain\/e\/[0-9a-f-]{36}\) \(person, Expert\)/);
+    expect(text).toMatch(/- Who knows it: \[Kerem Yıldız\]\(\/studio\/brain\/e\/[0-9a-f-]{36}\) \(person, Expert\)/);
     const tool = await runCompanyTool(brain, companyId, "company_open", { id_or_name: "8D" });
     expect(tool.content).toContain("# Customer complaints and 8D");
     const listed = await runCompanyTool(brain, companyId, "company_list", { kind: "person" });

@@ -4,6 +4,7 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import { Link } from "react-router";
 import remarkGfm from "remark-gfm";
 import { MENTION_LINK, mentionsToMarkdown } from "../lib/mentions.ts";
+import { upgrade } from "../lib/paths.ts";
 import type { MentionKind, MessageMention } from "../types.ts";
 import { MentionChip } from "./chat/MentionChip.tsx";
 
@@ -20,7 +21,8 @@ const components: Components = {
       );
     }
     if (href && href.startsWith("/") && !href.startsWith("/api/") && !href.startsWith("//")) {
-      return <Link to={href}>{children}</Link>;
+      // Answers written before the two portals link to old addresses: they open where those things live now.
+      return <Link to={upgrade(href)}>{children}</Link>;
     }
     return (
       <a href={href} target="_blank" rel="noopener noreferrer" {...rest}>

@@ -13,6 +13,7 @@ import { Page } from "../../components/Layout.tsx";
 import { Callout, ErrorState, LoadingBlock } from "../../components/Spinner.tsx";
 import { formatDate, formatMoney, percent, plural, workingHoursText } from "../../lib/format.ts";
 import { useViewer } from "../../lib/auth.tsx";
+import { paths } from "../../lib/paths.ts";
 import { useDepartments, usePerformance } from "../../lib/queries.ts";
 import type { HiringRow, PerformanceMeasures, PerformanceReport, ReportPeriodKey, WorkingHours } from "../../types.ts";
 
@@ -267,7 +268,7 @@ export default function Performance() {
   return (
     <Page>
       <div className="mb-2 text-sm">
-        <Link to="/company" className="text-muted hover:text-fg">
+        <Link to={paths.company()} className="text-muted hover:text-fg">
           Company
         </Link>
         <span className="mx-1.5 text-faint">/</span>
@@ -278,7 +279,7 @@ export default function Performance() {
         title="Performance"
         description="How your AI employees work: what they finish alone, how long people take to help them, what people correct later, and what it costs."
         actions={
-          <ButtonLink to="/settings/costs" icon={Wallet}>
+          <ButtonLink to={paths.settings("costs")} icon={Wallet}>
             Costs and budgets
           </ButtonLink>
         }

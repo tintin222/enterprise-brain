@@ -6,6 +6,7 @@ import { ButtonLink } from "../components/Button.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
 import { Page } from "../components/Layout.tsx";
 import { ErrorState, LoadingBlock } from "../components/Spinner.tsx";
+import { paths } from "../lib/paths.ts";
 import { useAgent } from "../lib/queries.ts";
 
 /** /ai/:slug/app — the generated app of an agent. */
@@ -21,8 +22,8 @@ export default function AgentApp() {
           title="This AI employee doesn't exist"
           description="It may have been removed, or it belongs to another company."
           action={
-            <ButtonLink to="/company" variant="primary">
-              All agents
+            <ButtonLink to={paths.company()} variant="primary">
+              All AI employees
             </ButtonLink>
           }
         />

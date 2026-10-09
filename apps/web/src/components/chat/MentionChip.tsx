@@ -2,6 +2,7 @@ import { clsx } from "clsx";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { MENTION_ICONS, MENTION_LABELS } from "../../lib/mentions.ts";
+import { upgrade } from "../../lib/paths.ts";
 import type { MentionKind } from "../../types.ts";
 
 /** A name in a message: a person, an AI employee, or an asset, with a link to it when the viewer may open it. */
@@ -33,7 +34,7 @@ export function MentionChip({ kind, href, children, className }: { kind: Mention
     );
   }
   return (
-    <Link to={href} className={classes} title={MENTION_LABELS[kind]}>
+    <Link to={upgrade(href)} className={classes} title={MENTION_LABELS[kind]}>
       {inner}
     </Link>
   );

@@ -7,6 +7,7 @@ import { Card, PageHeader } from "../../components/Card.tsx";
 import { Segmented } from "../../components/Tabs.tsx";
 import { Page } from "../../components/Layout.tsx";
 import { ErrorState, Skeleton } from "../../components/Spinner.tsx";
+import { paths } from "../../lib/paths.ts";
 import type { BrainGraph, BrainModel } from "../../types.ts";
 import { DIMENSION_COLORS, brainPath, colorsOf, kindIcon, kindOf, useBrainEntity, useBrainGraph, useBrainModel, useBrainOverview } from "./brain.tsx";
 
@@ -347,7 +348,7 @@ export default function BrainMap() {
             </div>
             <p className="mt-3 text-[11px] text-muted">
               Or open any thing and choose{" "}
-              <Link to="/brain/k/system" className="underline">
+              <Link to={paths.brain.kind("system")} className="underline">
                 Map
               </Link>
               .

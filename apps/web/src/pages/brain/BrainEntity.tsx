@@ -11,6 +11,7 @@ import { Page } from "../../components/Layout.tsx";
 import { ErrorState, Skeleton } from "../../components/Spinner.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { timeAgo } from "../../lib/format.ts";
+import { paths } from "../../lib/paths.ts";
 import { useDocumentTitle } from "../../lib/title.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { BrainEntity, BrainEntitySummary, BrainLink, BrainModel, BrainRef, BrainRelation } from "../../types.ts";
@@ -306,7 +307,7 @@ export default function BrainEntityPage() {
       await api.del(path(`/brain/entities/${thing.id}`));
       await queryClient.invalidateQueries({ queryKey: brainKeys.all(company) });
       toast.success(`Removed ${thing.name}`);
-      navigate(`/brain/k/${thing.kind}`);
+      navigate(paths.brain.kind(thing.kind));
     } catch (error) {
       toast.error(error);
     }
@@ -319,7 +320,7 @@ export default function BrainEntityPage() {
           <KindIcon kind={thing.kind} model={model} size="lg" />
           <div className="min-w-0">
             <p className="text-xs font-medium text-muted">
-              <Link to={`/brain/k/${thing.kind}`} className="hover:underline">
+              <Link to={paths.brain.kind(thing.kind)} className="hover:underline">
                 {kind?.name}
               </Link>
               {dimension ? ` · ${dimension.name}` : ""}
@@ -340,17 +341,17 @@ export default function BrainEntityPage() {
         </div>
         <div className="flex flex-wrap gap-2 sm:pl-14">
           {slug && (
-            <ButtonLink to={`/ai/${slug}`} icon={Bot} size="sm">
+            <ButtonLink to={paths.ai(slug, "studio")} icon={Bot} size="sm">
               Open AI employee
             </ButtonLink>
           )}
-          <ButtonLink to={`/chat/for/thing/${thing.id}`} icon={MessageCircleQuestion} size="sm" title="Its conversation: colleagues and the company brain">
+          <ButtonLink to={paths.thingChat(thing.id)} icon={MessageCircleQuestion} size="sm" title="Its conversation: colleagues and the company brain">
             Discuss
           </ButtonLink>
-          <ButtonLink to={`/brain/map?focus=${thing.id}`} icon={Share2} size="sm">
+          <ButtonLink to={paths.brain.map(thing.id)} icon={Share2} size="sm">
             Map
           </ButtonLink>
-          <ButtonLink to={`/chat/for/thing/${thing.id}?teach=1`} icon={Lightbulb} size="sm">
+          <ButtonLink to={paths.thingChat(thing.id, { teach: 1 })} icon={Lightbulb} size="sm">
             Tell the brain
           </ButtonLink>
           {mayEdit && isDatabase && (

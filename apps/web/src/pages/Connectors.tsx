@@ -36,6 +36,7 @@ import { useCompany } from "../lib/company.tsx";
 import { formatDateTime, humanize, isRecord, timeAgo } from "../lib/format.ts";
 import { categoryIcon } from "../lib/icons.tsx";
 import { categoryLabel, CONNECTOR_CATEGORY_ORDER } from "../lib/labels.ts";
+import { paths } from "../lib/paths.ts";
 import { keys, useConnectorCatalog, useConnectors } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
 import type { ConfigField, ConnectorInstance, ConnectorManifest, JsonSchema, OperationManifest, WatcherStatus } from "../types.ts";
@@ -700,7 +701,7 @@ export default function Connectors() {
                   </div>
                   {managed ? (
                     <div className="flex shrink-0 gap-2">
-                      <ButtonLink size="sm" variant="soft" icon={ListTree} to="/apps">
+                      <ButtonLink size="sm" variant="soft" icon={ListTree} to={paths.apps("studio")}>
                         The tables
                       </ButtonLink>
                     </div>

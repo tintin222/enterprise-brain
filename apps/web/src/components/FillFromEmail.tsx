@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router";
 import { api } from "../api.ts";
 import { useCompany } from "../lib/company.tsx";
+import { paths } from "../lib/paths.ts";
 import { keys } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
 import type { AgentStatus, IntakeJob, Probation } from "../types.ts";
@@ -74,7 +75,10 @@ export function FillFromEmail({
           It works only when you try it until you put it to work. From then on, each email sent to {mailbox.trim()} becomes a record of {table.name}.
         </Callout>
         <div className="flex flex-wrap justify-end gap-2">
-          <Link to={`/ai/${hired.slug}`} className="inline-flex items-center px-3 text-sm font-medium text-brand-700 hover:underline dark:text-brand-300">
+          <Link
+            to={paths.ai(hired.slug, "studio")}
+            className="inline-flex items-center px-3 text-sm font-medium text-brand-700 hover:underline dark:text-brand-300"
+          >
             Open its page
           </Link>
           <Button variant="primary" icon={Play} loading={start.isPending} disabled={start.isSuccess} onClick={() => start.mutate(hired.slug)}>
@@ -89,7 +93,7 @@ export function FillFromEmail({
   return (
     <div className="space-y-4">
       <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="The mailbox it reads" hint="IT connects it, if it isn't yet (Settings → Connections).">
+        <Field label="The mailbox it reads" hint="IT connects it, if it isn't yet (Studio → Settings → Connections).">
           {(id) => (
             <input id={id} className="input" type="email" placeholder="quality@company.com" value={mailbox} onChange={(e) => setMailbox(e.target.value)} />
           )}

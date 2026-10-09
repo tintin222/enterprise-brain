@@ -326,7 +326,7 @@ export class RunEngine {
         title: `${department.name} reached its monthly budget: its AI employees stopped`,
         details: `The department's AI employees used $${spent.toFixed(2)} of its $${budget.toFixed(2)} budget this month, so ${
           theirs.length ? theirs.join(", ") : "they"
-        } start no new work. A manager of the department can raise the budget in Settings → Costs; their emails and tasks wait meanwhile.`,
+        } start no new work. A manager of the department can raise the budget in Studio → Settings → Costs; their emails and tasks wait meanwhile.`,
         departmentId: department.id,
         assigneeUserId: managerUserId,
         data: { spentUsd: spent, budgetUsd: budget, departmentBudget: true },

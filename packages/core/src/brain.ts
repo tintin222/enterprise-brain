@@ -985,9 +985,9 @@ export function valueWords(value: unknown): string[] {
   return text.startsWith("data:") ? [] : [text];
 }
 
-/** Where a thing lives in the web app. */
+/** Where a thing lives in the web app: its page in the Studio's brain. */
 export function brainPath(id: string): string {
-  return `/brain/e/${id}`;
+  return `/studio/brain/e/${id}`;
 }
 
 // ---------------------------------------------------------------------------

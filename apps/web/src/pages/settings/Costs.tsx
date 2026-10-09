@@ -14,6 +14,7 @@ import { Page } from "../../components/Layout.tsx";
 import { ErrorState, LoadingBlock } from "../../components/Spinner.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { formatMoney, possessive } from "../../lib/format.ts";
+import { paths } from "../../lib/paths.ts";
 import { useCosts } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { CostOverview } from "../../types.ts";
@@ -150,7 +151,7 @@ export default function Costs() {
         title="Costs and budgets"
         description="What your AI employees cost in language-model use, by department and AI employee. At its own budget or its department's, an AI employee stops starting new work and tells its manager."
         actions={
-          <ButtonLink to="/company/performance" icon={Gauge}>
+          <ButtonLink to={paths.performance()} icon={Gauge}>
             Performance
           </ButtonLink>
         }
@@ -250,7 +251,7 @@ export default function Costs() {
                     {data.aiEmployees.map((a) => (
                       <tr key={a.slug} className="align-middle">
                         <td className="px-4 py-3">
-                          <Link to={`/ai/${a.slug}?tab=rules`} className="font-medium text-fg hover:underline">
+                          <Link to={paths.ai(a.slug, "studio", "rules")} className="font-medium text-fg hover:underline">
                             {a.name}
                           </Link>
                           <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted">

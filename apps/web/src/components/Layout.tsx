@@ -2,11 +2,13 @@ import { useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import {
   Bell,
+  Bot,
   Brain,
   Building,
   Building2,
   House,
   LayoutGrid,
+  LibraryBig,
   ListChecks,
   LogOut,
   Mail,
@@ -17,20 +19,22 @@ import {
   Search,
   Settings,
   Sun,
-  UserPlus,
+  WandSparkles,
   X,
   type LucideIcon,
 } from "lucide-react";
 import { Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation, useSearchParams } from "react-router";
-import { signOut, useViewer } from "../lib/auth.tsx";
+import { signOut, useIsManager, useViewer } from "../lib/auth.tsx";
 import { useCompany } from "../lib/company.tsx";
+import { paths, STUDIO, usePortal, type Portal } from "../lib/paths.ts";
 import { initials } from "../lib/format.ts";
 import { isTyping, useStoredFlag } from "../lib/preferences.ts";
 import { useChatBadge, useWork } from "../lib/queries.ts";
 import { useTheme } from "../lib/theme.ts";
 import { NotificationsDialog } from "./NotificationSettings.tsx";
 import { Wordmark } from "./Logo.tsx";
+import { PORTAL_LABEL, PortalSwitch, rememberPlace } from "./PortalSwitch.tsx";
 import { FoldButton } from "./SideMenu.tsx";
 import { LoadingBlock } from "./Spinner.tsx";
 
@@ -44,25 +48,53 @@ interface Place {
   for?: "managers";
   /** Other addresses that belong to it. */
   also?: string[];
+  /** The count it shows: what waits for the viewer, or what is new in Chat. */
+  badge?: "work" | "chat";
 }
 
-/** The places: everything else lives inside one of them. */
-const PLACES: Place[] = [
-  { to: "/", label: "Home", icon: House, end: true, hint: "What needs you, and what your AI employees did today" },
-  { to: "/chat", label: "Chat", icon: MessagesSquare, hint: "Conversations with people and AI employees, naming anything of the company with @" },
-  { to: "/company", label: "Company", icon: Building2, hint: "Departments, their people and AI employees" },
-  {
-    to: "/brain",
-    label: "Brain",
-    icon: Brain,
-    hint: "Everything the company knows: people and what they know, processes, systems, clients, projects and what is happening",
-  },
-  { to: "/hire", label: "Hire", icon: UserPlus, for: "managers", hint: "The Studio and ready-made AI employees", also: ["/studio"] },
-  { to: "/work", label: "Work", icon: ListChecks, hint: "Every task, and what needs a person" },
-  { to: "/mail", label: "Mail", icon: Mail, hint: "The shared mailboxes, and what AI employees did with each email" },
-  { to: "/apps", label: "Apps", icon: LayoutGrid, hint: "The tables your departments keep, and the apps on them" },
-  { to: "/settings", label: "Settings", icon: Settings, for: "managers", hint: "Connections, knowledge, people, costs" },
-];
+/** Each portal's places: everything else lives inside one of them. */
+const PLACES: Record<Portal, Place[]> = {
+  operations: [
+    { to: "/", label: "Home", icon: House, end: true, hint: "What needs you, and what your AI employees did today" },
+    {
+      to: "/chat",
+      label: "Chat",
+      icon: MessagesSquare,
+      badge: "chat",
+      hint: "Conversations with people and AI employees, naming anything of the company with @",
+    },
+    { to: "/work", label: "Work", icon: ListChecks, badge: "work", hint: "Every task, and what needs a person" },
+    { to: "/mail", label: "Mail", icon: Mail, hint: "The shared mailboxes, and what AI employees did with each email" },
+    { to: "/apps", label: "Apps", icon: LayoutGrid, also: ["/tables/", "/calculations/"], hint: "The tables your departments keep, and the apps on them" },
+    { to: "/company", label: "Company", icon: Building2, also: ["/ai/"], hint: "Departments, their people and AI employees, and how they are doing" },
+  ],
+  studio: [
+    {
+      to: STUDIO,
+      label: "Home",
+      icon: WandSparkles,
+      end: true,
+      also: [`${STUDIO}/conversations`, `${STUDIO}/interviews`],
+      hint: "Build what your departments need: the Studio agent, a guided interview, or one box for anything",
+    },
+    { to: `${STUDIO}/ai`, label: "AI employees", icon: Bot, hint: "How each AI employee is set up: its job, duties, access, rules, coaching and versions" },
+    {
+      to: `${STUDIO}/brain`,
+      label: "Brain",
+      icon: Brain,
+      hint: "Everything the company knows: people and what they know, processes, systems, clients, projects and what is happening",
+    },
+    {
+      to: `${STUDIO}/apps`,
+      label: "Apps",
+      icon: LayoutGrid,
+      also: [`${STUDIO}/tables/`, `${STUDIO}/calculations/`],
+      hint: "Design the tables, apps and calculations your departments use",
+    },
+    { to: `${STUDIO}/ready-made`, label: "Ready-made", icon: LibraryBig, hint: "Ready-made AI employees and departments, ready to adapt" },
+    { to: `${STUDIO}/settings`, label: "Settings", icon: Settings, for: "managers", hint: "Connections, knowledge, people, costs and the installation" },
+  ],
+};
 
 /** Things waiting for the viewer (approvals, questions, checks): the Work badge and the bell. */
 function useNeedsYou(): number {
@@ -72,66 +104,80 @@ function useNeedsYou(): number {
 
 /** The main menu; `folded` shows only the icons (wide screens), with each name on hover. */
 function Sidebar({ onNavigate, folded = false, onFold }: { onNavigate?: () => void; folded?: boolean; onFold?: () => void }) {
-  const viewer = useViewer();
+  const portal = usePortal();
   const { pathname } = useLocation();
   const needsYou = useNeedsYou();
   const newInChat = useChatBadge();
-  const isManager = !viewer || viewer.isAdmin || viewer.departments.some((d) => d.role === "manager");
+  const isManager = useIsManager();
+  const studio = portal === "studio";
   return (
     <nav className="flex h-full flex-col" aria-label="Main">
-      <div className={clsx("flex h-14 shrink-0 items-center border-b border-line", folded ? "justify-center px-2" : "px-4")}>
-        <Link to="/" onClick={onNavigate} className="rounded-lg focus-visible:outline-2" title={folded ? "Enterprise Brain: Home" : undefined}>
-          <Wordmark compact={folded} />
+      <div className={clsx("flex h-14 shrink-0 items-center gap-2 border-b border-line", folded ? "justify-center px-2" : "px-4")}>
+        <Link
+          to={paths.home(portal)}
+          onClick={onNavigate}
+          className="rounded-lg focus-visible:outline-2"
+          title={folded ? `Enterprise Brain: ${studio ? "Studio home" : "Home"}` : undefined}
+        >
+          <Wordmark compact={folded} studio={studio} />
         </Link>
       </div>
+      {onNavigate && (
+        <div className="border-b border-line px-3 py-3">
+          <PortalSwitch stacked onNavigate={onNavigate} />
+        </div>
+      )}
       <ul className={clsx("flex-1 space-y-1 overflow-y-auto py-4", folded ? "px-2" : "px-3")}>
-        {PLACES.filter((place) => place.for !== "managers" || isManager).map((place) => {
-          const Icon = place.icon;
-          const count = place.to === "/work" ? needsYou : place.to === "/chat" ? newInChat : 0;
-          return (
-            <li key={place.to}>
-              <NavLink
-                to={place.to}
-                end={place.end}
-                onClick={onNavigate}
-                title={folded ? `${place.label}: ${place.hint}` : place.hint}
-                className={({ isActive }) =>
-                  clsx(
-                    "group relative flex items-center rounded-xl py-2.5 text-[15px] font-medium transition-colors",
-                    folded ? "justify-center" : "gap-3 px-3",
-                    isActive || place.also?.some((a) => pathname.startsWith(a))
-                      ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200"
-                      : "text-muted hover:bg-subtle hover:text-fg",
-                  )
-                }
-              >
-                {({ isActive: exact }) => {
-                  const isActive = exact || Boolean(place.also?.some((a) => pathname.startsWith(a)));
-                  return (
-                    <>
-                      <Icon className={clsx("size-5 shrink-0", isActive ? "text-brand-600 dark:text-brand-300" : "text-faint group-hover:text-muted")} />
-                      <span className={folded ? "sr-only" : "flex-1 truncate"}>{place.label}</span>
-                      {count > 0 && (
-                        <span
-                          className={clsx(
-                            "rounded-full font-semibold text-white tabular-nums",
-                            place.to === "/chat" ? "bg-brand-600" : "bg-amber-500",
-                            folded ? "absolute top-1 right-1 min-w-4 px-1 text-center text-[10px] leading-4" : "px-1.5 text-[11px] leading-[18px]",
-                          )}
-                          title={place.to === "/chat" ? `${count} new in Chat` : `${count} waiting for you`}
-                        >
-                          {folded && count > 9 ? "9+" : count}
-                        </span>
-                      )}
-                    </>
-                  );
-                }}
-              </NavLink>
-            </li>
-          );
-        })}
+        {PLACES[portal]
+          .filter((place) => place.for !== "managers" || isManager)
+          .map((place) => {
+            const Icon = place.icon;
+            const count = place.badge === "work" ? needsYou : place.badge === "chat" ? newInChat : 0;
+            return (
+              <li key={place.to}>
+                <NavLink
+                  to={place.to}
+                  end={place.end}
+                  onClick={onNavigate}
+                  title={folded ? `${place.label}: ${place.hint}` : place.hint}
+                  className={({ isActive }) =>
+                    clsx(
+                      "group relative flex items-center rounded-xl py-2.5 text-[15px] font-medium transition-colors",
+                      folded ? "justify-center" : "gap-3 px-3",
+                      isActive || place.also?.some((a) => pathname.startsWith(a))
+                        ? "bg-brand-50 text-brand-700 dark:bg-brand-400/15 dark:text-brand-200"
+                        : "text-muted hover:bg-subtle hover:text-fg",
+                    )
+                  }
+                >
+                  {({ isActive: exact }) => {
+                    const isActive = exact || Boolean(place.also?.some((a) => pathname.startsWith(a)));
+                    return (
+                      <>
+                        <Icon className={clsx("size-5 shrink-0", isActive ? "text-brand-600 dark:text-brand-300" : "text-faint group-hover:text-muted")} />
+                        <span className={folded ? "sr-only" : "flex-1 truncate"}>{place.label}</span>
+                        {count > 0 && (
+                          <span
+                            className={clsx(
+                              "rounded-full font-semibold text-white tabular-nums",
+                              place.badge === "chat" ? "bg-brand-600" : "bg-amber-500",
+                              folded ? "absolute top-1 right-1 min-w-4 px-1 text-center text-[10px] leading-4" : "px-1.5 text-[11px] leading-[18px]",
+                            )}
+                            title={place.badge === "chat" ? `${count} new in Chat` : `${count} waiting for you`}
+                          >
+                            {folded && count > 9 ? "9+" : count}
+                          </span>
+                        )}
+                      </>
+                    );
+                  }}
+                </NavLink>
+              </li>
+            );
+          })}
       </ul>
       <div className={clsx("shrink-0 border-t border-line", folded ? "flex flex-col items-center gap-2 p-2" : "space-y-1 p-3")}>
+        {folded && <FoldedPortalSwitch />}
         {onFold &&
           (folded ? (
             <FoldButton folded onToggle={onFold} label="the menu ( [ )" />
@@ -170,13 +216,12 @@ function LlmBadge() {
   }
   return (
     <span
-      className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium whitespace-nowrap text-amber-800 ring-1 ring-amber-600/20 ring-inset dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-400/25"
+      className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2 py-1 sm:px-2.5 text-xs font-medium whitespace-nowrap text-amber-800 ring-1 ring-amber-600/20 ring-inset dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-400/25"
       title="Set ANTHROPIC_API_KEY for Claude; the platform runs with deterministic fallbacks"
     >
       <span className="size-1.5 rounded-full bg-amber-500" />
-      <span>
-        Offline<span className="hidden sm:inline"> mode</span>
-      </span>
+      {/* Phones show the dot only: the top bar has the portal's name to fit. */}
+      <span className="sr-only sm:not-sr-only">Offline mode</span>
     </span>
   );
 }
@@ -265,26 +310,56 @@ function PersonMenu() {
   );
 }
 
+/** In the folded menu: one button to the other portal. */
+function FoldedPortalSwitch() {
+  const portal = usePortal();
+  const other: Portal = portal === "studio" ? "operations" : "studio";
+  const Icon = other === "studio" ? WandSparkles : ListChecks;
+  return (
+    <Link
+      to={paths.home(other)}
+      className="flex size-9 items-center justify-center rounded-lg text-faint hover:bg-subtle hover:text-fg"
+      title={`Open ${PORTAL_LABEL[other]}`}
+      aria-label={`Open ${PORTAL_LABEL[other]}`}
+    >
+      <Icon className="size-[18px]" />
+    </Link>
+  );
+}
+
 function TopBar({ onMenu }: { onMenu: () => void }) {
   const { companyName } = useCompany();
   const { theme, toggle } = useTheme();
   const pending = useNeedsYou();
+  const portal = usePortal();
+  const studio = portal === "studio";
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-surface/70 sm:px-6">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface/85 px-4 backdrop-blur supports-[backdrop-filter]:bg-surface/70 sm:gap-3 sm:px-6">
+      {studio && <span aria-hidden="true" className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-brand-500 via-violet-500 to-fuchsia-500" />}
       <button type="button" onClick={onMenu} className="-ml-1 rounded-lg p-1.5 text-muted hover:bg-subtle hover:text-fg lg:hidden" aria-label="Open navigation">
         <Menu className="size-5" />
       </button>
       <Link
-        to="/company"
+        to={studio ? paths.brain.home() : paths.company()}
         className="flex min-w-0 items-center gap-2 rounded-lg px-1 py-1 text-sm font-semibold text-fg hover:text-brand-700 dark:hover:text-brand-300"
-        title="Company"
+        title={studio ? "The company brain" : "Company"}
       >
-        <Building className="size-4 shrink-0 text-muted" />
-        <span className="hidden truncate sm:inline">{companyName}</span>
+        <Building className="hidden size-4 shrink-0 text-muted sm:block" />
+        <span className="hidden truncate md:inline">{companyName}</span>
+        <span className={clsx("truncate sm:hidden", studio && "text-violet-700 dark:text-violet-300")}>{PORTAL_LABEL[portal]}</span>
       </Link>
+      {/* On phones the switch is in the menu drawer. */}
+      <div className="hidden sm:block">
+        <PortalSwitch />
+      </div>
       <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
         <LlmBadge />
-        <Link to="/search" className="rounded-lg p-2 text-muted hover:bg-subtle hover:text-fg" aria-label="Search" title="Search knowledge and AI employees">
+        <Link
+          to={paths.search(portal)}
+          className="rounded-lg p-2 text-muted hover:bg-subtle hover:text-fg"
+          aria-label="Search"
+          title="Search knowledge and AI employees"
+        >
           <Search className="size-[18px]" />
         </Link>
         <Link
@@ -320,7 +395,17 @@ export function AppShell() {
   const [open, setOpen] = useState(false);
   const [folded, setFolded] = useStoredFlag("eb.menu.folded", () => false);
   const location = useLocation();
+  const portal = usePortal();
   useEffect(() => setOpen(false), [location.pathname]);
+  // The portal on <html>: the Studio's tint reaches dialogs too (they render in <body>). The page last seen
+  // in each portal is where its switch goes back to.
+  useEffect(() => {
+    document.documentElement.dataset.portal = portal;
+    return () => {
+      delete document.documentElement.dataset.portal;
+    };
+  }, [portal]);
+  useEffect(() => rememberPlace(portal, `${location.pathname}${location.search}`), [portal, location.pathname, location.search]);
   // "[" collapses or expands the menu, as in many work apps, unless the person is typing.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

@@ -120,7 +120,7 @@ export async function paperclipRoutes(app: FastifyInstance, ctx: AppContext) {
         error: run.error,
         usage: run.usage,
         pendingApproval: pending ?? null,
-        approvalsUrl: `${config.publicUrl}/approvals`,
+        approvalsUrl: `${config.publicUrl}/work`,
         model: platform.llm.model,
       },
     };

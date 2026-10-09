@@ -14,6 +14,12 @@ export function useViewer(): Viewer | null {
   return useAuthState().data?.viewer ?? null;
 }
 
+/** An admin, or a manager of at least one department (everyone in open mode, and while loading). */
+export function useIsManager(): boolean {
+  const viewer = useViewer();
+  return !viewer || viewer.isAdmin || viewer.departments.some((d) => d.role === "manager");
+}
+
 /** "/signin?returnTo=/agents/x" for the page the person was on. */
 export function signInPath(returnTo: string): string {
   return returnTo && returnTo !== "/" && !returnTo.startsWith("/signin") ? `/signin?returnTo=${encodeURIComponent(returnTo)}` : "/signin";

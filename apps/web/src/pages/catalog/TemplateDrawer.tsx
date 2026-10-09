@@ -9,9 +9,11 @@ import { Checkbox } from "../../components/Form.tsx";
 import { Markdown } from "../../components/Markdown.tsx";
 import { ErrorState, Skeleton } from "../../components/Spinner.tsx";
 import { WorkflowView } from "../../components/WorkflowView.tsx";
+import { useIsManager } from "../../lib/auth.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { humanize } from "../../lib/format.ts";
 import { approvalRuleLabel, archetypeLabel, categoryLabel, describeTrigger, PERSONAL_DATA_LABELS } from "../../lib/labels.ts";
+import { paths } from "../../lib/paths.ts";
 import { keys, useAgents, useDepartmentName } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { AgentRow, AgentTemplate, FieldSpec } from "../../types.ts";
@@ -54,7 +56,7 @@ export function useInstallTemplate() {
       void queryClient.invalidateQueries({ queryKey: keys.agents(company) });
       void queryClient.invalidateQueries({ queryKey: keys.departments(company) });
       void queryClient.invalidateQueries({ queryKey: keys.dashboard(company) });
-      toast.success(`${row.name} hired`, { link: { to: `/ai/${row.slug}`, label: "Open its page" } });
+      toast.success(`${row.name} hired`, { link: { to: paths.ai(row.slug, "studio"), label: "Open its page" } });
     },
     onError: (e) => toast.error(e),
   });
@@ -62,6 +64,8 @@ export function useInstallTemplate() {
 
 /** Full agent template: what it does, its data, workflow, systems and guardrails — with Install / Customize. */
 export function TemplateDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
+  // As the server allows: managers hire and adapt.
+  const manager = useIsManager();
   const [activate, setActivate] = useState(true);
   const install = useInstallTemplate();
   const agents = useAgents();
@@ -93,18 +97,22 @@ export function TemplateDrawer({ id, onClose }: { id: string | null; onClose: ()
         t ? (
           <>
             {installed ? (
-              <ButtonLink to={`/ai/${installed.slug}`} icon={ExternalLink}>
+              <ButtonLink to={paths.ai(installed.slug, "studio")} icon={ExternalLink}>
                 Installed — open agent
               </ButtonLink>
-            ) : (
+            ) : manager ? (
               <div className="mr-auto">
                 <Checkbox checked={activate} onChange={setActivate} label="Activate after install" />
               </div>
+            ) : (
+              <p className="mr-auto text-xs text-muted">A manager hires it.</p>
             )}
-            <ButtonLink to={`/hire/studio/new?template=${encodeURIComponent(t.id)}`} icon={Sparkles}>
-              Adapt it in the Studio
-            </ButtonLink>
-            {!installed && (
+            {manager && (
+              <ButtonLink to={paths.interview("new", { template: t.id })} icon={Sparkles}>
+                Adapt it to us
+              </ButtonLink>
+            )}
+            {!installed && manager && (
               <Button variant="primary" icon={Download} loading={install.isPending} onClick={() => install.mutate({ id: t.id, activate })}>
                 Install
               </Button>

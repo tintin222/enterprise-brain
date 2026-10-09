@@ -6,6 +6,7 @@ import { Link } from "react-router";
 import { api } from "../../api.ts";
 import { useCompany } from "../../lib/company.tsx";
 import { timeAgo } from "../../lib/format.ts";
+import { paths, usePortal } from "../../lib/paths.ts";
 import { keys, useRecords, useSummary } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { AppBlock, BlockFilter, CalculationRun, CalculationView, Measure, RecordAction, RecordView, TableField, TableView, TaskRow } from "../../types.ts";
@@ -137,6 +138,7 @@ function ActionButtons({ actions, table, record }: { actions: RecordAction[]; ta
 // ---------------------------------------------------------------------------
 
 function ListBlock({ block, table }: { block: Extract<AppBlock, { type: "list" }>; table: TableView; context: BlockContext }) {
+  const portal = usePortal();
   const [typed, setTyped] = useState("");
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState<number | null>(null);
@@ -178,7 +180,7 @@ function ListBlock({ block, table }: { block: Extract<AppBlock, { type: "list" }
         title={title}
         subtitle={records.data ? `${records.data.total} ${records.data.total === 1 ? "record" : "records"}` : undefined}
         actions={
-          <Link to={`/tables/${table.key}`} className="text-xs text-muted hover:text-fg">
+          <Link to={paths.table(table.key, portal)} className="text-xs text-muted hover:text-fg">
             The table
           </Link>
         }
@@ -243,7 +245,7 @@ function ListBlock({ block, table }: { block: Extract<AppBlock, { type: "list" }
       {records.data && records.data.records.length < records.data.total && (
         <p className="border-t border-line px-4 py-2 text-center text-xs text-muted">
           Showing {records.data.records.length} of {records.data.total}.{" "}
-          <Link to={`/tables/${table.key}`} className="text-brand-600 hover:underline dark:text-brand-300">
+          <Link to={paths.table(table.key, portal)} className="text-brand-600 hover:underline dark:text-brand-300">
             All of them in the table
           </Link>
         </p>
@@ -556,6 +558,7 @@ function ButtonBlock({ block, agentName }: { block: Extract<AppBlock, { type: "b
 
 /** A calculation's latest result, with when it was worked out; its people work it out again here. */
 function ResultBlock({ title, calculation }: { title?: string; calculation?: Omit<CalculationView, "can"> }) {
+  const portal = usePortal();
   const { company, path } = useCompany();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -578,7 +581,7 @@ function ResultBlock({ title, calculation }: { title?: string; calculation?: Omi
         subtitle={last ? `Worked out ${timeAgo(last.createdAt)}` : "Not worked out yet"}
         actions={
           <>
-            <Link to={`/calculations/${calculation.key}`} className="text-xs text-muted hover:text-fg">
+            <Link to={paths.calculation(calculation.key, portal)} className="text-xs text-muted hover:text-fg">
               How it works
             </Link>
             <Button size="xs" icon={Play} loading={run.isPending} onClick={() => run.mutate()}>

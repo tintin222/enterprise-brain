@@ -1,4 +1,4 @@
-import { BRAIN_KIND_KEYS, brainKind, isBrainKind } from "@enterprise-brain/core";
+import { BRAIN_KIND_KEYS, brainKind, brainPath, isBrainKind } from "@enterprise-brain/core";
 import type { ToolDefinition, ToolExecution } from "@enterprise-brain/llm";
 import { describeEntity, describeEvent, describeSummary } from "./describe.ts";
 import type { BrainService } from "./service.ts";
@@ -133,7 +133,7 @@ export const COMPANY_GUIDANCE = [
   "(what each is for, who reads it, its measures and dimensions, the data behind it),",
   "clients, deals, customer issues, suppliers, products, projects and tasks (who works on what now), goals, decisions, know-how and company words,",
   "and what has been happening (messages, emails, updates). Use company_search, then company_open on what you find, rather than guessing.",
-  "When you name something from the brain in an answer, link it with its address, like [Kerem Yıldız](/brain/e/<id>).",
+  `When you name something from the brain in an answer, link it with its address, like [Kerem Yıldız](${brainPath("<id>")}).`,
   "Say when the brain doesn't know something, and who would.",
 ].join(" ");
 

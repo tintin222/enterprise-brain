@@ -141,7 +141,7 @@ export class TeamsTransport implements ChatTransport {
 
   private async context(companyId: string): Promise<ConnectorContext> {
     const connection = await this.connection(companyId);
-    if (!connection) throw new Error("Microsoft Teams is not connected (Settings → Teams and Chat)");
+    if (!connection) throw new Error("Microsoft Teams is not connected (Studio → Settings → Teams and Chat)");
     return connection.ctx;
   }
 

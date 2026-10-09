@@ -196,7 +196,7 @@ export async function buildingRoutes(app: FastifyInstance, ctx: AppContext) {
         personal: t.fields.filter((f) => f.personal).map((f) => ({ label: f.label, approved: t.personal.approved.includes(f.key) })),
         detail: `${t.records} record${t.records === 1 ? "" : "s"}`,
         waiting: waiting(t.id),
-        link: `/tables/${t.key}`,
+        link: `/studio/tables/${t.key}`,
       })),
       ...apps.map((a) => ({
         type: "app" as const,
@@ -212,7 +212,7 @@ export async function buildingRoutes(app: FastifyInstance, ctx: AppContext) {
         personal: [],
         detail: `${a.pages.length} page${a.pages.length === 1 ? "" : "s"}`,
         waiting: waiting(a.id),
-        link: `/apps/${a.key}`,
+        link: `/studio/apps/${a.key}`,
       })),
       ...calculations.map((c) => ({
         type: "calculation" as const,
@@ -228,7 +228,7 @@ export async function buildingRoutes(app: FastifyInstance, ctx: AppContext) {
         personal: [],
         detail: c.schedule ? `Runs ${c.schedule}` : "Runs when someone asks",
         waiting: [],
-        link: `/calculations/${c.key}`,
+        link: `/studio/calculations/${c.key}`,
       })),
       ...agents.map((a) => ({
         type: "ai-employee" as const,
@@ -244,7 +244,7 @@ export async function buildingRoutes(app: FastifyInstance, ctx: AppContext) {
         personal: [],
         detail: a.row.status,
         waiting: [],
-        link: `/ai/${a.row.slug}`,
+        link: `/studio/ai/${a.row.slug}`,
       })),
       ...recurring.map((r) => ({
         type: "recurring" as const,
@@ -260,7 +260,7 @@ export async function buildingRoutes(app: FastifyInstance, ctx: AppContext) {
         personal: [],
         detail: `${agentName.get(r.agentId) ?? "An AI employee"}, ${describeRepeat(r.schedule)}`,
         waiting: [],
-        link: `/ai/${agents.find((a) => a.row.id === r.agentId)?.row.slug ?? ""}?tab=duties`,
+        link: `/studio/ai/${agents.find((a) => a.row.id === r.agentId)?.row.slug ?? ""}?tab=duties`,
       })),
     ];
     return {

@@ -7,18 +7,18 @@ import { api, qs } from "../api.ts";
 import { Badge, StatusPill } from "../components/Badge.tsx";
 import { Button } from "../components/Button.tsx";
 import { Card, CardHeader, PageHeader } from "../components/Card.tsx";
-import { Dialog, Drawer } from "../components/Dialog.tsx";
+import { Dialog } from "../components/Dialog.tsx";
+import { DocumentDrawer } from "../components/DocumentDrawer.tsx";
 import { Dropzone } from "../components/Dropzone.tsx";
 import { EmptyState } from "../components/EmptyState.tsx";
-import { FileLink } from "../components/FileLink.tsx";
 import { Field } from "../components/Form.tsx";
 import { Page } from "../components/Layout.tsx";
 import { ErrorState, Skeleton, Spinner } from "../components/Spinner.tsx";
 import { useCompany } from "../lib/company.tsx";
-import { formatDateTime, timeAgo } from "../lib/format.ts";
+import { timeAgo } from "../lib/format.ts";
 import { keys, useCollections } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
-import type { KnowledgeCollection, KnowledgeDocument, KnowledgeDocumentDetail, SearchResponse } from "../types.ts";
+import type { KnowledgeCollection, KnowledgeDocument, SearchResponse } from "../types.ts";
 
 function useKnowledgeInvalidate() {
   const { company } = useCompany();
@@ -144,38 +144,6 @@ function AddTextDialog({ open, onClose, collection }: { open: boolean; onClose: 
         </Field>
       </div>
     </Dialog>
-  );
-}
-
-function DocumentDrawer({ id, onClose }: { id: string | null; onClose: () => void }) {
-  const { company, path } = useCompany();
-  const doc = useQuery({
-    queryKey: [...keys.knowledge(company), "document", id],
-    queryFn: () => api.get<KnowledgeDocumentDetail>(path(`/knowledge/documents/${encodeURIComponent(id ?? "")}`)),
-    enabled: Boolean(id),
-  });
-  return (
-    <Drawer
-      open={Boolean(id)}
-      onClose={onClose}
-      width="lg"
-      title={doc.data?.title ?? "Document"}
-      description={doc.data ? `${doc.data.chunkCount} chunks · ${doc.data.source} · added ${formatDateTime(doc.data.createdAt)}` : undefined}
-    >
-      {doc.isLoading && <Skeleton className="h-40" />}
-      {doc.error && <ErrorState error={doc.error} />}
-      {doc.data && (
-        <div className="space-y-3">
-          {doc.data.fileId && <FileLink fileId={doc.data.fileId} name="Download the original file" className="text-sm" />}
-          {doc.data.chunks.map((c) => (
-            <div key={c.id} className="rounded-lg border border-line p-3">
-              <p className="mb-1 text-[11px] font-semibold tracking-wide text-faint uppercase">Chunk {c.ordinal + 1}</p>
-              <p className="text-[13px] leading-relaxed whitespace-pre-wrap text-fg">{c.content}</p>
-            </div>
-          ))}
-        </div>
-      )}
-    </Drawer>
   );
 }
 

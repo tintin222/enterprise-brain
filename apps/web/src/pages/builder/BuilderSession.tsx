@@ -22,6 +22,7 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { ErrorState, LoadingBlock, Spinner } from "../../components/Spinner.tsx";
 import { Segmented, Tabs } from "../../components/Tabs.tsx";
 import { archetypeLabel } from "../../lib/labels.ts";
+import { paths } from "../../lib/paths.ts";
 import { useBuilderSession } from "../../lib/queries.ts";
 import type { SessionView } from "../../types.ts";
 import { useSessionActions, type SessionActions } from "./actions.ts";
@@ -45,7 +46,7 @@ function SessionHeader({ view }: { view: SessionView }) {
   return (
     <div className="shrink-0 border-b border-line bg-surface px-4 py-3 sm:px-6">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <Link to="/hire" className="-ml-1 rounded-lg p-1 text-muted hover:bg-subtle hover:text-fg" aria-label="All builder sessions">
+        <Link to={paths.home("studio")} className="-ml-1 rounded-lg p-1 text-muted hover:bg-subtle hover:text-fg" aria-label="Back to the Studio">
           <ArrowLeft className="size-5" />
         </Link>
         <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-fg">{session.title}</h1>
@@ -175,7 +176,7 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
           <div className="ml-auto flex shrink-0 flex-wrap gap-2">
             {agent && (
               <>
-                <ButtonLink size="sm" variant="secondary" icon={ExternalLink} to={`/ai/${agent.slug}`}>
+                <ButtonLink size="sm" variant="secondary" icon={ExternalLink} to={paths.ai(agent.slug, "studio")}>
                   Open its page
                 </ButtonLink>
               </>
@@ -198,7 +199,7 @@ function StatusBar({ view, actions, onShowRequests }: { view: SessionView; actio
           </div>
           {agent && (
             <div className="ml-auto flex shrink-0 gap-2">
-              <ButtonLink size="sm" variant="success" icon={ExternalLink} to={`/ai/${agent.slug}`}>
+              <ButtonLink size="sm" variant="success" icon={ExternalLink} to={paths.ai(agent.slug, "studio")}>
                 Open its page
               </ButtonLink>
             </div>
@@ -478,8 +479,8 @@ export default function BuilderSessionPage() {
           title="This builder session doesn't exist"
           description="It may belong to another company, or it was removed."
           action={
-            <ButtonLink to="/hire" variant="primary">
-              All sessions
+            <ButtonLink to={paths.home("studio")} variant="primary">
+              Studio home
             </ButtonLink>
           }
         />

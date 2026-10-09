@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { LearnChange, applyLearning } from "@enterprise-brain/brain";
-import { CONVERSATION_KINDS, plainText, type Actor, type Mention, type MentionKind } from "@enterprise-brain/core";
+import { CONVERSATION_KINDS, brainPath, plainText, type Actor, type Mention, type MentionKind } from "@enterprise-brain/core";
 import {
   COMPANY_BRAIN_SLUG,
   OPEN_TASK_STATUSES,
@@ -171,10 +171,10 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
         }
         case "thing": {
           const thing = await platform.brain.get(companyId, conversation.aboutId);
-          return { href: `/brain/e/${thing.id}`, label: thing.name };
+          return { href: brainPath(thing.id), label: thing.name };
         }
         case "studio":
-          return { href: `/studio/${conversation.aboutId}`, label: "Studio" };
+          return { href: `/studio/conversations/${conversation.aboutId}`, label: "Studio" };
         default:
           return null;
       }
@@ -545,7 +545,7 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
               .slice(0, 2)
               .join(" · ") || thing.kind.replace("_", " "),
           group: "Things",
-          href: `/brain/e/${thing.id}`,
+          href: brainPath(thing.id),
         });
       }
     }
@@ -576,7 +576,14 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
       for (const document of await platform.knowledge.listDocuments(company.id)) {
         const collection = collections.get(document.collectionId);
         if (!collection || !matches(document.title, collection.name)) continue;
-        hits.push({ kind: "document", id: document.id, name: document.title, detail: collection.name, group: "Files", href: "/settings/knowledge" });
+        hits.push({
+          kind: "document",
+          id: document.id,
+          name: document.title,
+          detail: collection.name,
+          group: "Files",
+          href: mentionHref(company.slug, { kind: "document", id: document.id, name: document.title }),
+        });
         if (hits.filter((h) => h.kind === "document").length >= 8) break;
       }
     }

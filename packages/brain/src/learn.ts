@@ -2,6 +2,7 @@ import {
   BRAIN_KINDS,
   BRAIN_RELATIONS,
   brainKind,
+  brainPath,
   brainRelation,
   brainValue,
   relationFits,
@@ -185,9 +186,9 @@ export async function proposeLearning(
   const nearby = await brain.search(companyId, text, { limit: 25 });
   const context = [
     focus ? `They are looking at this thing:\n${describeEntity(focus, { events: 3 })}` : "",
-    named.length ? `Things they named (ids in the addresses /brain/e/<id>):\n${named.map((t) => `- ${t.name}: /brain/e/${t.id}`).join("\n")}` : "",
+    named.length ? `Things they named (ids in the addresses ${brainPath("<id>")}):\n${named.map((t) => `- ${t.name}: ${brainPath(t.id)}`).join("\n")}` : "",
     nearby.length
-      ? `Things in the brain that may be meant (ids in the addresses /brain/e/<id>):\n${nearby.map(describeSummary).join("\n")}`
+      ? `Things in the brain that may be meant (ids in the addresses ${brainPath("<id>")}):\n${nearby.map(describeSummary).join("\n")}`
       : "The brain has nothing close yet.",
   ]
     .filter(Boolean)

@@ -7,8 +7,10 @@ import { Button, ButtonLink } from "../components/Button.tsx";
 import { Card } from "../components/Card.tsx";
 import { Page } from "../components/Layout.tsx";
 import { ErrorState, LoadingBlock } from "../components/Spinner.tsx";
+import { useIsManager } from "../lib/auth.tsx";
 import { useCompany } from "../lib/company.tsx";
 import { categoryLabel } from "../lib/labels.ts";
+import { paths } from "../lib/paths.ts";
 import { keys, useAgent, useAgents, useCatalog } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
 import type { AgentRow } from "../types.ts";
@@ -44,6 +46,8 @@ function InstalledApp({ agent }: { agent: AgentRow }) {
 
 export default function UseCaseApp({ kind }: { kind: keyof typeof CONFIG }) {
   const config = CONFIG[kind];
+  // As the server allows: managers install and adapt.
+  const manager = useIsManager();
   useDocumentTitle(config.title);
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
@@ -95,12 +99,14 @@ export default function UseCaseApp({ kind }: { kind: keyof typeof CONFIG }) {
         </div>
         {installed && (
           <div className="flex shrink-0 gap-2">
-            <ButtonLink to={`/ai/${installed.slug}`} size="sm">
+            <ButtonLink to={paths.ai(installed.slug, "operations")} size="sm">
               Agent details
             </ButtonLink>
-            <ButtonLink to={`/hire/studio/new?template=${encodeURIComponent(templateId)}`} size="sm" variant="soft" icon={Sparkles}>
-              Customize
-            </ButtonLink>
+            {manager && (
+              <ButtonLink to={paths.interview("new", { template: templateId })} size="sm" variant="soft" icon={Sparkles}>
+                Customize
+              </ButtonLink>
+            )}
           </div>
         )}
       </div>
@@ -126,14 +132,18 @@ export default function UseCaseApp({ kind }: { kind: keyof typeof CONFIG }) {
               ))}
             </ul>
           ) : null}
-          <div className="mt-6 flex flex-wrap justify-center gap-2">
-            <Button variant="primary" icon={Download} loading={install.isPending} onClick={() => install.mutate()}>
-              Install
-            </Button>
-            <ButtonLink to={`/hire/studio/new?template=${encodeURIComponent(templateId)}`} icon={Sparkles}>
-              Adapt it in the Studio
-            </ButtonLink>
-          </div>
+          {manager ? (
+            <div className="mt-6 flex flex-wrap justify-center gap-2">
+              <Button variant="primary" icon={Download} loading={install.isPending} onClick={() => install.mutate()}>
+                Install
+              </Button>
+              <ButtonLink to={paths.interview("new", { template: templateId })} icon={Sparkles}>
+                Adapt it in the Studio
+              </ButtonLink>
+            </div>
+          ) : (
+            <p className="mt-6 text-sm text-muted">A manager installs it.</p>
+          )}
           {useCase?.connectors.length ? (
             <p className="mt-4 text-xs text-faint">Works with: {useCase.connectors.map((c) => categoryLabel(c)).join(", ")}</p>
           ) : null}

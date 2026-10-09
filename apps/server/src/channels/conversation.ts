@@ -131,7 +131,7 @@ export class ChatConversations {
     if (!ctx.person) {
       return {
         card: textCard("I don't know you yet", [
-          `Ask your Enterprise Brain admin to add ${ctx.email ?? "your work email"} under Settings → People, then write to me again.`,
+          `Ask your Enterprise Brain admin to add ${ctx.email ?? "your work email"} under Studio → Settings → People and roles, then write to me again.`,
         ]),
       };
     }

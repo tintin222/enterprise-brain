@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
 import {
   BookOpen,
+  BriefcaseBusiness,
   Calculator,
   CalendarClock,
   CircleHelp,
@@ -13,13 +14,15 @@ import {
   Table2,
   UserPlus,
   Wand2,
+  WandSparkles,
   type LucideIcon,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { api } from "../api.ts";
 import { useCompany } from "../lib/company.tsx";
 import { plainText } from "../lib/mentions.ts";
+import { paths, usePortal, type Portal } from "../lib/paths.ts";
 import { keys } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
 import type {
@@ -38,7 +41,7 @@ import type {
   SessionView,
   StudioThreadView,
 } from "../types.ts";
-import { Button } from "./Button.tsx";
+import { Button, ButtonLink } from "./Button.tsx";
 import { Card } from "./Card.tsx";
 import { NewAppDialog } from "./apps/NewAppDialog.tsx";
 import { SCHEDULES } from "./calculations/NewCalculationDialog.tsx";
@@ -64,11 +67,34 @@ export const NEED: Record<NeedKind, { label: string; icon: LucideIcon }> = {
   unclear: { label: "Something else", icon: CircleHelp },
 };
 
+/**
+ * Where each reading is done: work and answers in Operations; making and changing in the Studio;
+ * a calculation is worked out in either (and kept in the Studio).
+ */
+const HOME_OF: Record<NeedKind, Portal | null> = {
+  task: "operations",
+  recurring: "operations",
+  answer: "operations",
+  table: "studio",
+  app: "studio",
+  "ai-employee": "studio",
+  change: "studio",
+  calculation: null,
+  unclear: null,
+};
+
 const EXAMPLES = [
   "Every Monday at 9, send me the open complaints",
   "How many days of annual leave do I get?",
   "A register of supplier complaints: supplier, order number, problem, status, owner",
   "How many complaints came in last month?",
+];
+
+const STUDIO_EXAMPLES = [
+  "A register of supplier complaints: supplier, order number, problem, status, owner",
+  "An app to log visitors at the front desk",
+  "An AI employee that reads the CVs sent to jobs@ and shortlists them",
+  "How many complaints came in each month?",
 ];
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -77,62 +103,100 @@ const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", 
 const WORK_BY_NAMING: ComposerOffers = { teach: false, work: { to: null } };
 /** What "@" offers on Home: who does the work, and what of the company it is about. */
 const HOME_MENTIONS: MentionKind[] = ["ai_employee", "thing", "table", "app", "calculation", "document", "task"];
+/** In the Studio: what is built on or changed. */
+const STUDIO_MENTIONS: MentionKind[] = ["ai_employee", "thing", "table", "app", "calculation", "document"];
 /** The readings that use files that came with the words. */
 const USES_FILES: NeedKind[] = ["task", "recurring", "answer", "ai-employee"];
 
 /**
  * "What do you need?": the first place to go. Say anything; it says what it understood (work for an
  * AI employee now or regularly, an answer, a calculation, a table, an app, an AI employee, a change)
- * and does it when you say go. Another reading is one click away.
+ * and does it when you say go. Another reading is one click away. On Home it does the work and answers;
+ * in the Studio it makes and changes things. What belongs to the other portal goes on there, words and all.
  */
 export function NeedBox({ className }: { className?: string }) {
   const { path } = useCompany();
   const toast = useToast();
+  const portal = usePortal();
+  const studio = portal === "studio";
+  const [params, setParams] = useSearchParams();
   /** The words as sent (with "@" names as tokens), and the files that came with them. */
   const [asked, setAsked] = useState("");
   const [files, setFiles] = useState<string[]>([]);
   const [reading, setReading] = useState<NeedReading | null>(null);
+  /** Brought over from the other portal: nothing is done until the person says so here. */
+  const [handed, setHanded] = useState(false);
   const read = useMutation({ mutationFn: (input: { text: string; as?: NeedKind }) => api.post<NeedReading>(path("/needs"), input) });
   const done = () => {
     setReading(null);
     setAsked("");
     setFiles([]);
+    setHanded(false);
   };
   const give = useGiveWork(done, { quiet: true });
-  const go = async (text: string, fileIds: string[] = []) => {
-    const result = await read.mutateAsync({ text });
+  const go = async (text: string, fileIds: string[] = [], from?: { as?: NeedKind }) => {
+    const result = await read.mutateAsync({ text, ...(from?.as ? { as: from.as } : {}) });
     setReading(result);
     setAsked(text);
     setFiles(fileIds);
+    setHanded(Boolean(from));
   };
   // Go: read what is needed and show it; "Give as work": the task starts at once.
   const send = async ({ text, fileIds, intent }: ComposerSend) => {
     if (intent === "work") await give.mutateAsync({ text, fileIds });
     else await go(text, fileIds);
   };
+  // "Continue in the Studio" (or in Operations): the words read again here, as what they were read as there.
+  const need = params.get("need");
+  const arrived = useRef(false);
+  useEffect(() => {
+    if (!need || arrived.current) return;
+    arrived.current = true;
+    const as = params.get("as");
+    const fileIds = (params.get("files") ?? "").split(",").filter(Boolean);
+    const next = new URLSearchParams(params);
+    for (const key of ["need", "as", "files"]) next.delete(key);
+    setParams(next, { replace: true });
+    void go(need, fileIds, { as: as && as in NEED ? (as as NeedKind) : undefined }).catch((error: unknown) => toast.error(error));
+    // Once, for the words it was opened with.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [need]);
   return (
     <Card className={clsx("p-4 sm:p-5", className)}>
-      <p className="flex items-center gap-2 text-base font-semibold text-fg">
-        <Sparkles className="size-[18px] text-brand-600 dark:text-brand-300" /> What do you need?
-      </p>
-      <p className="mt-0.5 text-sm text-muted">
-        Say it as you would to a colleague: something done now or every week, a question, a list to keep, an app, a calculation, or a change. Name an AI
-        employee with @ to give them the work.
-      </p>
+      {studio ? (
+        <>
+          <p className="flex items-center gap-2 text-base font-semibold text-fg">
+            <WandSparkles className="size-[18px] text-violet-600 dark:text-violet-300" /> What do you want to build or change?
+          </p>
+          <p className="mt-0.5 text-sm text-muted">
+            Say it in plain words: a list to keep, an app, an AI employee for a job, a calculation, or a change to something you have.
+          </p>
+        </>
+      ) : (
+        <>
+          <p className="flex items-center gap-2 text-base font-semibold text-fg">
+            <Sparkles className="size-[18px] text-brand-600 dark:text-brand-300" /> What do you need?
+          </p>
+          <p className="mt-0.5 text-sm text-muted">
+            Say it as you would to a colleague: something done now or every week, a question, a list to keep, an app, a calculation, or a change. Name an AI
+            employee with @ to give them the work.
+          </p>
+        </>
+      )}
       <Composer
         className="mt-3"
         conversationId={null}
         onSend={send}
         compact
         sendLabel="Go"
-        sendDetail="Read what you need, then choose what happens"
-        offers={WORK_BY_NAMING}
-        mentionKinds={HOME_MENTIONS}
-        placeholder="Every Monday, send me the open complaints"
+        sendDetail={studio ? "Read what you want, then see it made" : "Read what you need, then choose what happens"}
+        offers={studio ? null : WORK_BY_NAMING}
+        mentionKinds={studio ? STUDIO_MENTIONS : HOME_MENTIONS}
+        placeholder={studio ? "A register of supplier complaints, with an owner for each" : "Every Monday, send me the open complaints"}
       />
       {!reading && !read.isPending && (
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {EXAMPLES.map((example) => (
+          {(studio ? STUDIO_EXAMPLES : EXAMPLES).map((example) => (
             <Chip key={example} onClick={() => void go(example).catch((error: unknown) => toast.error(error))}>
               {example}
             </Chip>
@@ -146,6 +210,8 @@ export function NeedBox({ className }: { className?: string }) {
           reading={reading}
           text={asked}
           files={files}
+          portal={portal}
+          handed={handed}
           busy={read.isPending}
           onOther={(kind) => read.mutate({ text: asked, as: kind }, { onSuccess: setReading, onError: (error) => toast.error(error) })}
           onDone={done}
@@ -155,10 +221,19 @@ export function NeedBox({ className }: { className?: string }) {
   );
 }
 
+/** Whether the person may do what the reading says (else the reading tells them who does). */
+function allowed(reading: NeedReading): boolean {
+  if (reading.kind === "change") return reading.can.change;
+  if (reading.kind === "ai-employee" && reading.intake) return reading.intake.can;
+  return reading.can.build;
+}
+
 function ReadingView({
   reading,
   text,
   files,
+  portal,
+  handed,
   busy,
   onOther,
   onDone,
@@ -166,11 +241,17 @@ function ReadingView({
   reading: NeedReading;
   text: string;
   files: string[];
+  portal: Portal;
+  /** Brought over from the other portal. */
+  handed: boolean;
   busy: boolean;
   onOther: (kind: NeedKind) => void;
   onDone: () => void;
 }) {
   const Icon = NEED[reading.kind].icon;
+  const home = HOME_OF[reading.kind];
+  // Done in the other portal: work and answers anyone may go on with; making and changing, those who may.
+  const away = home && home !== portal && (home === "operations" || allowed(reading)) ? home : null;
   return (
     <div className="mt-4 space-y-3 rounded-xl border border-brand-200 bg-brand-50/40 p-4 dark:border-brand-400/25 dark:bg-brand-400/5">
       <p className="text-xs text-muted">
@@ -188,13 +269,19 @@ function ReadingView({
           ))}
         </ul>
       )}
-      {reading.kind === "task" && <TaskReading reading={reading} text={text} files={files} onDone={onDone} />}
-      {reading.kind === "recurring" && <RecurringReading reading={reading} text={text} files={files} onDone={onDone} />}
-      {reading.kind === "answer" && <AnswerReading question={text} files={files} agent={reading.agent} />}
-      {reading.kind === "calculation" && <CalculationReading reading={reading} text={text} onDone={onDone} />}
-      {(reading.kind === "table" || reading.kind === "app") && <MakeReading reading={reading} text={text} onDone={onDone} />}
-      {reading.kind === "ai-employee" && <HireReading reading={reading} text={text} files={files} onDone={onDone} />}
-      {reading.kind === "change" && <ChangeReading reading={reading} />}
+      {away ? (
+        <HandOver to={away} kind={reading.kind} text={text} files={files} />
+      ) : (
+        <>
+          {reading.kind === "task" && <TaskReading reading={reading} text={text} files={files} onDone={onDone} />}
+          {reading.kind === "recurring" && <RecurringReading reading={reading} text={text} files={files} onDone={onDone} />}
+          {reading.kind === "answer" && <AnswerReading question={text} files={files} agent={reading.agent} wait={handed} />}
+          {reading.kind === "calculation" && <CalculationReading reading={reading} text={text} portal={portal} onDone={onDone} />}
+          {(reading.kind === "table" || reading.kind === "app") && <MakeReading reading={reading} text={text} onDone={onDone} />}
+          {reading.kind === "ai-employee" && <HireReading reading={reading} text={text} files={files} onDone={onDone} />}
+          {reading.kind === "change" && <ChangeReading reading={reading} />}
+        </>
+      )}
       {reading.kind === "unclear" && (
         <div className="flex flex-wrap gap-1.5">
           {reading.alternatives.map((kind) => (
@@ -220,6 +307,23 @@ function ReadingView({
           ))}
         </p>
       )}
+    </div>
+  );
+}
+
+/** A reading done in the other portal: the words (and files) go along, and nothing happens there until the person says so. */
+function HandOver({ to, kind, text, files, label }: { to: Portal; kind: NeedKind; text: string; files: string[]; label?: string }) {
+  const studio = to === "studio";
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-x-3 gap-y-2">
+      <p className="mr-auto text-xs text-muted">{studio ? "Making and changing things is done in the Studio." : "Work and answers are in Operations."}</p>
+      <ButtonLink
+        to={paths.need(to, { text, as: kind, files: USES_FILES.includes(kind) ? files : [] })}
+        variant="primary"
+        icon={studio ? WandSparkles : BriefcaseBusiness}
+      >
+        {label ?? (studio ? "Continue in the Studio" : "Continue in Operations")}
+      </ButtonLink>
     </div>
   );
 }
@@ -369,7 +473,7 @@ function RecurringReading({ reading, text, files, onDone }: { reading: NeedReadi
     onSuccess: async (made) => {
       toast.success(`${made.agent?.name ?? "It"} does it ${made.when}`, {
         description: made.text,
-        link: { to: `/ai/${made.agent?.slug ?? agent}?tab=duties`, label: "See its duties" },
+        link: { to: paths.ai(made.agent?.slug ?? agent, "operations", "duties"), label: "See its duties" },
       });
       await queryClient.invalidateQueries({ queryKey: keys.recurring(company) });
       onDone();
@@ -396,10 +500,14 @@ function RecurringReading({ reading, text, files, onDone }: { reading: NeedReadi
   );
 }
 
-/** The company brain answers it (or the AI employee named with "@") in the person's talk with it, which goes on in Chat. */
-function AnswerReading({ question, files, agent }: { question: string; files: string[]; agent?: string }) {
+/**
+ * The company brain answers it (or the AI employee named with "@") in the person's talk with it, which goes
+ * on in Chat. Brought over from the Studio (`wait`), it is asked when the person says so.
+ */
+function AnswerReading({ question, files, agent, wait }: { question: string; files: string[]; agent?: string; wait?: boolean }) {
   const { company, path } = useCompany();
   const queryClient = useQueryClient();
+  const [asking, setAsking] = useState(!wait);
   const ask = useMutation({
     mutationFn: async () => {
       const found = await api.get<ConversationData>(path(`/conversations/for/ai_employee/${encodeURIComponent(agent ?? "company-brain")}`));
@@ -409,17 +517,29 @@ function AnswerReading({ question, files, agent }: { question: string; files: st
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: keys.conversations(company) }),
   });
   useEffect(() => {
-    ask.mutate();
+    if (asking) ask.mutate();
     // Once, for the question it was opened with.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [asking]);
+  if (!asking) {
+    return (
+      <div className="flex justify-end">
+        <Button variant="primary" icon={MessageSquare} onClick={() => setAsking(true)}>
+          Ask it
+        </Button>
+      </div>
+    );
+  }
   if (ask.error) return <ErrorState error={ask.error} title="It couldn't be asked" />;
   if (!ask.data) return <Skeleton className="h-20" />;
   return (
     <div className="space-y-2">
       <ConversationView id={ask.data} embedded className="h-96 overflow-hidden rounded-lg border border-line" />
       <div className="flex justify-end">
-        <Link to={`/chat/${ask.data}`} className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline dark:text-brand-300">
+        <Link
+          to={paths.conversation(ask.data)}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-700 hover:underline dark:text-brand-300"
+        >
           <MessageSquare className="size-4" /> Go on in Chat
         </Link>
       </div>
@@ -429,8 +549,8 @@ function AnswerReading({ question, files, agent }: { question: string; files: st
 
 const SCHEDULE_OF: Record<RepeatSchedule["every"], CalculationSchedule> = { day: "daily", weekday: "daily", week: "weekly", month: "monthly" };
 
-/** Worked out at once on the real rows; managers keep it (and let it run by itself). */
-function CalculationReading({ reading, text, onDone }: { reading: NeedReading; text: string; onDone: () => void }) {
+/** Worked out at once on the real rows; managers keep it (and let it run by itself), in the Studio. */
+function CalculationReading({ reading, text, portal, onDone }: { reading: NeedReading; text: string; portal: Portal; onDone: () => void }) {
   const { company, path } = useCompany();
   const toast = useToast();
   const navigate = useNavigate();
@@ -454,7 +574,7 @@ function CalculationReading({ reading, text, onDone }: { reading: NeedReading; t
       toast.success(`${calculation.name} is kept`);
       await queryClient.invalidateQueries({ queryKey: keys.calculations(company) });
       onDone();
-      navigate(`/calculations/${calculation.key}`);
+      navigate(paths.calculation(calculation.key, portal));
     },
     onError: (error) => toast.error(error),
   });
@@ -475,7 +595,10 @@ function CalculationReading({ reading, text, onDone }: { reading: NeedReading; t
           {trial.error}
         </Callout>
       )}
-      {trial.ok && reading.can.build && departments.length > 0 && (
+      {trial.ok && reading.can.build && departments.length > 0 && portal === "operations" && (
+        <HandOver to="studio" kind="calculation" text={text} files={[]} label="Keep it in the Studio" />
+      )}
+      {trial.ok && reading.can.build && departments.length > 0 && portal === "studio" && (
         <div className="flex flex-wrap items-end justify-end gap-2">
           {departments.length > 1 && (
             <select className="input w-auto" aria-label="Whose it is" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)}>
@@ -542,8 +665,8 @@ function HireReading({ reading, text, files, onDone }: { reading: NeedReading; t
   const start = useMutation({
     mutationFn: async () =>
       info.llm.available
-        ? `/studio/${(await api.post<StudioThreadView>(path("/studio/threads"), { text: plainText(text), fileIds: files })).id}`
-        : `/hire/studio/${(await api.post<SessionView>(path("/builder/sessions"), { description: reading.description ?? text })).session.id}`,
+        ? paths.studioConversation((await api.post<StudioThreadView>(path("/studio/threads"), { text: plainText(text), fileIds: files })).id)
+        : paths.interview((await api.post<SessionView>(path("/builder/sessions"), { description: reading.description ?? text })).session.id),
     onSuccess: (to) => navigate(to),
   });
   const intake = reading.intake;
@@ -575,7 +698,13 @@ function HireReading({ reading, text, files, onDone }: { reading: NeedReading; t
   );
 }
 
-const PAGE_OF: Record<NonNullable<NeedReading["target"]>["type"], string> = { table: "tables", app: "apps", calculation: "calculations", agent: "ai" };
+/** Where a change is worked out: the page of what it changes, in the Studio. */
+function changePath(type: NonNullable<NeedReading["target"]>["type"], key: string, change: string): string {
+  if (type === "table") return paths.table(key, "studio", { change });
+  if (type === "app") return paths.app(key, "studio", { change });
+  if (type === "calculation") return paths.calculation(key, "studio", { change });
+  return paths.ai(key, "studio", "coaching");
+}
 
 /** A change: shown where it is made (a table's, an app's or a calculation's page); for an AI employee, a proposal tested on its recent tasks. */
 function ChangeReading({ reading }: { reading: NeedReading }) {
@@ -588,7 +717,7 @@ function ChangeReading({ reading }: { reading: NeedReading }) {
     mutationFn: () => api.post<CoachingProposal>(path(`/agents/${encodeURIComponent(target.key)}/changes`), { request: change }),
     onSuccess: () => {
       toast.success("The Studio is working the change in", { description: "It replays recent tasks with it; nothing changes until it is published." });
-      navigate(`/ai/${target.key}?tab=coaching`);
+      navigate(paths.ai(target.key, "studio", "coaching"));
     },
     onError: (error) => toast.error(error),
   });
@@ -604,7 +733,7 @@ function ChangeReading({ reading }: { reading: NeedReading }) {
               Propose and test it
             </Button>
           ) : (
-            <Button variant="primary" icon={Wand2} onClick={() => navigate(`/${PAGE_OF[target.type]}/${target.key}?change=${encodeURIComponent(change)}`)}>
+            <Button variant="primary" icon={Wand2} onClick={() => navigate(changePath(target.type, target.key, change))}>
               See the change
             </Button>
           )}

@@ -1,4 +1,4 @@
-import { parseMentions, type Mention, type MentionKind, type MentionRef } from "@enterprise-brain/core";
+import { brainPath, parseMentions, type Mention, type MentionKind, type MentionRef } from "@enterprise-brain/core";
 import type { Platform } from "@enterprise-brain/runtime";
 import { canSeeDepartment, type Viewer } from "./auth/viewer.ts";
 import { canSeeTable } from "./routes/tables.ts";
@@ -19,7 +19,7 @@ export interface MentionHit {
 export function mentionHref(companySlug: string, mention: MentionRef, extra: { slug?: string; key?: string } = {}): string | null {
   switch (mention.kind) {
     case "thing":
-      return `/brain/e/${mention.id}`;
+      return brainPath(mention.id);
     case "table":
       return `/tables/${extra.key ?? mention.id}`;
     case "app":
@@ -33,7 +33,8 @@ export function mentionHref(companySlug: string, mention: MentionRef, extra: { s
     case "file":
       return `/api/companies/${companySlug}/files/${mention.id}?inline=1`;
     case "document":
-      return "/settings/knowledge";
+      // Open to everyone who may read it: the knowledge base itself is for managers.
+      return `/search?doc=${encodeURIComponent(mention.id)}`;
     case "person":
       return "/company";
   }

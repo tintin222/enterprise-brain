@@ -11,6 +11,7 @@ import { ErrorState, Skeleton } from "../components/Spinner.tsx";
 import { useCompany } from "../lib/company.tsx";
 import { formatDateTime, timeAgo } from "../lib/format.ts";
 import { activityIcon } from "../lib/icons.tsx";
+import { paths } from "../lib/paths.ts";
 import { keys, useAgents } from "../lib/queries.ts";
 import type { ActivityEntry } from "../types.ts";
 
@@ -41,15 +42,15 @@ export default function Activity() {
 
   const linkFor = (a: ActivityEntry): string | null => {
     if (!a.entityId) return null;
-    if (a.entityType === "run") return `/runs/${a.entityId}`;
+    if (a.entityType === "run") return paths.run(a.entityId);
     if (a.entityType === "agent") {
       const slug = agents.data?.find((x) => x.id === a.entityId)?.slug;
-      return slug ? `/ai/${slug}` : null;
+      return slug ? paths.ai(slug, "studio") : null;
     }
-    if (a.entityType === "approval") return "/approvals";
-    if (a.entityType === "connector") return "/connectors";
-    if (a.entityType === "department") return "/departments";
-    if (a.entityType === "collection") return `/knowledge?collection=${encodeURIComponent(a.entityId)}`;
+    if (a.entityType === "approval") return paths.work();
+    if (a.entityType === "connector") return paths.settings("connections");
+    if (a.entityType === "department") return paths.aiEmployees();
+    if (a.entityType === "collection") return paths.settings("knowledge", { collection: a.entityId });
     return null;
   };
 

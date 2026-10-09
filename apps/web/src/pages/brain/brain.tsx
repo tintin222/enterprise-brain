@@ -37,6 +37,7 @@ import { Link } from "react-router";
 import { api, qs } from "../../api.ts";
 import { useViewer } from "../../lib/auth.tsx";
 import { useCompany } from "../../lib/company.tsx";
+import { paths } from "../../lib/paths.ts";
 import type { BrainEntity, BrainEntitySummary, BrainEvent, BrainGraph, BrainKind, BrainModel, BrainOverview, BrainSource } from "../../types.ts";
 
 /** Query keys of the brain: under the company, so switching companies never mixes them. */
@@ -221,8 +222,9 @@ export function kindOf(model: BrainModel | undefined, kind: string): BrainKind |
   return model?.kinds.find((k) => k.key === kind);
 }
 
+/** A thing's page in the Studio's brain. */
 export function brainPath(id: string): string {
-  return `/brain/e/${id}`;
+  return paths.brain.thing(id);
 }
 
 /** A thing's icon in its area's colour. */

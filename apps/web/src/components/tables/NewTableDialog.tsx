@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 import { api } from "../../api.ts";
 import { useViewer } from "../../lib/auth.tsx";
 import { useCompany } from "../../lib/company.tsx";
+import { paths, usePortal } from "../../lib/paths.ts";
 import { keys, useBuilding, useDepartments } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { TableProposal, TableView } from "../../types.ts";
@@ -39,6 +40,7 @@ export function NewTableDialog({ open, onClose, initial }: { open: boolean; onCl
   const { company, path } = useCompany();
   const toast = useToast();
   const navigate = useNavigate();
+  const portal = usePortal();
   const queryClient = useQueryClient();
   const { departments, companyWide } = useTableDepartments();
   const [description, setDescription] = useState("");
@@ -71,7 +73,7 @@ export function NewTableDialog({ open, onClose, initial }: { open: boolean; onCl
       toast.success(`${table.name} is ready`);
       await queryClient.invalidateQueries({ queryKey: keys.tables(company) });
       onClose();
-      navigate(`/tables/${table.key}`);
+      navigate(paths.table(table.key, portal));
     },
   });
 

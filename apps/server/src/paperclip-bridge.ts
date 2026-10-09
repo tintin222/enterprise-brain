@@ -148,7 +148,7 @@ export class PaperclipBridge {
     } else if (run.status === "succeeded" && pending.length) {
       patch = {
         status: "blocked",
-        comment: `Waiting for approval in Enterprise Brain: ${pending.map((a) => `**${a.title}**`).join(", ")}. Approve or reject it at ${this.config.publicUrl}/approvals; this issue is closed automatically afterwards.`,
+        comment: `Waiting for approval in Enterprise Brain: ${pending.map((a) => `**${a.title}**`).join(", ")}. Approve or reject it at ${this.config.publicUrl}/work; this issue is closed automatically afterwards.`,
       };
     } else if (run.status === "succeeded") {
       patch = { status: "done" };

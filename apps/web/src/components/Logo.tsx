@@ -33,14 +33,19 @@ export function Logo({ className }: { className?: string }) {
   );
 }
 
-export function Wordmark({ className, compact }: { className?: string; compact?: boolean }) {
+/** The logo and name; `studio` says so under the name instead of the tagline. */
+export function Wordmark({ className, compact, studio }: { className?: string; compact?: boolean; studio?: boolean }) {
   return (
     <span className={clsx("flex items-center gap-2.5", className)}>
       <Logo className="size-8" />
       {!compact && (
         <span className="leading-tight">
           <span className="block text-[15px] font-semibold tracking-tight text-fg">Enterprise Brain</span>
-          <span className="block text-[11px] font-medium text-muted">Agentic AI operating layer</span>
+          {studio ? (
+            <span className="block text-[11px] font-semibold tracking-wide text-violet-700 uppercase dark:text-violet-300">Studio</span>
+          ) : (
+            <span className="block text-[11px] font-medium text-muted">Agentic AI operating layer</span>
+          )}
         </span>
       )}
     </span>

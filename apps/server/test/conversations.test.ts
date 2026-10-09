@@ -285,6 +285,22 @@ describe("conversations", () => {
     expect(deniz.some((h) => h.name === "Invoice Helper")).toBe(false);
   });
 
+  it("links a named document to where anyone who may see it reads it", async () => {
+    const added = await call("burak.sahin", "POST", "/knowledge/documents", {
+      collection: "general",
+      title: "Payment terms policy",
+      text: "Suppliers are paid within 45 days of the invoice date.",
+    });
+    expect(added.statusCode, added.body).toBe(200);
+    const documentId = (added.json() as { id: string }).id;
+    const hits = (await call("elif.arslan", "GET", "/mention?q=payment&kinds=document")).json() as { kind: string; id: string; href: string | null }[];
+    expect(hits.find((h) => h.id === documentId)).toMatchObject({ kind: "document", href: `/search?doc=${documentId}` });
+    const started = await call("elif.arslan", "POST", "/conversations", { text: `The terms are in @[Payment terms policy](document:${documentId}).` });
+    expect(started.statusCode, started.body).toBe(200);
+    const [first] = await messages("elif.arslan", (started.json() as ConversationView).conversation.id);
+    expect(first!.mentions).toMatchObject([{ kind: "document", id: documentId, allowed: true, href: `/search?doc=${documentId}` }]);
+  });
+
   it("lets anyone talk with the company brain, which answers like an AI employee", async () => {
     const talk = await call("deniz.aydin", "GET", "/conversations/for/ai_employee/company-brain");
     expect(talk.statusCode, talk.body).toBe(200);

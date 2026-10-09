@@ -10,6 +10,7 @@ import { Card, CardBody, CardHeader } from "../../components/Card.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { Skeleton } from "../../components/Spinner.tsx";
 import { useCompany } from "../../lib/company.tsx";
+import { paths } from "../../lib/paths.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type {
   BrainDataColumn,
@@ -855,9 +856,10 @@ export function ReadTablesDialog({ thing, open, onClose }: { thing: BrainEntity;
       ) : nothing ? (
         <div className="space-y-3 text-sm text-muted">
           <p>
-            There is no SQL database connection yet. IT adds one in Settings → Connections (a read-only login is enough), then you can read the tables here.
+            There is no SQL database connection yet. IT adds one in Studio → Settings → Connections (a read-only login is enough), then you can read the tables
+            here.
           </p>
-          <ButtonLink to="/settings/connections" size="sm">
+          <ButtonLink to={paths.settings("connections")} size="sm">
             Open connections
           </ButtonLink>
         </div>

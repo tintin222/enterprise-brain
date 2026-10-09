@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Save, Settings2, Table2, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowDown, ArrowUp, BriefcaseBusiness, Save, Settings2, Table2, Trash2, WandSparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Navigate, useParams, useSearchParams } from "react-router";
 import { api, isApiError } from "../../api.ts";
@@ -16,22 +16,26 @@ import { ErrorState, LoadingBlock } from "../../components/Spinner.tsx";
 import { Tabs } from "../../components/Tabs.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { namedIcon } from "../../lib/icons.tsx";
+import { paths, usePortal } from "../../lib/paths.ts";
 import { keys, useAgent, useAppDetail, useDepartments } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { AppChangeProposal, AppDetail, AppPageSpec, AppView } from "../../types.ts";
 
-/** An app: its pages as tabs, each page's blocks drawn from its tables. */
+/** An app: its pages as tabs, each page's blocks drawn from its tables. Used in Operations; its design opens in the Studio. */
 export default function AppPage() {
   const { key = "" } = useParams();
+  const portal = usePortal();
+  const studio = portal === "studio";
   const [params, setParams] = useSearchParams();
   const detail = useAppDetail(key);
   const departments = useDepartments();
   const [designing, setDesigning] = useState(false);
-  // A change said in the one box: the app's design opens with it worked out.
+  // A change said in the one box: the app's design opens with it worked out. In the Studio it opens anyway.
   const asked = params.get("change");
+  const mayDesign = studio && Boolean(detail.data?.app.can.design);
   useEffect(() => {
-    if (asked && detail.data?.app.can.design) setDesigning(true);
-  }, [asked, detail.data?.app.can.design]);
+    if (mayDesign) setDesigning(true);
+  }, [mayDesign, key]);
   const stopDesigning = () => {
     setDesigning(false);
     if (asked) {
@@ -51,7 +55,9 @@ export default function AppPage() {
     [detail.data],
   );
 
-  if (agent.data) return <Navigate to={`/ai/${agent.data.agent.slug}/app`} replace />;
+  if (agent.data) return <Navigate to={studio ? paths.ai(agent.data.agent.slug, "studio") : paths.aiScreen(agent.data.agent.slug)} replace />;
+  // Changes are made in the Studio.
+  if (!studio && asked) return <Navigate to={paths.app(key, "studio", { change: asked })} replace />;
   if (detail.isLoading || (isApiError(detail.error, 404) && agent.isLoading)) return <LoadingBlock className="min-h-[50vh]" />;
   if (detail.error || !detail.data) {
     return (
@@ -76,15 +82,25 @@ export default function AppPage() {
         actions={
           <>
             {detail.data.tables.map((t) => (
-              <ButtonLink key={t.key} to={`/tables/${t.key}`} icon={Table2} variant="ghost" size="sm">
+              <ButtonLink key={t.key} to={paths.table(t.key, portal)} icon={Table2} variant="ghost" size="sm">
                 {t.name}
               </ButtonLink>
             ))}
-            {app.can.design && (
-              <Button icon={Settings2} onClick={() => setDesigning(true)}>
-                Change the app
-              </Button>
+            {studio && (
+              <ButtonLink to={paths.app(app.key, "operations")} icon={BriefcaseBusiness}>
+                Use it
+              </ButtonLink>
             )}
+            {app.can.design &&
+              (studio ? (
+                <Button variant="primary" icon={Settings2} onClick={() => setDesigning(true)}>
+                  Change the app
+                </Button>
+              ) : (
+                <ButtonLink to={paths.app(app.key, "studio")} icon={WandSparkles}>
+                  Change it in the Studio
+                </ButtonLink>
+              ))}
           </>
         }
       />
@@ -111,7 +127,7 @@ export default function AppPage() {
           </div>
         ))}
       </div>
-      {app.can.design && <AppDesignDrawer detail={detail.data} open={designing} onClose={stopDesigning} initialChange={asked ?? undefined} />}
+      {studio && app.can.design && <AppDesignDrawer detail={detail.data} open={designing} onClose={stopDesigning} initialChange={asked ?? undefined} />}
     </Page>
   );
 }

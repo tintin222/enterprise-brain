@@ -16,7 +16,7 @@ import type { BrainEntitySummary, BrainEntityView, BrainEventView } from "./type
 
 /**
  * The brain in words, for Claude: what the tools return to the company assistant, AI employees and
- * the Studio. Every thing carries its address (/brain/e/<id>) so answers can link to it.
+ * the Studio. Every thing carries its address (/studio/brain/e/<id>) so answers can link to it.
  */
 
 export function entityLink(thing: { id: string; name: string }): string {

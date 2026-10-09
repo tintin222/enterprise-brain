@@ -1,12 +1,13 @@
 import { clsx } from "clsx";
 import { BookOpen, Hammer, MessagesSquare, Plug, ScrollText, Server, Settings, Users, Wallet, Waypoints, type LucideIcon } from "lucide-react";
 import { Suspense } from "react";
-import { Navigate, NavLink, Outlet, useLocation } from "react-router";
+import { Navigate, NavLink, Outlet, useMatch } from "react-router";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Page } from "../../components/Layout.tsx";
 import { FoldButton } from "../../components/SideMenu.tsx";
 import { LoadingBlock } from "../../components/Spinner.tsx";
-import { useViewer } from "../../lib/auth.tsx";
+import { useIsManager, useViewer } from "../../lib/auth.tsx";
+import { paths, STUDIO } from "../../lib/paths.ts";
 import { useStoredFlag } from "../../lib/preferences.ts";
 
 interface Section {
@@ -33,15 +34,14 @@ export const SETTINGS_SECTIONS: Section[] = [
 export function useSettingsSections(): Section[] {
   const viewer = useViewer();
   const admin = !viewer || viewer.isAdmin;
-  const manager = admin || Boolean(viewer?.departments.some((d) => d.role === "manager"));
+  const manager = useIsManager();
   return SETTINGS_SECTIONS.filter((s) => admin || (s.for === "managers" && manager));
 }
 
 /** Settings: a side list of sections (tabs on narrow screens, collapsible to icons on wide ones) and the chosen section. */
 export default function SettingsLayout() {
   const sections = useSettingsSections();
-  const location = useLocation();
-  const current = location.pathname.split("/")[2];
+  const current = useMatch({ path: `${STUDIO}/settings/:section`, end: false })?.params.section;
   const [folded, setFolded] = useStoredFlag("eb.settings.menu.folded", () => false);
   if (!sections.length) {
     return (
@@ -50,7 +50,7 @@ export default function SettingsLayout() {
       </Page>
     );
   }
-  if (!current) return <Navigate to={sections[0]!.to} replace />;
+  if (!current) return <Navigate to={paths.settings(sections[0]!.to)} replace />;
   if (!sections.some((s) => s.to === current)) {
     return (
       <Page>
@@ -77,7 +77,7 @@ export default function SettingsLayout() {
             return (
               <li key={s.to} className="shrink-0">
                 <NavLink
-                  to={`/settings/${s.to}`}
+                  to={paths.settings(s.to)}
                   title={folded ? s.label : undefined}
                   className={({ isActive }) =>
                     clsx(

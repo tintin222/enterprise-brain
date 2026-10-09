@@ -27,11 +27,12 @@ import {
   Send,
   ShieldCheck,
   Trash,
+  WandSparkles,
   Workflow,
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router";
-import { api, isApiError, qs } from "../../api.ts";
+import { Link, Navigate, useNavigate, useParams, useSearchParams } from "react-router";
+import { api, isApiError } from "../../api.ts";
 import { Badge, StatusPill } from "../../components/Badge.tsx";
 import { Button, ButtonLink } from "../../components/Button.tsx";
 import { Card, CardHeader } from "../../components/Card.tsx";
@@ -50,6 +51,7 @@ import { WorkflowView } from "../../components/WorkflowView.tsx";
 import { WorkItemCard } from "../../components/WorkItemCard.tsx";
 import { useViewer } from "../../lib/auth.tsx";
 import { useCompany } from "../../lib/company.tsx";
+import { paths, usePortal } from "../../lib/paths.ts";
 import { formatDateTime, formatMoney, percent, plural, timeAgo, workingHoursText } from "../../lib/format.ts";
 import { archetypeIcon, categoryIcon } from "../../lib/icons.tsx";
 import { approvalRuleLabel, categoryLabel, describeTrigger, PERSONAL_DATA_LABELS } from "../../lib/labels.ts";
@@ -60,6 +62,10 @@ import { useAgentMutations } from "./actions.ts";
 import { ChangeRequest, CoachingTab, useCoaching } from "./Coaching.tsx";
 
 type Tab = "overview" | "work" | "duties" | "access" | "knowledge" | "rules" | "coaching" | "versions";
+
+/** Operations shows an AI employee's results; the Studio how it is set up. */
+const OPERATIONS_TABS: Tab[] = ["overview", "work", "duties"];
+const STUDIO_TABS: Tab[] = ["overview", "duties", "access", "knowledge", "rules", "coaching", "versions"];
 
 /** Rules from before probation levels ("every email", "every change"): the level decides those now. */
 const LEVEL_RULES = ["mail.send", "connector:write", "connector:*"];
@@ -194,7 +200,9 @@ function PerformanceCard({ detail }: { detail: AgentDetail }) {
   );
 }
 
-function Overview({ detail, tasks, onTab }: { detail: AgentDetail; tasks: TaskRow[]; onTab: (tab: Tab) => void }) {
+/** "results" (Operations): this week, its latest tasks and how it did; "job" (Studio): what it is set up to do. */
+function Overview({ detail, tasks, onTab, focus }: { detail: AgentDetail; tasks: TaskRow[]; onTab: (tab: Tab) => void; focus: "results" | "job" }) {
+  const results = focus === "results";
   const collections = useCollections();
   const names = new Map((collections.data ?? []).map((c) => [c.key, c.name]));
   const employment = detail.employment;
@@ -216,18 +224,20 @@ function Overview({ detail, tasks, onTab }: { detail: AgentDetail; tasks: TaskRo
               )}
             </Line>
             <Line label="Can use">{uses.length ? uses.join(" · ") : <span className="text-muted">Nothing beyond its instructions.</span>}</Line>
-            <Line label="This week">
-              {plural(week.length, "task")} · {week.filter((t) => t.status === "done").length} done
-              {waiting ? (
-                <>
-                  {" · "}
-                  <button type="button" className="font-medium text-amber-700 hover:underline dark:text-amber-300" onClick={() => onTab("work")}>
-                    {waiting} waiting for a person
-                  </button>
-                </>
-              ) : null}
-              {employment ? ` · ${formatMoney(employment.costThisMonthUsd)} this month` : ""}
-            </Line>
+            {results && (
+              <Line label="This week">
+                {plural(week.length, "task")} · {week.filter((t) => t.status === "done").length} done
+                {waiting ? (
+                  <>
+                    {" · "}
+                    <button type="button" className="font-medium text-amber-700 hover:underline dark:text-amber-300" onClick={() => onTab("work")}>
+                      {waiting} waiting for a person
+                    </button>
+                  </>
+                ) : null}
+                {employment ? ` · ${formatMoney(employment.costThisMonthUsd)} this month` : ""}
+              </Line>
+            )}
             <Line label="Level">
               {employment ? (
                 <>
@@ -247,9 +257,11 @@ function Overview({ detail, tasks, onTab }: { detail: AgentDetail; tasks: TaskRo
           title="Its job"
           icon={BriefcaseBusiness}
           actions={
-            <Button size="xs" variant="ghost" onClick={() => setShowInstructions(!showInstructions)}>
-              {showInstructions ? "Hide instructions" : "Show instructions"}
-            </Button>
+            results ? undefined : (
+              <Button size="xs" variant="ghost" onClick={() => setShowInstructions(!showInstructions)}>
+                {showInstructions ? "Hide instructions" : "Show instructions"}
+              </Button>
+            )
           }
         >
           <p className="text-sm text-fg">{detail.definition.summary}</p>
@@ -263,46 +275,61 @@ function Overview({ detail, tasks, onTab }: { detail: AgentDetail; tasks: TaskRo
               ))}
             </div>
           )}
-          {showInstructions && (
+          {showInstructions && !results && (
             <div className="mt-4 max-h-96 overflow-y-auto border-t border-line pt-4">
               <Markdown compact>{detail.definition.instructions || "_No instructions._"}</Markdown>
             </div>
           )}
         </Section>
       </div>
-      <div className="space-y-6">
-        <PerformanceCard detail={detail} />
-        <Card className="overflow-hidden">
-          <CardHeader
-            title="Latest tasks"
-            icon={ListChecks}
-            actions={
-              <Button size="xs" variant="ghost" onClick={() => onTab("work")}>
-                All
-              </Button>
-            }
-          />
-          {tasks.length ? (
-            <ul className="divide-y divide-line">
-              {tasks.slice(0, 6).map((t) => (
-                <li key={t.id}>
-                  <Link to={`/work/${t.ref}`} className="flex items-center gap-3 px-5 py-2.5 hover:bg-subtle/60">
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm text-fg">{t.title}</p>
-                      <p className="text-xs text-muted">
-                        <span className="font-mono text-[11px]">{t.ref}</span> · {timeAgo(t.updatedAt)}
-                      </p>
-                    </div>
-                    <StatusPill status={t.status} size="xs" />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="px-5 py-4 text-sm text-muted">No tasks yet.</p>
-          )}
+      {results ? (
+        <div className="space-y-6">
+          <PerformanceCard detail={detail} />
+          <Card className="overflow-hidden">
+            <CardHeader
+              title="Latest tasks"
+              icon={ListChecks}
+              actions={
+                <Button size="xs" variant="ghost" onClick={() => onTab("work")}>
+                  All
+                </Button>
+              }
+            />
+            {tasks.length ? (
+              <ul className="divide-y divide-line">
+                {tasks.slice(0, 6).map((t) => (
+                  <li key={t.id}>
+                    <Link to={paths.work(t.ref)} className="flex items-center gap-3 px-5 py-2.5 hover:bg-subtle/60">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm text-fg">{t.title}</p>
+                        <p className="text-xs text-muted">
+                          <span className="font-mono text-[11px]">{t.ref}</span> · {timeAgo(t.updatedAt)}
+                        </p>
+                      </div>
+                      <StatusPill status={t.status} size="xs" />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="px-5 py-4 text-sm text-muted">No tasks yet.</p>
+            )}
+          </Card>
+        </div>
+      ) : (
+        <Card className="h-fit">
+          <CardHeader title="Its work" icon={ListChecks} subtitle="What it did, and what waits for a person, is in Operations." />
+          <div className="px-5 py-4 text-sm text-fg">
+            <p>
+              This week: {plural(week.length, "task")} · {week.filter((t) => t.status === "done").length} done
+              {waiting ? ` · ${waiting} waiting for a person` : ""}
+            </p>
+            <ButtonLink to={paths.ai(detail.agent.slug, "operations")} size="sm" variant="soft" className="mt-3" icon={ListChecks}>
+              See its work
+            </ButtonLink>
+          </div>
         </Card>
-      </div>
+      )}
     </div>
   );
 }
@@ -435,7 +462,7 @@ function AccessTab({ detail }: { detail: AgentDetail }) {
                       ) : (
                         <span className="text-amber-700 dark:text-amber-300">
                           Practising on demo data until IT connects the real system.{" "}
-                          <Link to="/settings/connections" className="underline">
+                          <Link to={paths.settings("connections")} className="underline">
                             Connections
                           </Link>
                         </span>
@@ -515,7 +542,7 @@ function KnowledgeTab({ detail }: { detail: AgentDetail }) {
                   {c?.description && <p className="truncate text-xs text-muted">{c.description}</p>}
                 </div>
                 <span className="text-xs text-muted">{c ? plural(c.documentCount, "document") : "Not created yet"}</span>
-                <ButtonLink to={`/settings/knowledge${qs({ collection: key })}`} size="xs" variant="ghost">
+                <ButtonLink to={paths.settings("knowledge", { collection: key })} size="xs" variant="ghost">
                   Open
                 </ButtonLink>
               </li>
@@ -605,7 +632,7 @@ function VersionsTab({ detail, editing, setEditing }: { detail: AgentDetail; edi
         subtitle="Each change becomes a new version; you can go back to any earlier one."
         actions={
           detail.agent.builderSessionId ? (
-            <ButtonLink size="xs" variant="soft" to={`/hire/studio/${detail.agent.builderSessionId}`} icon={MessageSquare}>
+            <ButtonLink size="xs" variant="soft" to={paths.interview(detail.agent.builderSessionId)} icon={MessageSquare}>
               Its Studio interview
             </ButtonLink>
           ) : undefined
@@ -716,9 +743,16 @@ function TryDialog({ detail, open, onClose }: { detail: AgentDetail; open: boole
   );
 }
 
+/**
+ * An AI employee. In Operations: its results (what it did this week, its tasks, what waits for a person) with
+ * Talk to it and Give work. In the Studio: how it is set up (job, duties, access, knowledge, rules, coaching,
+ * versions), tried and changed there.
+ */
 export default function AiEmployee() {
   const { slug } = useParams();
   const navigate = useNavigate();
+  const portal = usePortal();
+  const studio = portal === "studio";
   const [params, setParams] = useSearchParams();
   const tab = (params.get("tab") as Tab | null) ?? "overview";
   const setTab = (t: Tab) => setParams(t === "overview" ? {} : { tab: t }, { replace: true });
@@ -732,6 +766,10 @@ export default function AiEmployee() {
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // A tab that belongs to the other portal (an old link, a bookmark): open it there.
+  if (slug && !(studio ? STUDIO_TABS : OPERATIONS_TABS).includes(tab)) {
+    return <Navigate to={paths.ai(slug, studio ? "operations" : "studio", tab)} replace />;
+  }
   if (isLoading) return <LoadingBlock className="flex-1" />;
   if (isApiError(error, 404)) {
     return (
@@ -741,8 +779,8 @@ export default function AiEmployee() {
           title="AI employee not found"
           description="It may have been let go, or it works in a department you are not part of."
           action={
-            <ButtonLink to="/company" variant="primary">
-              Company
+            <ButtonLink to={studio ? paths.aiEmployees() : paths.company()} variant="primary">
+              {studio ? "AI employees" : "Company"}
             </ButtonLink>
           }
         />
@@ -774,13 +812,16 @@ export default function AiEmployee() {
   return (
     <Page>
       <div className="mb-2 text-sm">
-        <Link to="/company" className="text-muted hover:text-fg">
-          Company
+        <Link to={studio ? paths.aiEmployees() : paths.company()} className="text-muted hover:text-fg">
+          {studio ? "AI employees" : "Company"}
         </Link>
         {department && (
           <>
             <span className="mx-1.5 text-faint">/</span>
-            <Link to={`/company#department-${department.key}`} className="text-muted hover:text-fg">
+            <Link
+              to={studio ? `${paths.aiEmployees()}#department-${department.key}` : paths.company(`department-${department.key}`)}
+              className="text-muted hover:text-fg"
+            >
               {department.name}
             </Link>
           </>
@@ -803,25 +844,40 @@ export default function AiEmployee() {
           </div>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
-          <ButtonLink to={`/chat/for/ai_employee/${agent.slug}`} icon={MessageSquare}>
-            Talk to it
-          </ButtonLink>
-          {(working || agent.status === "testing") && (
-            <ButtonLink to={`/chat/for/ai_employee/${agent.slug}?work=1`} variant="primary" icon={Send}>
-              Give work
+          {studio ? (
+            <ButtonLink to={paths.ai(agent.slug, "operations")} icon={ListChecks}>
+              See its work
             </ButtonLink>
+          ) : (
+            <>
+              <ButtonLink to={paths.aiChat(agent.slug)} icon={MessageSquare}>
+                Talk to it
+              </ButtonLink>
+              {(working || agent.status === "testing") && (
+                <ButtonLink to={paths.aiChat(agent.slug, { work: 1 })} variant="primary" icon={Send}>
+                  Give work
+                </ButtonLink>
+              )}
+            </>
+          )}
+          {studio && data.canManage && (
+            <Button variant="primary" icon={FlaskConical} onClick={() => setTrying(true)}>
+              Try it
+            </Button>
           )}
           {data.canManage && (
             <>
-              <Button
-                icon={PencilLine}
-                onClick={() => {
-                  setEditing(true);
-                  setTab("versions");
-                }}
-              >
-                Change its job
-              </Button>
+              {studio && (
+                <Button
+                  icon={PencilLine}
+                  onClick={() => {
+                    setEditing(true);
+                    setTab("versions");
+                  }}
+                >
+                  Change its job
+                </Button>
+              )}
               {working ? (
                 <Button icon={Pause} loading={setStatus.isPending} onClick={() => setStatus.mutate({ slug: agent.slug, status: "paused" })}>
                   Pause
@@ -833,26 +889,39 @@ export default function AiEmployee() {
               )}
             </>
           )}
+          {!studio && (
+            <ButtonLink to={paths.ai(agent.slug, "studio")} icon={WandSparkles} title="How it is set up: its job, access, rules, coaching and versions">
+              Open in the Studio
+            </ButtonLink>
+          )}
         </div>
       </div>
+      {!studio && data.canManage && deciding && (
+        <Callout tone="info" className="mb-6">
+          A change to its job is ready for you to decide.{" "}
+          <Link to={paths.ai(agent.slug, "studio", "coaching")} className="font-medium underline">
+            Decide it in the Studio
+          </Link>
+        </Callout>
+      )}
 
       <Tabs<Tab>
         className="mb-6"
         value={tab}
         onChange={setTab}
         tabs={[
-          { id: "overview", label: "Overview", icon: LayoutTemplate },
-          { id: "work", label: "Work", icon: ListChecks, count: needsPerson || undefined, alert: needsPerson > 0 },
-          { id: "duties", label: "Duties", icon: CalendarClock },
-          { id: "access", label: "Access", icon: KeyRound },
-          { id: "knowledge", label: "Knowledge", icon: BookOpen },
-          { id: "rules", label: "Probation and rules", icon: ShieldCheck },
-          { id: "coaching", label: "Coaching", icon: GraduationCap, count: corrections || undefined, alert: deciding && data.canManage },
-          { id: "versions", label: "Versions", icon: HistoryIcon },
-        ]}
+          { id: "overview" as const, label: studio ? "Job" : "Overview", icon: studio ? BriefcaseBusiness : LayoutTemplate },
+          { id: "work" as const, label: "Work", icon: ListChecks, count: needsPerson || undefined, alert: needsPerson > 0 },
+          { id: "duties" as const, label: "Duties", icon: CalendarClock },
+          { id: "access" as const, label: "Access", icon: KeyRound },
+          { id: "knowledge" as const, label: "Knowledge", icon: BookOpen },
+          { id: "rules" as const, label: "Probation and rules", icon: ShieldCheck },
+          { id: "coaching" as const, label: "Coaching", icon: GraduationCap, count: corrections || undefined, alert: deciding && data.canManage },
+          { id: "versions" as const, label: "Versions", icon: HistoryIcon },
+        ].filter((t) => (studio ? STUDIO_TABS : OPERATIONS_TABS).includes(t.id))}
       />
 
-      {tab === "overview" && <Overview detail={data} tasks={taskRows} onTab={setTab} />}
+      {tab === "overview" && <Overview detail={data} tasks={taskRows} onTab={setTab} focus={studio ? "job" : "results"} />}
       {tab === "work" && <WorkTab detail={data} tasks={taskRows} loading={tasks.isLoading} />}
       {tab === "duties" && <DutiesTab detail={data} />}
       {tab === "access" && <AccessTab detail={data} />}
@@ -862,17 +931,17 @@ export default function AiEmployee() {
       {tab === "versions" && <VersionsTab detail={data} editing={editing} setEditing={setEditing} />}
 
       <div className="mt-8 flex flex-wrap items-center gap-2 border-t border-line pt-4">
-        {data.canManage && (
+        {studio && data.canManage && (
           <Button size="sm" variant="ghost" icon={FlaskConical} onClick={() => setTrying(true)}>
             Try it without changing anything
           </Button>
         )}
-        {definition.ui.layout !== "none" && (
-          <ButtonLink size="sm" variant="ghost" to={`/ai/${agent.slug}/app`} icon={ExternalLink}>
+        {!studio && definition.ui.layout !== "none" && (
+          <ButtonLink size="sm" variant="ghost" to={paths.aiScreen(agent.slug)} icon={ExternalLink}>
             Open its page
           </ButtonLink>
         )}
-        {data.canManage && (
+        {studio && data.canManage && (
           <Button
             size="sm"
             variant="ghost"
@@ -899,7 +968,7 @@ export default function AiEmployee() {
               variant="danger"
               icon={Trash}
               loading={remove.isPending}
-              onClick={() => remove.mutate(agent.slug, { onSuccess: () => navigate("/company") })}
+              onClick={() => remove.mutate(agent.slug, { onSuccess: () => navigate(paths.aiEmployees()) })}
             >
               Let go
             </Button>

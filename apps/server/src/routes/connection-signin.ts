@@ -60,7 +60,8 @@ export async function connectionSignInRoutes(app: FastifyInstance, ctx: AppConte
       .parse(request.query);
     const entry = pending.get(query.state);
     pending.delete(query.state);
-    const back = (params: Record<string, string>) => reply.redirect(`/settings/connections?${new URLSearchParams(params)}`);
+    // Back to Connections, in the Studio's settings.
+    const back = (params: Record<string, string>) => reply.redirect(`/studio/settings/connections?${new URLSearchParams(params)}`);
     if (!entry || entry.expiresAt < Date.now()) return back({ signin: "expired" });
     const viewer = viewerOf(request);
     if (!viewer.isAdmin || viewer.userId !== entry.userId) throw new HttpError(403, "The sign-in was started by someone else");

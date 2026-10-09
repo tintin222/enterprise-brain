@@ -37,6 +37,7 @@ import { ErrorState, LoadingBlock, Spinner } from "../../components/Spinner.tsx"
 import { Segmented } from "../../components/Tabs.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { formatDateTime } from "../../lib/format.ts";
+import { paths } from "../../lib/paths.ts";
 import { keys, useStudioThread } from "../../lib/queries.ts";
 import { useDocumentTitle } from "../../lib/title.ts";
 import { useToast } from "../../lib/toast.tsx";
@@ -94,7 +95,7 @@ function useStudioActions(id: string) {
     mutationFn: () => api.del(path(`/studio/threads/${id}`)),
     onSuccess: () => {
       void refresh();
-      navigate("/hire");
+      navigate(paths.home("studio"));
     },
     onError: (e) => toast.error(e),
   });
@@ -455,7 +456,7 @@ function EmployeeCard({ employee }: { employee: StudioEmployee }) {
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-fg">
             {atWork ? (
-              <Link to={`/ai/${employee.key}`} className="hover:underline">
+              <Link to={paths.ai(employee.key, "studio")} className="hover:underline">
                 {employee.name}
               </Link>
             ) : (
@@ -525,7 +526,7 @@ function SolutionPane({ view, actions }: { view: StudioThreadView; actions: Acti
                 {tables.map((t) => (
                   <div key={t.key} className="rounded-xl border border-line bg-surface p-4">
                     <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-fg">
-                      <Link to={`/tables/${t.key}`} className="hover:underline">
+                      <Link to={paths.table(t.key, "studio")} className="hover:underline">
                         {t.name}
                       </Link>
                       {t.draft && (
@@ -552,7 +553,7 @@ function SolutionPane({ view, actions }: { view: StudioThreadView; actions: Acti
                   <div key={a.key} className="rounded-xl border border-line bg-surface p-4">
                     <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-fg">
                       {a.made ? (
-                        <Link to={`/apps/${a.key}`} className="hover:underline">
+                        <Link to={paths.app(a.key, "studio")} className="hover:underline">
                           {a.name}
                         </Link>
                       ) : (
@@ -643,7 +644,7 @@ function ThreadScreen({ view }: { view: StudioThreadView }) {
     <div className="flex min-h-0 flex-1 flex-col lg:h-[calc(100dvh-3.5rem)] lg:flex-none lg:overflow-hidden">
       <div className="shrink-0 border-b border-line bg-surface px-4 py-3 sm:px-6">
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <Link to="/hire" className="-ml-1 rounded-lg p-1 text-muted hover:bg-subtle hover:text-fg" aria-label="Back to Hire">
+          <Link to={paths.home("studio")} className="-ml-1 rounded-lg p-1 text-muted hover:bg-subtle hover:text-fg" aria-label="Back to the Studio">
             <ArrowLeft className="size-5" />
           </Link>
           <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight text-fg">{view.title}</h1>
@@ -735,8 +736,8 @@ export default function StudioThreadPage() {
           title="This conversation isn't here"
           description="It may be someone else's, or it was thrown away."
           action={
-            <ButtonLink to="/hire" variant="primary">
-              Hire
+            <ButtonLink to={paths.home("studio")} variant="primary">
+              Studio home
             </ButtonLink>
           }
         />

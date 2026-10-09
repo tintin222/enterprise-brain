@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import { api } from "../../api.ts";
 import { useCompany } from "../../lib/company.tsx";
+import { paths, usePortal } from "../../lib/paths.ts";
 import { keys, useTables } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { CalculationProposal, CalculationSchedule, CalculationView } from "../../types.ts";
@@ -39,6 +40,7 @@ export function NewCalculationDialog({
   const { company, path } = useCompany();
   const toast = useToast();
   const navigate = useNavigate();
+  const portal = usePortal();
   const queryClient = useQueryClient();
   const tables = useTables();
   const { departments, companyWide } = useTableDepartments();
@@ -77,7 +79,7 @@ export function NewCalculationDialog({
       toast.success(`${calculation.name} is kept`);
       await queryClient.invalidateQueries({ queryKey: keys.calculations(company) });
       onClose();
-      navigate(`/calculations/${calculation.key}`);
+      navigate(paths.calculation(calculation.key, portal));
     },
   });
 

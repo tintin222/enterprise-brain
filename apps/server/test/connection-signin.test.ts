@@ -85,7 +85,7 @@ describe("signing a connection in", () => {
 
     const back = await t.app.inject({ url: `/api/connectors/oauth/callback?state=${params.state}&code=good-code`, headers: { cookie: mehmet } });
     expect(back.statusCode, back.body).toBe(302);
-    expect(back.headers.location).toBe(`/settings/connections?signin=ok&connection=${connectionId}`);
+    expect(back.headers.location).toBe(`/studio/settings/connections?signin=ok&connection=${connectionId}`);
     const exchange = tokenRequests.find((f) => f.get("grant_type") === "authorization_code")!;
     expect(Object.fromEntries(exchange)).toMatchObject({
       code: "good-code",
@@ -103,7 +103,7 @@ describe("signing a connection in", () => {
 
     // The state was used up: coming back twice doesn't work.
     const again = await t.app.inject({ url: `/api/connectors/oauth/callback?state=${params.state}&code=good-code`, headers: { cookie: mehmet } });
-    expect(again.headers.location).toBe("/settings/connections?signin=expired");
+    expect(again.headers.location).toBe("/studio/settings/connections?signin=expired");
     const audit = (await t.platform.activity.list(companyId, 20)).find((a) => a.action === "connector.signed_in");
     expect(audit).toMatchObject({ summary: "Signed Partner API in with OAuth 2.0" });
   });

@@ -1,11 +1,27 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Bot, Download, FileUp, Inbox, Plus, Save, Search, Settings2, Table2 } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowDown,
+  ArrowUp,
+  BriefcaseBusiness,
+  Bot,
+  Download,
+  FileUp,
+  Inbox,
+  Plus,
+  Save,
+  Search,
+  Settings2,
+  Table2,
+  WandSparkles,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router";
+import { Navigate, useNavigate, useParams, useSearchParams } from "react-router";
 import { api, downloadWithAuth } from "../../api.ts";
 import { Badge } from "../../components/Badge.tsx";
-import { Button } from "../../components/Button.tsx";
+import { Button, ButtonLink } from "../../components/Button.tsx";
 import { VersionsSection, WaitingNotes } from "../../components/Building.tsx";
 import { ChangeBox } from "../../components/ChangeBox.tsx";
 import { FillFromEmail } from "../../components/FillFromEmail.tsx";
@@ -21,6 +37,7 @@ import { designOf, draftOfDesign, TableDesigner, type DesignDraft } from "../../
 import { formatValue } from "../../components/tables/fields.ts";
 import { useCompany } from "../../lib/company.tsx";
 import { plural, timeAgo } from "../../lib/format.ts";
+import { paths, usePortal } from "../../lib/paths.ts";
 import { keys, useDepartments, useRecords, useTable } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { TableChangeProposal, TableField, TableSettings, TableView } from "../../types.ts";
@@ -30,10 +47,14 @@ const PAGE = 50;
 const COLUMNS = 7;
 const FILTERABLE: TableField["type"][] = ["choice", "yes_no", "person"];
 
-/** A table: its records found by words, filtered, sorted; each opens with its history. */
+/**
+ * A table: its records found by words, filtered, sorted; each opens with its history. In Operations
+ * people work in it; in the Studio its design opens (fields, who sees it, filling it from email).
+ */
 export default function TablePage() {
   const { key = "" } = useParams();
   const navigate = useNavigate();
+  const studio = usePortal() === "studio";
   const { company, path } = useCompany();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
@@ -50,11 +71,12 @@ export default function TablePage() {
   const [designing, setDesigning] = useState(false);
   const [filling, setFilling] = useState(false);
   const open = params.get("record");
-  // A change said in the one box: the table's design opens with it worked out.
+  // A change said in the one box: the table's design opens with it worked out. In the Studio it opens anyway.
   const asked = params.get("change");
+  const mayDesign = studio && Boolean(table.data?.can.design);
   useEffect(() => {
-    if (asked && table.data?.can.design) setDesigning(true);
-  }, [asked, table.data?.can.design]);
+    if (mayDesign) setDesigning(true);
+  }, [mayDesign, key]);
   const stopDesigning = () => {
     setDesigning(false);
     if (asked) {
@@ -83,6 +105,8 @@ export default function TablePage() {
       s.key === field ? { key: field, direction: s.direction === "asc" ? "desc" : "asc" } : { key: field, direction: field === "number" ? "desc" : "asc" },
     );
 
+  // Changes are made in the Studio.
+  if (!studio && asked) return <Navigate to={paths.table(key, "studio", { change: asked })} replace />;
   if (table.isLoading) return <LoadingBlock className="min-h-[50vh]" />;
   if (table.error || !view) {
     return (
@@ -99,49 +123,63 @@ export default function TablePage() {
       <PageHeader
         icon={Table2}
         eyebrow={
-          <button type="button" className="hover:text-fg" onClick={() => navigate("/apps")}>
+          <button type="button" className="hover:text-fg" onClick={() => navigate(paths.apps(studio ? "studio" : "operations"))}>
             Apps · {department ?? "A department"}
           </button>
         }
         title={view.name}
         description={view.description || undefined}
         actions={
-          <>
-            {view.can.hire && !view.archivedAt && (
-              <Button icon={Inbox} onClick={() => setFilling(true)}>
-                Fill it from email
+          studio ? (
+            <>
+              <ButtonLink to={paths.table(view.key, "operations")} icon={BriefcaseBusiness}>
+                Use it
+              </ButtonLink>
+              {view.can.hire && !view.archivedAt && (
+                <Button icon={Inbox} onClick={() => setFilling(true)}>
+                  Fill it from email
+                </Button>
+              )}
+              {view.can.design && (
+                <Button variant="primary" icon={Settings2} onClick={() => setDesigning(true)}>
+                  Change the table
+                </Button>
+              )}
+            </>
+          ) : (
+            <>
+              {(view.can.design || view.can.hire) && (
+                <ButtonLink to={paths.table(view.key, "studio")} icon={WandSparkles}>
+                  Change it in the Studio
+                </ButtonLink>
+              )}
+              <Button
+                icon={Download}
+                onClick={() =>
+                  void downloadWithAuth(path(`/tables/${encodeURIComponent(view.key)}/export`), `${view.name}.xlsx`).catch((e: unknown) => toast.error(e))
+                }
+              >
+                Excel
               </Button>
-            )}
-            {view.can.design && (
-              <Button icon={Settings2} onClick={() => setDesigning(true)}>
-                Change the table
-              </Button>
-            )}
-            <Button
-              icon={Download}
-              onClick={() =>
-                void downloadWithAuth(path(`/tables/${encodeURIComponent(view.key)}/export`), `${view.name}.xlsx`).catch((e: unknown) => toast.error(e))
-              }
-            >
-              Excel
-            </Button>
-            {view.can.edit && (
-              <Button icon={FileUp} onClick={() => setImporting(true)}>
-                Bring in a sheet
-              </Button>
-            )}
-            {view.can.edit && (
-              <Button variant="primary" icon={Plus} onClick={() => setAdding(true)} disabled={Boolean(view.archivedAt)}>
-                Add
-              </Button>
-            )}
-          </>
+              {view.can.edit && (
+                <Button icon={FileUp} onClick={() => setImporting(true)}>
+                  Bring in a sheet
+                </Button>
+              )}
+              {view.can.edit && (
+                <Button variant="primary" icon={Plus} onClick={() => setAdding(true)} disabled={Boolean(view.archivedAt)}>
+                  Add
+                </Button>
+              )}
+            </>
+          )
         }
       />
       <WaitingNotes reviews={view.reviews} personalWaiting={view.personal?.waiting} fieldLabel={(k) => view.fields.find((f) => f.key === k)?.label ?? k} />
       {view.archivedAt && (
         <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-400/10 dark:text-amber-200">
-          This table is archived: its records are kept, and nothing can be added. {view.can.design && "Bring it back from Change the table."}
+          This table is archived: its records are kept, and nothing can be added.{" "}
+          {view.can.design && (studio ? "Bring it back from Change the table." : "It can be brought back in the Studio.")}
         </p>
       )}
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -206,7 +244,11 @@ export default function TablePage() {
           title={`Nothing in ${view.name} yet`}
           description="Add the first record, bring in a sheet you already keep, or let an AI employee file into it."
           action={
-            view.can.edit ? (
+            studio ? (
+              <ButtonLink to={paths.table(view.key, "operations")} variant="primary" icon={BriefcaseBusiness}>
+                Use it
+              </ButtonLink>
+            ) : view.can.edit ? (
               <>
                 <Button variant="primary" icon={Plus} onClick={() => setAdding(true)}>
                   Add
@@ -300,7 +342,7 @@ export default function TablePage() {
       <RecordDrawer table={view} recordNumber={open ? Number(open) : null} onClose={() => openRecord(null)} />
       {view.can.edit && <NewRecordDialog table={view} open={adding} onClose={() => setAdding(false)} />}
       {view.can.edit && <ImportDialog table={view} open={importing} onClose={() => setImporting(false)} />}
-      {view.can.hire && (
+      {studio && view.can.hire && (
         <Dialog
           open={filling}
           onClose={() => setFilling(false)}
@@ -311,7 +353,7 @@ export default function TablePage() {
           <FillFromEmail table={{ key: view.key, name: view.name }} onDone={() => setFilling(false)} />
         </Dialog>
       )}
-      {view.can.design && <DesignDrawer table={view} open={designing} onClose={stopDesigning} company={company} initialChange={asked ?? undefined} />}
+      {studio && view.can.design && <DesignDrawer table={view} open={designing} onClose={stopDesigning} company={company} initialChange={asked ?? undefined} />}
     </Page>
   );
 }

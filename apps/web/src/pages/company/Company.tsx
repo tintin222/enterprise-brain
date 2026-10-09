@@ -9,7 +9,8 @@ import { EmptyState } from "../../components/EmptyState.tsx";
 import { PROBATION } from "../../components/Employment.tsx";
 import { Page } from "../../components/Layout.tsx";
 import { ErrorState, Skeleton } from "../../components/Spinner.tsx";
-import { useViewer } from "../../lib/auth.tsx";
+import { useIsManager, useViewer } from "../../lib/auth.tsx";
+import { paths } from "../../lib/paths.ts";
 import { initials } from "../../lib/format.ts";
 import { namedIcon } from "../../lib/icons.tsx";
 import { useAgents, useDepartments, usePeople } from "../../lib/queries.ts";
@@ -32,11 +33,12 @@ function PersonRow({ person, role }: { person: Person; role?: string }) {
   );
 }
 
-function AiRow({ agent, manager }: { agent: AgentRow; manager?: string }) {
+/** An AI employee in a list: its results page in Operations, or (with `to`) its design in the Studio. */
+export function AiRow({ agent, manager, to }: { agent: AgentRow; manager?: string; to?: string }) {
   const probation = agent.probation ? PROBATION[agent.probation].label : null;
   return (
     <li>
-      <Link to={`/ai/${agent.slug}`} className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-subtle/70">
+      <Link to={to ?? paths.ai(agent.slug, "operations")} className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-subtle/70">
         <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-400/15 dark:text-brand-300">
           <Bot className="size-4" />
         </span>
@@ -69,7 +71,7 @@ export default function Company() {
   const personName = new Map((people.data ?? []).map((p) => [p.id, p.name]));
   const live = (agents.data ?? []).filter((a) => a.status !== "archived");
   const companyWide = live.filter((a) => !a.departmentId);
-  const isManager = !viewer || viewer.isAdmin || viewer.departments.some((d) => d.role === "manager");
+  const isManager = useIsManager();
   const mine = new Set(viewer?.departments.map((d) => d.id) ?? []);
   const sorted = [...(departments.data ?? [])].sort((a, b) => Number(mine.has(b.id)) - Number(mine.has(a.id)) || a.name.localeCompare(b.name));
   const loading = departments.isLoading || agents.isLoading;
@@ -79,22 +81,22 @@ export default function Company() {
       <PageHeader
         icon={Building2}
         title="Company"
-        description="Departments, with their people and AI employees. Open an AI employee to see its work, duties and rules."
+        description="Departments, with their people and AI employees. Open an AI employee to see its work; how it is set up is in the Studio."
         actions={
           <>
             {viewer?.isAdmin && (
-              <ButtonLink to="/settings/people" icon={Users}>
+              <ButtonLink to={paths.settings("people")} icon={Users}>
                 People and roles
               </ButtonLink>
             )}
             {isManager && (
-              <ButtonLink to="/company/performance" icon={Gauge}>
+              <ButtonLink to={paths.performance()} icon={Gauge}>
                 Performance
               </ButtonLink>
             )}
             {isManager && (
-              <ButtonLink to="/hire" variant="primary" icon={UserPlus}>
-                Hire an AI employee
+              <ButtonLink to={paths.home("studio")} variant="primary" icon={UserPlus}>
+                Hire in the Studio
               </ButtonLink>
             )}
           </>
@@ -115,7 +117,7 @@ export default function Company() {
           description="Add a ready-made department to get its processes and AI employees in one step, then add its people."
           action={
             isManager ? (
-              <ButtonLink to="/hire/ready-made" variant="primary">
+              <ButtonLink to={paths.readyMade()} variant="primary">
                 Ready-made departments
               </ButtonLink>
             ) : undefined

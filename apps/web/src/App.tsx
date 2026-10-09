@@ -2,10 +2,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, Suspense } from "react";
 import { createBrowserRouter, Navigate, Outlet, RouterProvider, useLocation, useParams } from "react-router";
 import { isApiError } from "./api.ts";
+import { ForManagers } from "./components/ForManagers.tsx";
 import { AppShell } from "./components/Layout.tsx";
 import { LoadingBlock } from "./components/Spinner.tsx";
 import { AuthGate } from "./lib/auth.tsx";
 import { CompanyProvider } from "./lib/company.tsx";
+import { MOVED, movedTo, paths } from "./lib/paths.ts";
 import { ToastProvider } from "./lib/toast.tsx";
 import { RouteError } from "./pages/RouteError.tsx";
 
@@ -19,7 +21,9 @@ const BrainMap = lazy(() => import("./pages/brain/BrainMap.tsx"));
 const BrainSources = lazy(() => import("./pages/brain/BrainSources.tsx"));
 const Performance = lazy(() => import("./pages/company/Performance.tsx"));
 const AiEmployee = lazy(() => import("./pages/ai/AiEmployee.tsx"));
-const Hire = lazy(() => import("./pages/hire/Hire.tsx"));
+const StudioHome = lazy(() => import("./pages/studio/StudioHome.tsx"));
+const StudioStartPage = lazy(() => import("./pages/studio/StudioStartPage.tsx"));
+const StudioAiEmployees = lazy(() => import("./pages/studio/AiEmployees.tsx"));
 const BuilderNew = lazy(() => import("./pages/builder/BuilderNew.tsx"));
 const BuilderSession = lazy(() => import("./pages/builder/BuilderSession.tsx"));
 const StudioThread = lazy(() => import("./pages/studio/StudioThread.tsx"));
@@ -62,38 +66,18 @@ const queryClient = new QueryClient({
   },
 });
 
-/** Old address → where it lives now (":name" carries a route parameter over). */
-const MOVED: Record<string, string> = {
-  agents: "/company",
-  "agents/:slug": "/ai/:slug",
-  departments: "/company",
-  builder: "/hire",
-  "builder/new": "/hire/studio/new",
-  "builder/:id": "/hire/studio/:id",
-  catalog: "/hire/ready-made",
-  "catalog/departments/:id": "/hire/ready-made/:id",
-  approvals: "/work",
-  runs: "/work?view=tasks",
-  connectors: "/settings/connections",
-  knowledge: "/settings/knowledge",
-  people: "/settings/people",
-  inbox: "/mail",
-  "settings/mailboxes": "/mail",
-  activity: "/settings/audit",
-  paperclip: "/settings/paperclip",
-  assistant: "/chat",
-  "brain/ask": "/chat/for/ai_employee/company-brain",
-};
-
 /** Sends an old address to its new place, keeping its parameters, query and hash. */
 function Moved({ to }: { to: string }) {
   const params = useParams();
   const location = useLocation();
-  const [base = "/", query = ""] = to.replace(/:(\w+)/g, (_, key: string) => encodeURIComponent(params[key] ?? "")).split("?");
-  const search = new URLSearchParams(query);
-  new URLSearchParams(location.search).forEach((value, key) => search.set(key, value));
-  const rest = search.toString();
-  return <Navigate to={`${base}${rest ? `?${rest}` : ""}${location.hash}`} replace />;
+  return <Navigate to={movedTo(to, params, location.search, location.hash)} replace />;
+}
+
+/** The Studio agent's conversations used to live at /studio/<id>: those links still open them. */
+function OldStudioThread() {
+  const { id = "" } = useParams();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) return <NotFound />;
+  return <Navigate to={paths.studioConversation(id)} replace />;
 }
 
 /** Providers that need the router (toasts render <Link>s). */
@@ -148,63 +132,93 @@ const router = createBrowserRouter([
         ),
       },
       {
+        // Operations at the root; the Studio under /studio. One sign-in, one shell that knows which portal it shows.
         path: "/",
         element: <Console />,
         errorElement: <RouteError />,
         children: [
           { index: true, element: <Home /> },
-          { path: "company", element: <Company /> },
-          { path: "company/performance", element: <Performance /> },
-          {
-            path: "brain",
-            element: <BrainLayout />,
-            children: [
-              { index: true, element: <BrainHome /> },
-              { path: "k/:kind", element: <BrainList /> },
-              { path: "e/:id", element: <BrainEntityPage /> },
-              { path: "map", element: <BrainMap /> },
-              { path: "sources", element: <BrainSources /> },
-            ],
-          },
-          { path: "ai/:slug", element: <AiEmployee /> },
-          { path: "hire", element: <Hire /> },
-          { path: "hire/studio/new", element: <BuilderNew /> },
-          { path: "hire/studio/:id", element: <BuilderSession /> },
-          { path: "studio/:id", element: <StudioThread /> },
-          { path: "hire/ready-made", element: <Catalog /> },
-          { path: "hire/ready-made/:id", element: <DepartmentDetail /> },
+          { path: "chat", element: <Chat /> },
+          { path: "chat/:id", element: <Chat /> },
+          { path: "chat/for/:kind/:about", element: <Chat /> },
           { path: "work", element: <Work /> },
           { path: "work/:ref", element: <TaskPage /> },
           { path: "mail", element: <Inbox /> },
           { path: "apps", element: <Apps /> },
+          { path: "apps/:key", element: <AppPage /> },
           { path: "tables/:key", element: <TablePage /> },
           { path: "calculations/:key", element: <CalculationPage /> },
-          {
-            path: "settings",
-            element: <SettingsLayout />,
-            children: [
-              { path: "connections", element: <Connectors /> },
-              { path: "channels", element: <Channels /> },
-              { path: "knowledge", element: <Knowledge /> },
-              { path: "people", element: <People /> },
-              { path: "costs", element: <Costs /> },
-              { path: "building", element: <Building /> },
-              { path: "audit", element: <ActivityPage /> },
-              { path: "installation", element: <Installation /> },
-              { path: "paperclip", element: <Paperclip /> },
-            ],
-          },
+          { path: "company", element: <Company /> },
+          { path: "company/performance", element: <Performance /> },
+          { path: "ai/:slug", element: <AiEmployee /> },
           { path: "ai/:slug/app", element: <AgentApp /> },
-          { path: "apps/:key", element: <AppPage /> },
           { path: "runs/:id", element: <RunDetail /> },
-          { path: "chat", element: <Chat /> },
-          { path: "chat/:id", element: <Chat /> },
-          { path: "chat/for/:kind/:about", element: <Chat /> },
           { path: "search", element: <Search /> },
           { path: "documents", element: <UseCaseApp kind="documents" /> },
           { path: "excel", element: <UseCaseApp kind="excel" /> },
-          // Addresses from before the five places keep working.
-          ...Object.entries(MOVED).map(([path, to]) => ({ path, element: <Moved to={to} /> })),
+          {
+            path: "studio",
+            children: [
+              { index: true, element: <StudioHome /> },
+              { path: "ai", element: <StudioAiEmployees /> },
+              { path: "ai/:slug", element: <AiEmployee /> },
+              {
+                path: "brain",
+                element: <BrainLayout />,
+                children: [
+                  { index: true, element: <BrainHome /> },
+                  { path: "k/:kind", element: <BrainList /> },
+                  { path: "e/:id", element: <BrainEntityPage /> },
+                  { path: "map", element: <BrainMap /> },
+                  { path: "sources", element: <BrainSources /> },
+                ],
+              },
+              { path: "apps", element: <Apps /> },
+              { path: "apps/:key", element: <AppPage /> },
+              { path: "tables/:key", element: <TablePage /> },
+              { path: "calculations/:key", element: <CalculationPage /> },
+              { path: "ready-made", element: <Catalog /> },
+              { path: "ready-made/:id", element: <DepartmentDetail /> },
+              {
+                path: "conversations/new",
+                element: (
+                  <ForManagers>
+                    <StudioStartPage />
+                  </ForManagers>
+                ),
+              },
+              { path: "conversations/:id", element: <StudioThread /> },
+              {
+                path: "interviews/new",
+                element: (
+                  <ForManagers>
+                    <BuilderNew />
+                  </ForManagers>
+                ),
+              },
+              { path: "interviews/:id", element: <BuilderSession /> },
+              {
+                path: "settings",
+                element: <SettingsLayout />,
+                children: [
+                  { path: "connections", element: <Connectors /> },
+                  { path: "channels", element: <Channels /> },
+                  { path: "knowledge", element: <Knowledge /> },
+                  { path: "people", element: <People /> },
+                  { path: "costs", element: <Costs /> },
+                  { path: "building", element: <Building /> },
+                  { path: "audit", element: <ActivityPage /> },
+                  { path: "installation", element: <Installation /> },
+                  { path: "paperclip", element: <Paperclip /> },
+                ],
+              },
+              { path: "search", element: <Search /> },
+              // Fixed addresses above win over this one (react-router ranks them higher).
+              { path: ":id", element: <OldStudioThread /> },
+            ],
+          },
+          // Addresses from before the two portals keep working.
+          ...MOVED.map(([path, to]) => ({ path, element: <Moved to={to} /> })),
           { path: "*", element: <NotFound /> },
         ],
       },

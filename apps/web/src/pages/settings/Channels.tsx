@@ -13,6 +13,7 @@ import { Page } from "../../components/Layout.tsx";
 import { Callout, ErrorState, LoadingBlock } from "../../components/Spinner.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { timeAgo } from "../../lib/format.ts";
+import { paths } from "../../lib/paths.ts";
 
 interface ChannelAccount {
   name: string | null;
@@ -193,12 +194,12 @@ export default function Channels() {
                 {teams.connected ? (
                   <p className="text-xs">
                     App ID <span className="font-mono">{teams.appId ?? "—"}</span> ·{" "}
-                    <Link to="/settings/connections" className="text-brand-600 hover:underline dark:text-brand-300">
+                    <Link to={paths.settings("connections")} className="text-brand-600 hover:underline dark:text-brand-300">
                       change it in Connections
                     </Link>
                   </p>
                 ) : (
-                  <ButtonLink to="/settings/connections?connect=microsoft-teams" variant="primary" size="sm" icon={PlugZap}>
+                  <ButtonLink to={paths.settings("connections", { connect: "microsoft-teams" })} variant="primary" size="sm" icon={PlugZap}>
                     Connect Teams
                   </ButtonLink>
                 )}
@@ -271,12 +272,12 @@ export default function Channels() {
                   <p className="text-xs">
                     Writes as <span className="font-mono">{chat.serviceAccount ?? "—"}</span>
                     {chat.allowedDomains.length ? ` · for ${chat.allowedDomains.join(", ")}` : ""} ·{" "}
-                    <Link to="/settings/connections" className="text-brand-600 hover:underline dark:text-brand-300">
+                    <Link to={paths.settings("connections")} className="text-brand-600 hover:underline dark:text-brand-300">
                       change it in Connections
                     </Link>
                   </p>
                 ) : (
-                  <ButtonLink to="/settings/connections?connect=google-chat" variant="primary" size="sm" icon={PlugZap}>
+                  <ButtonLink to={paths.settings("connections", { connect: "google-chat" })} variant="primary" size="sm" icon={PlugZap}>
                     Connect Google Chat
                   </ButtonLink>
                 )}

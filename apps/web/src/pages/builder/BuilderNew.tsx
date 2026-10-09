@@ -13,6 +13,7 @@ import { Segmented } from "../../components/Tabs.tsx";
 import { useViewer } from "../../lib/auth.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { LANGUAGES } from "../../lib/labels.ts";
+import { paths } from "../../lib/paths.ts";
 import { keys } from "../../lib/queries.ts";
 import { readJson, writeJson } from "../../lib/storage.ts";
 import { useToast } from "../../lib/toast.tsx";
@@ -133,7 +134,7 @@ export default function BuilderNew() {
     onSuccess: (view) => {
       queryClient.setQueryData(keys.session(company, view.session.id), view);
       void queryClient.invalidateQueries({ queryKey: keys.builder(company) });
-      navigate(`/hire/studio/${view.session.id}`);
+      navigate(paths.interview(view.session.id));
     },
     onError: (error) => toast.error(error),
   });
@@ -166,7 +167,7 @@ export default function BuilderNew() {
       {templateId && template.data && (
         <Callout tone="brand" icon={LibraryBig} className="mb-6" title={`Starting from the “${template.data.name}” template`}>
           The analyst will adapt it to your process instead of starting from scratch.{" "}
-          <Link to="/hire/ready-made?tab=agents" className="font-medium underline">
+          <Link to={paths.readyMade(undefined, { tab: "agents" })} className="font-medium underline">
             Browse other templates
           </Link>
         </Callout>

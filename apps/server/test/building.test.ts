@@ -170,7 +170,7 @@ describe("the rules for building", () => {
   it("gives IT everything built, with its owner, and what waits", async () => {
     expect((await call(zeynep, "GET", "/built")).statusCode).toBe(403);
     const built = (await call(mehmet, "GET", "/built")).json() as {
-      items: { type: string; name: string; owner: string; personal: { label: string; approved: boolean }[]; shared: boolean }[];
+      items: { type: string; key: string; name: string; owner: string; personal: { label: string; approved: boolean }[]; shared: boolean; link: string }[];
       reviews: unknown[];
     };
     expect(built.items.filter((i) => i.type === "table").map((i) => [i.name, i.owner])).toEqual(
@@ -182,6 +182,10 @@ describe("the rules for building", () => {
     );
     expect(built.items.find((i) => i.name === "Visitors")!.personal).toEqual([{ label: "Email", approved: true }]);
     expect(built.items.some((i) => i.type === "ai-employee" && i.name === "Mail Triage")).toBe(true);
+    // Each opens where it is changed: in the Studio.
+    expect(built.items.find((i) => i.name === "Complaints")!.link).toBe("/studio/tables/complaints");
+    const triage = built.items.find((i) => i.type === "ai-employee" && i.name === "Mail Triage")!;
+    expect(triage.link).toBe(`/studio/ai/${triage.key}`);
   });
 });
 

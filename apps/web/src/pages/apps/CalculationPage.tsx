@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Archive, ArchiveRestore, Calculator, CircleAlert, CircleCheck, Play, Table2 } from "lucide-react";
+import { Archive, ArchiveRestore, BriefcaseBusiness, Calculator, CircleAlert, CircleCheck, Play, Table2, WandSparkles } from "lucide-react";
 import { useState } from "react";
-import { useParams, useSearchParams } from "react-router";
+import { Navigate, useParams, useSearchParams } from "react-router";
 import { api } from "../../api.ts";
 import { Badge } from "../../components/Badge.tsx";
 import { Button, ButtonLink } from "../../components/Button.tsx";
@@ -15,13 +15,19 @@ import { Page } from "../../components/Layout.tsx";
 import { ErrorState, LoadingBlock } from "../../components/Spinner.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { formatDateTime, formatDuration, timeAgo } from "../../lib/format.ts";
+import { paths, usePortal } from "../../lib/paths.ts";
 import { keys, useCalculation, useDepartments, useTables } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { CalculationChangeProposal, CalculationRun, CalculationSchedule, CalculationView } from "../../types.ts";
 
-/** A calculation: the rule, how it works, its latest result and every run; IT also sees the code. */
+/**
+ * A calculation: the rule, how it works, its latest result and every run. In Operations people read and
+ * work it out; in the Studio they change its rule and when it runs, and IT also sees the code.
+ */
 export default function CalculationPage() {
   const { key = "" } = useParams();
+  const portal = usePortal();
+  const studio = portal === "studio";
   const { company, path } = useCompany();
   const toast = useToast();
   const queryClient = useQueryClient();
@@ -57,6 +63,8 @@ export default function CalculationPage() {
     onError: (e) => toast.error(e),
   });
 
+  // Changes are made in the Studio.
+  if (!studio && asked) return <Navigate to={paths.calculation(key, "studio", { change: asked })} replace />;
   if (detail.isLoading) return <LoadingBlock className="min-h-[50vh]" />;
   if (detail.error || !detail.data) {
     return (
@@ -80,10 +88,21 @@ export default function CalculationPage() {
         actions={
           <>
             {tableNames.map((t) => (
-              <ButtonLink key={t.key} to={`/tables/${t.key}`} icon={Table2} variant="ghost" size="sm">
+              <ButtonLink key={t.key} to={paths.table(t.key, portal)} icon={Table2} variant="ghost" size="sm">
                 {t.name}
               </ButtonLink>
             ))}
+            {studio ? (
+              <ButtonLink to={paths.calculation(calculation.key, "operations")} icon={BriefcaseBusiness}>
+                Use it
+              </ButtonLink>
+            ) : (
+              calculation.can.design && (
+                <ButtonLink to={paths.calculation(calculation.key, "studio")} icon={WandSparkles}>
+                  Change it in the Studio
+                </ButtonLink>
+              )
+            )}
             <Button variant="primary" icon={Play} loading={run.isPending} disabled={Boolean(calculation.archivedAt)} onClick={() => run.mutate()}>
               Work it out now
             </Button>
@@ -109,7 +128,7 @@ export default function CalculationPage() {
               {current?.status === "succeeded" && <ResultView output={calculation.output} result={current.result} />}
             </div>
           </Card>
-          {calculation.can.design && (
+          {studio && calculation.can.design && (
             <ChangeBox<CalculationChangeProposal>
               initial={asked}
               title="Change the rule in plain words"
@@ -154,12 +173,14 @@ export default function CalculationPage() {
               onApplied={() => void run.mutateAsync()}
             />
           )}
-          <VersionsSection
-            path={`/calculations/${encodeURIComponent(key)}`}
-            canRestore={calculation.can.design}
-            onRestored={() => void refresh().then(() => run.mutateAsync())}
-          />
-          {detail.data.code && (
+          {studio && (
+            <VersionsSection
+              path={`/calculations/${encodeURIComponent(key)}`}
+              canRestore={calculation.can.design}
+              onRestored={() => void refresh().then(() => run.mutateAsync())}
+            />
+          )}
+          {studio && detail.data.code && (
             <details className="rounded-xl border border-line bg-subtle/40 p-4 text-sm">
               <summary className="cursor-pointer font-medium text-muted">The code the Studio wrote (IT)</summary>
               <pre className="mt-3 overflow-x-auto text-xs text-fg">{detail.data.code}</pre>
@@ -172,7 +193,7 @@ export default function CalculationPage() {
             <select
               className="input"
               value={calculation.schedule ?? ""}
-              disabled={!calculation.can.design || change.isPending}
+              disabled={!studio || !calculation.can.design || change.isPending}
               onChange={(e) => change.mutate({ schedule: (e.target.value || null) as CalculationSchedule | null })}
               aria-label="When it runs"
             >
@@ -183,7 +204,7 @@ export default function CalculationPage() {
               ))}
             </select>
             <p className="hint">In the company's time zone. Every run is kept below.</p>
-            {calculation.can.design && (
+            {studio && calculation.can.design && (
               <Button
                 className="mt-3"
                 size="sm"

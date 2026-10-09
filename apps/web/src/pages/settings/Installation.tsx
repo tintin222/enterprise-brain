@@ -13,6 +13,7 @@ import { Page } from "../../components/Layout.tsx";
 import { Callout } from "../../components/Spinner.tsx";
 import { Segmented } from "../../components/Tabs.tsx";
 import { useCompany } from "../../lib/company.tsx";
+import { paths } from "../../lib/paths.ts";
 import { useTheme } from "../../lib/theme.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { Company } from "../../types.ts";
@@ -222,7 +223,7 @@ export default function Installation() {
             {accounts ? (
               <Callout tone="info" title="People sign in with their own accounts">
                 Add colleagues and set up Microsoft or Google sign-in on the{" "}
-                <Link to="/settings/people" className="font-medium underline">
+                <Link to={paths.settings("people")} className="font-medium underline">
                   People and roles
                 </Link>
                 . Machines (the MCP endpoint, scripts) send the server's EB_API_KEY as <code>Authorization: Bearer …</code>.

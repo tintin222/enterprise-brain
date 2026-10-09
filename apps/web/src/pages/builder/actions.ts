@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "../../api.ts";
 import { useCompany } from "../../lib/company.tsx";
+import { paths } from "../../lib/paths.ts";
 import { keys } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { ReplyAnswer, SessionView, StakeholderRequest } from "../../types.ts";
@@ -98,7 +99,7 @@ export function useSessionActions(sessionId: string) {
       void queryClient.invalidateQueries({ queryKey: keys.agents(company) });
       toast.success(
         `${view.agent?.name ?? "Your AI employee"} is at work`,
-        view.agent ? { link: { to: `/ai/${view.agent.slug}`, label: "Open its page" } } : undefined,
+        view.agent ? { link: { to: paths.ai(view.agent.slug, "studio"), label: "Open its page" } } : undefined,
       );
     },
     onError,
