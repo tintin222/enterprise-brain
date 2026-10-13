@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
+import { COMPANY_TOOLS, runCompanyTool } from "@enterprise-brain/brain";
 import { operationToolName } from "@enterprise-brain/connectors";
 import type { CompanyRow } from "@enterprise-brain/runtime";
 import type { AppContext } from "../context.ts";
@@ -95,6 +96,22 @@ async function toolsFor(ctx: AppContext, company: CompanyRow): Promise<McpTool[]
     },
   ];
 
+  // The company brain, as Claude Code reads it from a development package: the two tools the Studio uses most.
+  const companyText = async (name: string, args: Record<string, unknown>) => {
+    const result = await runCompanyTool(platform.brain, company.id, name, args);
+    if (result.isError) throw new Error(result.content);
+    return result.content;
+  };
+  for (const tool of COMPANY_TOOLS.filter((t) => t.name === "company_search" || t.name === "company_open")) {
+    tools.push({
+      name: tool.name,
+      description: tool.description,
+      inputSchema: tool.inputSchema as Record<string, unknown>,
+      annotations: { readOnlyHint: true, title: tool.name === "company_search" ? "Search the company brain" : "Open a thing of the company brain" },
+      run: (args) => companyText(tool.name, args),
+    });
+  }
+
   const instances = await platform.connectors.list(company.id);
   const types = new Set([...instances.map((i) => i.type), ...platform.connectors.catalog().filter((m) => m.maturity === "sandbox").map((m) => m.type)]);
   for (const type of types) {
@@ -128,7 +145,8 @@ export async function mcpRoutes(app: FastifyInstance, ctx: AppContext) {
       if (!tool) return { content: [{ type: "text", text: `Unknown tool ${call.params.name}` }], isError: true };
       try {
         const result = await tool.run((call.params.arguments ?? {}) as Record<string, unknown>);
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
+        // The brain's tools answer in words; the rest in JSON.
+        return { content: [{ type: "text", text: typeof result === "string" ? result : JSON.stringify(result, null, 2) }] };
       } catch (error) {
         return { content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }], isError: true };
       }

@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Brain, CircleCheck, FolderKanban, Hash, Layers, LayoutDashboard, Pencil, Trash2, WandSparkles } from "lucide-react";
+import { Brain, CircleCheck, FolderKanban, Hash, Layers, LayoutDashboard, Package, Pencil, Trash2, WandSparkles } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { api } from "../../api.ts";
@@ -19,10 +19,11 @@ import type { ProjectStatus, ProjectView } from "../../types.ts";
 import { AssetsTab } from "./AssetsTab.tsx";
 import { DesignsTab } from "./DesignsTab.tsx";
 import { OverviewTab } from "./OverviewTab.tsx";
+import { PackageTab } from "./PackageTab.tsx";
 import { PROJECT_STATUSES, STATUS_LABELS, STATUS_TONES } from "./shared.tsx";
 import { TasksTab } from "./TasksTab.tsx";
 
-type Tab = "overview" | "assets" | "designs" | "tasks";
+type Tab = "overview" | "assets" | "designs" | "tasks" | "package";
 
 function ChangeDialog({ project, open, onClose }: { project: ProjectView; open: boolean; onClose: () => void }) {
   const { company, path } = useCompany();
@@ -199,12 +200,14 @@ export default function ProjectPage() {
           { id: "assets", label: "Assets", icon: Layers, count: data.counts.assets || undefined },
           { id: "designs", label: "Designs", icon: WandSparkles, count: data.counts.designs || undefined },
           { id: "tasks", label: "Tasks", icon: CircleCheck, count: todos.data?.length || undefined, alert: Boolean(todos.data?.length) },
+          { id: "package", label: "Package", icon: Package },
         ]}
       />
       {tab === "overview" && <OverviewTab project={data} onTab={setTab} />}
       {tab === "assets" && <AssetsTab project={data} />}
       {tab === "designs" && <DesignsTab project={data} />}
       {tab === "tasks" && <TasksTab project={data} />}
+      {tab === "package" && <PackageTab project={data} />}
       {changing && <ChangeDialog project={data} open onClose={() => setChanging(false)} />}
       <RemoveDialog project={data} open={removing} onClose={() => setRemoving(false)} />
     </Page>

@@ -19,6 +19,7 @@ import type {
   Mailbox,
   PerformanceReport,
   Person,
+  DevPackagePreview,
   ProjectAsset,
   ProjectDesigns,
   ProjectStatus,
@@ -514,6 +515,17 @@ export function useProjectDesigns(id: string | undefined) {
     queryKey: [...keys.project(company, id ?? ""), "designs"],
     queryFn: () => api.get<ProjectDesigns>(path(`/projects/${encodeURIComponent(id ?? "")}/designs`)),
     enabled: Boolean(id),
+  });
+}
+
+/** What a project's development package would hold now (built on each read; nothing is kept). */
+export function useProjectPackage(id: string | undefined, options: { enabled?: boolean } = {}) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.project(company, id ?? ""), "package"],
+    queryFn: () => api.get<DevPackagePreview>(path(`/projects/${encodeURIComponent(id ?? "")}/package`)),
+    enabled: Boolean(id) && (options.enabled ?? true),
+    staleTime: 30_000,
   });
 }
 

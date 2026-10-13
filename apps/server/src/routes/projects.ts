@@ -11,8 +11,10 @@ import {
   type TodoRow,
 } from "@enterprise-brain/runtime";
 import { actorOfViewer } from "../auth/conversations.ts";
-import { canEditProject, canSeeDepartment, requirePerson, viewerOf, type Viewer } from "../auth/viewer.ts";
+import JSZip from "jszip";
+import { canEditProject, canSeeAsset, canSeeDepartment, requirePerson, viewerOf, type Viewer } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
+import { buildDevPackage } from "../dev-package.ts";
 import { HttpError, companyOf, readMultipart } from "../http.ts";
 import { StudioService } from "../studio/service.ts";
 import { mayOpenInterview } from "./builder.ts";
@@ -36,11 +38,6 @@ const TodoBody = z.object({ title: z.string().trim().min(1).max(300), details: z
 /** How the viewer acts on projects: as they take part in conversations, with their account and email. */
 export function projectActor(viewer: Viewer): ProjectActor {
   return { actor: actorOfViewer(viewer), userId: viewer.userId, email: viewer.email };
-}
-
-/** Who sees an asset: everyone when it is company-wide or shared with the company; else its department's people. */
-export function canSeeAsset(viewer: Viewer, asset: { departmentId: string | null; shared: boolean }): boolean {
-  return asset.shared || canSeeDepartment(viewer, asset.departmentId);
 }
 
 /** A project as its page shows it: its summary and counts, who owns it, its thing and its channel, and what the viewer may do. */
@@ -204,6 +201,41 @@ export async function projectRoutes(app: FastifyInstance, ctx: AppContext) {
       await platform.projects.attachDesign(company.id, project.id, { kind: body.kind, id: body.id });
     }
     return { attached: true };
+  });
+
+  // ---------------------------------------------------------------------------
+  // The development package
+
+  /** What the package holds, folder by folder; `?text=1` adds the text of each small text file (tests, previews). */
+  app.get(`${base}/:ref/package`, async (request) => {
+    const company = await companyOf(platform, request);
+    const viewer = viewerOf(request);
+    const project = await projectOf(request, company.id);
+    const { text } = z.object({ text: z.enum(["1"]).optional() }).parse(request.query);
+    const built = await buildDevPackage(ctx, viewer, company, project);
+    return {
+      summary: built.summary,
+      files: Object.entries(built.files).map(([path, content]) => ({
+        path,
+        bytes: Buffer.byteLength(content),
+        ...(text && typeof content === "string" && content.length <= 20_000 ? { text: content } : {}),
+      })),
+    };
+  });
+
+  /** The package as a zip, under a folder named after the project; the project remembers the export. */
+  app.get(`${base}/:ref/package.zip`, async (request, reply) => {
+    const company = await companyOf(platform, request);
+    const viewer = viewerOf(request);
+    const project = await projectOf(request, company.id);
+    const built = await buildDevPackage(ctx, viewer, company, project);
+    const zip = new JSZip();
+    const root = zip.folder(project.slug)!;
+    for (const [path, content] of Object.entries(built.files)) root.file(path, content);
+    const data = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+    await platform.projects.recordExport(company.id, project.id, projectActor(viewer), Object.keys(built.files).length);
+    reply.header("content-type", "application/zip").header("content-disposition", `attachment; filename="${project.slug}-dev-package.zip"`);
+    return reply.send(data);
   });
 
   // ---------------------------------------------------------------------------

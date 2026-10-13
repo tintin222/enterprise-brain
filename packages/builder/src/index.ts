@@ -18,3 +18,4 @@ export * from "./changes.ts";
 export * from "./needs.ts";
 export * from "./intake.ts";
 export * from "./studio-agent.ts";
+export * from "./dev-package.ts";

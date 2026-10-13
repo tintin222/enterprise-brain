@@ -2512,6 +2512,22 @@ export interface ProjectDesigns {
   agents: { id: string; slug: string; name: string; status: string; departmentId: string | null; from: "studio" | "interview" | "attached" }[];
 }
 
+/** What a project's development package holds, folder by folder. */
+export interface DevPackageSummary {
+  folders: { folder: string; what: string; files: number }[];
+  files: number;
+  bytes: number;
+  agents: { slug: string; name: string; source: "studio" | "interview" | "attached" }[];
+  warnings: string[];
+  mcpUrl: string;
+  exportedAt: string;
+}
+
+export interface DevPackagePreview {
+  summary: DevPackageSummary;
+  files: { path: string; bytes: number; text?: string }[];
+}
+
 export type TodoStatus = "open" | "done" | "dismissed";
 /** manual: written by hand · mail: from the person's mail · studio: the Studio agent asked for it · project: added on a project's page */
 export type TodoSource = "manual" | "mail" | "studio" | "project";

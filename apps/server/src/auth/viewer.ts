@@ -116,6 +116,11 @@ export function canEditProject(viewer: Viewer, project: { ownerUserId: string | 
   return viewer.departments.some((d) => d.role === "manager");
 }
 
+/** Who sees a project's asset: everyone when it is company-wide or shared with the company; else its department's people. */
+export function canSeeAsset(viewer: Viewer, asset: { departmentId: string | null; shared: boolean }): boolean {
+  return asset.shared || canSeeDepartment(viewer, asset.departmentId);
+}
+
 /** The signed-in person behind a request: to-dos and a person's own mail need one (the API key and open mode have none). */
 export function requirePerson(request: FastifyRequest, what = "have your own tasks"): Viewer & { userId: string } {
   const viewer = viewerOf(request);

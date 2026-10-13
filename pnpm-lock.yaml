@@ -156,6 +156,9 @@ importers:
 
   packages/builder:
     dependencies:
+      '@enterprise-brain/brain':
+        specifier: workspace:*
+        version: link:../brain
       '@enterprise-brain/catalog':
         specifier: workspace:*
         version: link:../catalog

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { ArrowRight, Brain, CircleCheck, Layers, WandSparkles } from "lucide-react";
+import { ArrowRight, Brain, CircleCheck, Layers, Package, WandSparkles } from "lucide-react";
 import { api } from "../../api.ts";
 import { Button } from "../../components/Button.tsx";
 import { Card, CardBody, CardHeader } from "../../components/Card.tsx";
@@ -12,7 +12,7 @@ import { brainKeys, useBrainModel } from "../brain/brain.tsx";
 import { EventItem } from "../brain/EventItem.tsx";
 import { STATUS_LABELS } from "./shared.tsx";
 
-type Tab = "overview" | "assets" | "designs" | "tasks";
+type Tab = "overview" | "assets" | "designs" | "tasks" | "package";
 
 /** The project at a glance: its details, what it holds, its open tasks for the person, and what the brain saw happen. */
 export function OverviewTab({ project, onTab }: { project: ProjectView; onTab: (tab: Tab) => void }) {
@@ -46,11 +46,17 @@ export function OverviewTab({ project, onTab }: { project: ProjectView; onTab: (
             />
           </CardBody>
         </Card>
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
             { tab: "assets" as Tab, icon: Layers, label: plural(project.counts.assets, "asset"), hint: "from the brain and your systems" },
             { tab: "designs" as Tab, icon: WandSparkles, label: plural(project.counts.designs, "design"), hint: "Studio conversations and interviews" },
             { tab: "tasks" as Tab, icon: CircleCheck, label: plural(open.length, "open task"), hint: "what you must do yourself" },
+            {
+              tab: "package" as Tab,
+              icon: Package,
+              label: "The package",
+              hint: project.lastExportedAt ? `exported ${formatDate(project.lastExportedAt)}` : "what Claude Code builds from",
+            },
           ].map(({ tab, icon: Icon, label, hint }) => (
             <button
               key={tab}
