@@ -2108,6 +2108,8 @@ export interface StudioThreadView {
   error: string | null;
   owner: string;
   departmentId: string | null;
+  /** The project it designs for, when started inside one. */
+  project: { id: string; slug: string; name: string } | null;
   questions: StudioQuestion[];
   solution: StudioSolution;
   built: { employees: string[]; tables: string[]; apps: string[]; at: string } | null;
@@ -2125,6 +2127,7 @@ export interface StudioThreadSummary {
   parts: number;
   builtAt: string | null;
   updatedAt: string;
+  project: { id: string; slug: string; name: string } | null;
 }
 
 // ---------------------------------------------------------------------------

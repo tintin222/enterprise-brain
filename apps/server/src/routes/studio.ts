@@ -18,9 +18,20 @@ export async function studioRoutes(app: FastifyInstance, ctx: AppContext) {
     const company = await companyOf(platform, request);
     const viewer = requireAnyManager(request);
     const body = z
-      .object({ text: z.string().min(1).max(20_000), departmentId: z.string().nullish(), fileIds: z.array(z.string()).max(20).optional() })
+      .object({
+        text: z.string().min(1).max(20_000),
+        departmentId: z.string().nullish(),
+        fileIds: z.array(z.string()).max(20).optional(),
+        /** The project the conversation designs for, when started from one. */
+        projectId: z.string().uuid().nullish(),
+      })
       .parse(request.body);
-    const thread = await studio.start(company.id, viewer, { text: body.text, departmentId: body.departmentId ?? null, fileIds: body.fileIds });
+    const thread = await studio.start(company.id, viewer, {
+      text: body.text,
+      departmentId: body.departmentId ?? null,
+      fileIds: body.fileIds,
+      projectId: body.projectId ?? null,
+    });
     return studio.view(company.id, thread.id, viewer);
   });
 

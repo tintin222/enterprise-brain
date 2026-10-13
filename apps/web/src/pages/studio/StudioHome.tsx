@@ -57,6 +57,7 @@ function StudioConversations() {
                 </span>
                 <span className="mt-0.5 block truncate text-xs text-muted">
                   {t.owner} · {t.parts ? `${t.parts} part${t.parts === 1 ? "" : "s"}` : "nothing built yet"}
+                  {t.project ? ` · in ${t.project.name}` : ""}
                 </span>
               </span>
               <span className="hidden shrink-0 text-xs text-faint sm:block">{timeAgo(t.updatedAt)}</span>

@@ -148,6 +148,25 @@ export type TryInput = z.infer<typeof TryInput>;
 export const LookAtInput = z.object({ kind: z.enum(["ai_employee", "table", "system"]), key: z.string() });
 export const RemoveInput = z.object({ kind: z.enum(["ai_employee", "table", "app"]), key: z.string() });
 
+/** What a project can hold, as the Studio adds it: a thing of the brain, a table, a document, a connection, a file of the conversation, an AI employee. */
+export const PROJECT_ASSET_KINDS = ["thing", "table", "document", "connection", "file", "agent"] as const;
+export const ProjectAssetInput = z.object({
+  kind: z.enum(PROJECT_ASSET_KINDS),
+  ref: z.string().trim().min(1).max(300),
+  note: z.string().trim().max(300).optional(),
+});
+export type ProjectAssetInput = z.infer<typeof ProjectAssetInput>;
+
+export const ProjectTaskInput = z.object({
+  title: z.string().trim().min(3).max(300),
+  details: z.string().trim().max(4000).optional(),
+  due: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, "A day as YYYY-MM-DD")
+    .optional(),
+});
+export type ProjectTaskInput = z.infer<typeof ProjectTaskInput>;
+
 // ---------------------------------------------------------------------------
 // The tools, as Claude sees them
 // ---------------------------------------------------------------------------
@@ -424,15 +443,64 @@ export const STUDIO_TOOLS: ToolDefinition[] = [
   },
 ];
 
+/**
+ * The tools a conversation inside a project has as well: what the Studio finds goes into the project (and so
+ * into its development package), and what only the person can do becomes a task for them.
+ */
+export const PROJECT_TOOLS: ToolDefinition[] = [
+  {
+    name: "project_add_asset",
+    description:
+      "Add something the AI employee will need to the project, so the development package carries it: a thing of the company brain (a process, a system, a person, a client, a policy…), a table, a document, a connection, a file the person added here, or an existing AI employee to take as a model. Say it by its id, key or name.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        kind: { type: "string", enum: [...PROJECT_ASSET_KINDS] },
+        ref: string(
+          "Its id, key or name: a thing's id from company_search, a table's key, a document's title, a connection's name, a file's id, an AI employee's key",
+        ),
+        note: string("Why the project needs it, in a few words"),
+      },
+      required: ["kind", "ref"],
+    },
+  },
+  {
+    name: "project_add_task",
+    description:
+      "Give the person a task: something only they can do before the AI employee can be built or go to work (get an access or an API key, confirm a rule with a colleague, send a file, decide between two ways). It shows under their tasks and in the project's development plan.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        title: string("What to do, as a short sentence"),
+        details: string("What they need to know to do it"),
+        due: string("When it is needed, as YYYY-MM-DD"),
+      },
+      required: ["title"],
+    },
+  },
+];
+
 // ---------------------------------------------------------------------------
 // Instructions
 // ---------------------------------------------------------------------------
+
+/** The project a conversation designs for, as its instructions carry it: short, so the live state comes from look_around. */
+export interface StudioProjectContext {
+  name: string;
+  status: string;
+  client?: string | null;
+  summary?: string;
+  /** One line per asset the project already uses. */
+  assets: string[];
+}
 
 export interface StudioContext {
   company: string;
   person: { name: string; title?: string | null; admin: boolean; departments: { name: string; role: string }[] };
   /** The department it builds for, when said. */
   department?: { key: string; name: string };
+  /** The project it designs for, when started inside one. */
+  project?: StudioProjectContext;
 }
 
 /** The Studio's instructions: written once per conversation, so they stay the same all through it. */
@@ -445,6 +513,7 @@ export function studioSystemPrompt(ctx: StudioContext): string {
   return [
     `You are the Studio of Enterprise Brain at ${ctx.company}. Here people build AI employees: AI agents that do real work on their own, such as handling every email that comes to a shared mailbox, every file that lands in a folder or every new record in a system, doing a job every morning or every month, answering people's questions, keeping a table up to date, looking things up in the company's systems, asking people when they are needed and following up until the work is done.`,
     `You are working with ${ctx.person.name}${ctx.person.title ? `, ${ctx.person.title}` : ""} (${where}).${ctx.department ? ` They are building for ${ctx.department.name} (key ${ctx.department.key}).` : ""} They know the work; you know how to build it. They never see code, databases or settings: you take care of that with your tools.`,
+    ...(ctx.project ? ["", ...projectSection(ctx.project)] : []),
     "",
     "How you work",
     "- Understand the work before you build: where it comes from, what should happen with each kind of item, how decisions are made, who is involved, what must never happen, and when it is done. Work can come by email, on a schedule, from a form, from a new file or record in a connected system, from another system calling, or from people asking. Emails and requests vary too much for templates: ask how each kind is handled, in the person's own words, and build exactly that.",
@@ -456,12 +525,30 @@ export function studioSystemPrompt(ctx: StudioContext): string {
     "- Try each AI employee with try_ai_employee on real examples (emails from the mailbox, the person's samples) before you call it ready, and read each result critically. When it falls short, fix the job and try again. Tries send nothing and change nothing.",
     "- When a system or an action it needs isn't connected, don't invent one: ask IT with ask_it and tell the person.",
     "- Nothing works for real until the person puts the solution to work from this page. When it is built and tried, say so, and say what will happen once it is at work.",
+    ...(ctx.project
+      ? [
+          "- This conversation designs for the project. What you find in the brain or the company's systems that the AI employee will need (a process, a system, a person, a table, a document, a connection) goes into the project with project_add_asset, so the development package carries it. What the person must do themselves before the AI employee can be built or go to work (get an access, confirm a rule, send a file) becomes a task for them with project_add_task. look_around shows the project as it stands.",
+          "- The project's main output is its development package: a folder a developer builds the AI employee from outside the platform, with its job, rules, triggers, the brain's context and sample data. Design so that it is complete there too: every system, rule and example in words, nothing left in your head.",
+        ]
+      : []),
     "",
     "How you write",
     "- Plain, warm and short. No technical words: no JSON, API, SQL, prompt, workflow or trigger.",
     "- The person sees each tool you use as a line of progress. End every turn with two to four sentences: what you did or found, and what you need from them next, if anything.",
     "- Write in the language the person writes in.",
   ].join("\n");
+}
+
+/** The project, as the instructions carry it: what it is and what it already uses. */
+function projectSection(project: StudioProjectContext): string[] {
+  const about = [project.status, project.client ? `for ${project.client}` : ""].filter(Boolean).join(", ");
+  return [
+    "The project",
+    `They are designing inside the project "${project.name}"${about ? ` (${about})` : ""}.${project.summary ? ` ${project.summary.replace(/\s+/g, " ").trim()}` : ""}`,
+    project.assets.length
+      ? `It already uses (picked by the person; use these before looking elsewhere):\n${project.assets.map((a) => `- ${a}`).join("\n")}`
+      : "It uses nothing yet: what you find for it, add with project_add_asset.",
+  ];
 }
 
 // ---------------------------------------------------------------------------

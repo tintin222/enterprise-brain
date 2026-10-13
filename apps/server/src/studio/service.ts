@@ -6,6 +6,9 @@ import {
   AskPersonInput,
   EmployeeSpec,
   LookAtInput,
+  PROJECT_TOOLS,
+  ProjectAssetInput,
+  ProjectTaskInput,
   RemoveInput,
   STUDIO_TOOLS,
   TableSpec,
@@ -35,7 +38,15 @@ import {
   type ToolExecution,
   type ToolResultParam,
 } from "@enterprise-brain/llm";
-import { MailService, workingHoursOf, type Platform, type TableView } from "@enterprise-brain/runtime";
+import {
+  MailService,
+  workingHoursOf,
+  type Platform,
+  type ProjectActor,
+  type ProjectAssetKind,
+  type ProjectRow,
+  type TableView,
+} from "@enterprise-brain/runtime";
 import { canBuildFor, rulesOf } from "../auth/building.ts";
 import { actorOf, canSeeDepartment, type Viewer } from "../auth/viewer.ts";
 import { HttpError } from "../http.ts";
@@ -102,7 +113,11 @@ interface Turn {
 const MAX_TURNS = 30;
 /** A conversation's model calls stop here and ask to carry on. */
 const TOOLS = [...STUDIO_TOOLS, ...COMPANY_TOOLS];
-const TOOL_NAMES = new Set(TOOLS.map((t) => t.name));
+/** Conversations inside a project have the project tools as well. */
+const PROJECT_TOOL_NAMES = new Set(PROJECT_TOOLS.map((t) => t.name));
+const TOOL_NAMES = new Set([...TOOLS, ...PROJECT_TOOLS].map((t) => t.name));
+/** How the Studio acts on a project: as itself, for the person in the conversation. */
+const STUDIO_ACTOR: ProjectActor = { actor: { kind: "system", id: "studio", name: "The Studio" }, userId: null, email: null };
 
 function emptySolution(): SolutionState {
   return { employees: [], tables: [], apps: [], requests: [], tries: [], files: [] };
@@ -147,7 +162,11 @@ export class StudioService {
   // Conversations
   // -------------------------------------------------------------------------
 
-  async start(companyId: string, viewer: Viewer, input: { text: string; departmentId?: string | null; fileIds?: string[] }): Promise<ThreadRow> {
+  async start(
+    companyId: string,
+    viewer: Viewer,
+    input: { text: string; departmentId?: string | null; fileIds?: string[]; projectId?: string | null },
+  ): Promise<ThreadRow> {
     if (!this.platform.llm.available) throw new StudioError("The Studio agent works with Claude: without it, use the guided interview", 409);
     const text = input.text.trim();
     if (!text) throw new StudioError("Say what you need");
@@ -156,6 +175,8 @@ export class StudioService {
     const departments = await this.platform.catalog.departments(companyId);
     const department = input.departmentId ? departments.find((d) => d.id === input.departmentId || d.key === input.departmentId) : undefined;
     if (input.departmentId && !department) throw new StudioError("No such department", 404);
+    const project = input.projectId ? await this.platform.projects.find(companyId, input.projectId) : undefined;
+    if (input.projectId && !project) throw new StudioError("No such project", 404);
     const person = viewer.userId ? await this.platform.people.get(companyId, viewer.userId).catch(() => undefined) : undefined;
     const system = studioSystemPrompt({
       company: company.name,
@@ -166,6 +187,17 @@ export class StudioService {
         departments: viewer.departments.map((d) => ({ name: d.name, role: d.role })),
       },
       ...(department ? { department: { key: department.key, name: department.name } } : {}),
+      ...(project
+        ? {
+            project: {
+              name: project.name,
+              status: project.status,
+              client: project.client,
+              summary: project.summary,
+              assets: await this.platform.projects.cards(companyId, project.id),
+            },
+          }
+        : {}),
     });
     const [row] = await this.db
       .insert(studioThreads)
@@ -175,9 +207,10 @@ export class StudioService {
         owner: viewer as unknown as Record<string, unknown>,
         ownerId: viewer.userId,
         departmentId: department?.id ?? null,
+        projectId: project?.id ?? null,
         status: "idle",
-        // The instructions and tools stay as written for the whole conversation.
-        setup: { system: `${system}\n\n${BUILDING_GUIDANCE}`, tools: TOOLS },
+        // The instructions and tools stay as written for the whole conversation (the project tools only inside a project).
+        setup: { system: `${system}\n\n${BUILDING_GUIDANCE}`, tools: project ? [...TOOLS, ...PROJECT_TOOLS] : TOOLS },
         messages: [],
         solution: emptySolution() as unknown as Record<string, unknown>,
       })
@@ -188,20 +221,27 @@ export class StudioService {
 
   async list(companyId: string, viewer: Viewer) {
     const rows = await this.db.select().from(studioThreads).where(eq(studioThreads.companyId, companyId)).orderBy(desc(studioThreads.updatedAt)).limit(100);
-    return rows
-      .filter((r) => viewer.isAdmin || r.ownerId === viewer.userId)
-      .map((r) => {
-        const solution = solutionOf(r);
-        return {
-          id: r.id,
-          title: r.title,
-          status: this.statusOf(r),
-          owner: ownerOf(r).name,
-          parts: solution.employees.length + solution.tables.length + solution.apps.length,
-          builtAt: r.builtAt,
-          updatedAt: r.updatedAt,
-        };
-      });
+    const mine = rows.filter((r) => viewer.isAdmin || r.ownerId === viewer.userId);
+    const projects = mine.some((r) => r.projectId) ? new Map((await this.platform.projects.list(companyId)).map((p) => [p.id, p])) : new Map();
+    return mine.map((r) => {
+      const solution = solutionOf(r);
+      const project = r.projectId ? projects.get(r.projectId) : undefined;
+      return {
+        id: r.id,
+        title: r.title,
+        status: this.statusOf(r),
+        owner: ownerOf(r).name,
+        parts: solution.employees.length + solution.tables.length + solution.apps.length,
+        builtAt: r.builtAt,
+        updatedAt: r.updatedAt,
+        project: project ? { id: project.id, slug: project.slug, name: project.name } : null,
+      };
+    });
+  }
+
+  /** The project a conversation designs for, if any (and it still exists). */
+  private async projectOf(companyId: string, row: ThreadRow): Promise<ProjectRow | undefined> {
+    return row.projectId ? this.platform.projects.find(companyId, row.projectId) : undefined;
   }
 
   async row(companyId: string, id: string): Promise<ThreadRow> {
@@ -234,6 +274,7 @@ export class StudioService {
       .orderBy(asc(studioEvents.seq));
     const pending = row.pending as Pending | null;
     const solution = solutionOf(row);
+    const project = await this.projectOf(companyId, row);
     return {
       id: row.id,
       title: row.title,
@@ -241,6 +282,7 @@ export class StudioService {
       error: row.error,
       owner: ownerOf(row).name,
       departmentId: row.departmentId,
+      project: project ? { id: project.id, slug: project.slug, name: project.name } : null,
       questions: pending && !pending.stopped ? pending.questions : [],
       solution: await this.solutionView(companyId, solution),
       built: solution.built ?? null,
@@ -395,6 +437,13 @@ export class StudioService {
     const input = isRecord(call.input) ? call.input : {};
     try {
       if (COMPANY_TOOL_NAMES.has(call.name)) return await this.lookUpCompany(companyId, id, call.name, input);
+      if (PROJECT_TOOL_NAMES.has(call.name)) {
+        const project = await this.projectOf(companyId, await this.row(companyId, id));
+        if (!project) return problem("This conversation is not in a project.");
+        return call.name === "project_add_asset"
+          ? await this.projectAddAsset(companyId, id, viewer, project, input)
+          : await this.projectAddTask(companyId, id, viewer, project, input);
+      }
       switch (call.name) {
         case "look_around":
           return await this.lookAround(companyId, id, viewer);
@@ -615,9 +664,112 @@ export class StudioService {
         : "Empty: nothing is known yet (IT fills it in Brain → Sources)",
       requests_to_it: requests,
       files_added_here: solution.files,
+      ...(await this.projectOverview(companyId, thread)),
     };
     await this.step(id, "look_around", "Looked at the company");
     return { content: json(overview) };
+  }
+
+  /** The project the conversation designs for, as it stands now: what it uses and what the person still has to do. */
+  private async projectOverview(companyId: string, thread: ThreadRow): Promise<Record<string, unknown>> {
+    const project = await this.projectOf(companyId, thread);
+    if (!project) return {};
+    const ownerId = ownerOf(thread).userId;
+    const todos = ownerId ? await this.platform.todos.listFor(companyId, ownerId, { status: "open", projectId: project.id }) : [];
+    return {
+      project: {
+        name: project.name,
+        status: project.status,
+        client: project.client,
+        summary: project.summary,
+        uses: await this.platform.projects.cards(companyId, project.id),
+        open_tasks_for_person: todos.map((t) => t.title),
+        how: "project_add_asset puts what the AI employee needs into it; project_add_task gives the person something to do",
+      },
+    };
+  }
+
+  /** The Studio puts something it found into the project: it must exist, and the person must be allowed to see it. */
+  private async projectAddAsset(companyId: string, id: string, viewer: Viewer, project: ProjectRow, raw: Record<string, unknown>): Promise<ToolExecution> {
+    const parsed = ProjectAssetInput.safeParse(raw);
+    if (!parsed.success) return problem(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+    const { kind, ref, note } = parsed.data;
+    const resolved = await this.resolveAsset(companyId, id, kind, ref);
+    if (!resolved)
+      return problem(
+        `No ${kind === "thing" ? "thing in the brain" : kind === "agent" ? "AI employee" : kind} called "${ref}". Find it first (company_search, look_around), then add it by its id or key.`,
+      );
+    const details = await this.platform.projects.resolve(companyId, kind, resolved);
+    if (!details) return problem(`No such ${kind}: ${ref}`);
+    if (!details.shared && !canSeeDepartment(viewer, details.departmentId))
+      return problem(`${details.name} belongs to another department: ${viewer.name} may not use it here.`);
+    const asset = await this.platform.projects.addAsset(companyId, project.id, { kind, ref: resolved, note }, STUDIO_ACTOR);
+    await this.event(id, "part", { part: "asset", kind, name: asset.name, ref: asset.ref });
+    return {
+      content: json({
+        added: { kind, name: asset.name, detail: asset.detail },
+        project_now_uses: await this.platform.projects.cards(companyId, project.id),
+      }),
+    };
+  }
+
+  /** What a reference the Studio gives points to, by kind: an id, a key or a name. */
+  private async resolveAsset(companyId: string, id: string, kind: ProjectAssetKind, ref: string): Promise<string | undefined> {
+    const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+    switch (kind) {
+      case "thing":
+        return (await this.platform.brain.find(companyId, ref))?.id;
+      case "table":
+        return (
+          (await this.platform.tables.get(companyId, ref).catch(() => undefined))?.key ??
+          (await this.platform.tables.list(companyId)).find((t) => same(t.name, ref))?.key
+        );
+      case "document": {
+        const documents = await this.platform.knowledge.listDocuments(companyId);
+        return documents.find((d) => d.id === ref)?.id ?? documents.find((d) => same(d.title, ref))?.id;
+      }
+      case "connection": {
+        const connections = await this.platform.connectors.list(companyId);
+        return connections.find((c) => c.id === ref)?.id ?? connections.find((c) => same(c.name, ref))?.id;
+      }
+      case "file": {
+        const files = solutionOf(await this.row(companyId, id)).files;
+        return files.find((f) => f.id === ref)?.id ?? files.find((f) => same(f.name, ref))?.id;
+      }
+      case "agent":
+        return (await this.platform.agents.find(companyId, ref))?.row.id;
+      default:
+        return undefined;
+    }
+  }
+
+  /** The Studio gives the person a task: what only they can do before the AI employee can be built or go to work. */
+  private async projectAddTask(companyId: string, id: string, viewer: Viewer, project: ProjectRow, raw: Record<string, unknown>): Promise<ToolExecution> {
+    const parsed = ProjectTaskInput.safeParse(raw);
+    if (!parsed.success) return problem(parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "));
+    const { title, details, due } = parsed.data;
+    const userId = viewer.userId ?? ownerOf(await this.row(companyId, id)).userId;
+    if (!userId) return problem(`${viewer.name} has no account here to keep tasks: tell them what to do instead.`);
+    const { todo, created } = await this.platform.todos.add(
+      companyId,
+      {
+        userId,
+        projectId: project.id,
+        title,
+        details,
+        dueAt: due ? new Date(`${due}T17:00:00`) : null,
+        source: "studio",
+        sourceRef: `${id}:${slugify(title, 80)}`,
+        link: `/studio/conversations/${id}`,
+      },
+      STUDIO_ACTOR.actor,
+    );
+    await this.event(id, "part", { part: "todo", title: todo.title, created });
+    return {
+      content: created
+        ? `Added a task for ${viewer.name}: “${todo.title}”. It shows under their tasks and in the project's development plan. Tell them in a sentence.`
+        : `${viewer.name} already has this task: “${todo.title}”.`,
+    };
   }
 
   private async readMailbox(companyId: string, id: string, viewer: Viewer, input: Record<string, unknown>): Promise<ToolExecution> {
@@ -1249,6 +1401,8 @@ const VERBS: Record<string, string> = {
   save_app: "plan the app",
   try_ai_employee: "try the AI employee",
   remove: "remove it",
+  project_add_asset: "add it to the project",
+  project_add_task: "add the task",
 };
 
 function verbOf(tool: string): string {

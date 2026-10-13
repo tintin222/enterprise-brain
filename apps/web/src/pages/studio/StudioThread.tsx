@@ -9,16 +9,20 @@ import {
   Eye,
   FileText,
   FlaskConical,
+  FolderKanban,
+  FolderPlus,
   LayoutGrid,
   LayoutTemplate,
   Mail,
   MessageSquare,
+  Package,
   Paperclip,
   Plug,
   Rocket,
   SendHorizontal,
   Sparkles,
   Square,
+  SquareCheckBig,
   Table2,
   Trash2,
   UserPlus,
@@ -121,6 +125,8 @@ const STEP_ICONS: Record<string, LucideIcon> = {
   save_app: LayoutGrid,
   try_ai_employee: FlaskConical,
   remove: Trash2,
+  project_add_asset: FolderPlus,
+  project_add_task: SquareCheckBig,
 };
 
 const PART_TEXT: Record<string, [LucideIcon, string, string]> = {
@@ -225,6 +231,18 @@ function EventView({ event, last, view, onPick }: { event: StudioEvent; last: bo
         </Line>
       );
     case "part": {
+      if (d.part === "asset")
+        return (
+          <Line icon={FolderPlus}>
+            Added <span className="font-medium text-fg">{String(d.name)}</span> to the project
+          </Line>
+        );
+      if (d.part === "todo")
+        return (
+          <Line icon={SquareCheckBig}>
+            {d.created === false ? "You already have the task" : "Added a task for you:"} <span className="font-medium text-fg">{String(d.title)}</span>
+          </Line>
+        );
       const [icon, made, changed] = PART_TEXT[String(d.part)] ?? [Sparkles, "Saved", "Changed"];
       return (
         <Line icon={icon}>
@@ -587,6 +605,16 @@ function SolutionPane({ view, actions }: { view: StudioThreadView; actions: Acti
         )}
       </div>
       <div className={clsx("shrink-0 border-t border-line p-4 sm:px-5", empty && "hidden")}>
+        {view.project && (
+          <ButtonLink
+            to={paths.project(view.project.slug, "package")}
+            icon={Package}
+            className="mb-3 w-full"
+            title="The folder Claude Code builds the AI employee from"
+          >
+            Export the package
+          </ButtonLink>
+        )}
         {view.built ? (
           <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300">
             <Rocket className="size-4" /> At work since {formatDateTime(view.built.at)}
@@ -648,6 +676,16 @@ function ThreadScreen({ view }: { view: StudioThreadView }) {
             <ArrowLeft className="size-5" />
           </Link>
           <h1 className="min-w-0 flex-1 truncate text-lg font-semibold tracking-tight text-fg">{view.title}</h1>
+          {view.project && (
+            <Link
+              to={paths.project(view.project.slug, "designs")}
+              className="inline-flex max-w-48 items-center gap-1 rounded-full bg-subtle px-2 py-0.5 text-xs font-medium text-muted hover:text-fg"
+              title="The project this conversation designs for"
+            >
+              <FolderKanban className="size-3.5 shrink-0" />
+              <span className="truncate">{view.project.name}</span>
+            </Link>
+          )}
           <StatusPill
             status={view.built ? "active" : view.status === "working" ? "running" : view.status === "asking" ? "waiting" : view.status}
             label={

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AppDesign, type TableField } from "@enterprise-brain/core";
-import { STUDIO_TOOLS, abilitiesOf, compileEmployee, employeeCard, plainApp, studioSystemPrompt, type CompileContext } from "../src/index.ts";
+import { PROJECT_TOOLS, STUDIO_TOOLS, abilitiesOf, compileEmployee, employeeCard, plainApp, studioSystemPrompt, type CompileContext } from "../src/index.ts";
 
 /** The Studio agent: an AI employee written in plain words becomes a job the runtime runs as an agent. */
 
@@ -290,5 +290,32 @@ describe("the Studio's own parts", () => {
       "try_ai_employee",
       "remove",
     ]);
+    expect(prompt).not.toContain("The project");
+  });
+
+  it("inside a project, its instructions carry the project and what it uses, and it has the project tools", () => {
+    const prompt = studioSystemPrompt({
+      company: "Acme",
+      person: { name: "Selin Acar", title: "Quality Manager", admin: false, departments: [{ name: "Operations", role: "manager" }] },
+      project: {
+        name: "Petrokim complaints",
+        status: "active",
+        client: "Petrokim",
+        summary: "Agents for the supplier complaint process.",
+        assets: ["In the brain: Supplier portal — System · Where suppliers upload invoices", "Table: Supplier complaints — 2 fields · 0 records"],
+      },
+    });
+    expect(prompt).toContain('They are designing inside the project "Petrokim complaints" (active, for Petrokim). Agents for the supplier complaint process.');
+    expect(prompt).toContain("- In the brain: Supplier portal — System · Where suppliers upload invoices\n- Table: Supplier complaints — 2 fields · 0 records");
+    expect(prompt).toContain("goes into the project with project_add_asset");
+    expect(prompt).toContain("becomes a task for them with project_add_task");
+    expect(PROJECT_TOOLS.map((t) => t.name)).toEqual(["project_add_asset", "project_add_task"]);
+    const empty = studioSystemPrompt({
+      company: "Acme",
+      person: { name: "Mehmet Öz", admin: true, departments: [] },
+      project: { name: "Own tools", status: "planned", assets: [] },
+    });
+    expect(empty).toContain('They are designing inside the project "Own tools" (planned).');
+    expect(empty).toContain("It uses nothing yet");
   });
 });
