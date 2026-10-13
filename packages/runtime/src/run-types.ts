@@ -68,6 +68,8 @@ export interface PersistedRunState {
   frames?: Record<string, FrameState>;
   /** The output step that ran last: its result is the run's output. */
   outputStepId?: string;
+  /** Attempts used per step key while retrying (cleared when the step ends). */
+  attempts?: Record<string, number>;
   warnings?: string[];
   /** Free-form task (e.g. a Paperclip issue): run one autonomous step instead of the workflow. */
   task?: string;
@@ -115,6 +117,8 @@ export interface ExecutionScope {
   agentId: string;
   /** Where the step being run is in the job (its id at the top, "loop#2/step" inside a loop's third round). */
   stepKey?: string;
+  /** Aborted when the step runs out of time: a step that can stop early (the agent's tool loop) does. */
+  signal?: AbortSignal;
   definition: AgentDefinition;
   /** Its level and limits, read when the run (re)starts: the manager's latest decision applies. */
   employment: Employment;

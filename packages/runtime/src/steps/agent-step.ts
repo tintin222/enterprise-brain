@@ -100,6 +100,8 @@ export async function runAgentStep(step: AgentStep, scope: ExecutionScope, deps:
     model: scope.definition.model?.model,
     onText: scope.onText,
     executeTool: async (call) => {
+      // Out of time: the loop stops at its next tool.
+      scope.signal?.throwIfAborted();
       const tool = byName.get(call.name);
       if (!tool) return { content: `Unknown tool ${call.name}`, isError: true };
       return tool.execute((call.input ?? {}) as Record<string, unknown>);

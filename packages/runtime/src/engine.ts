@@ -12,7 +12,7 @@ import {
   AgentDefinition,
   type WorkflowStep,
 } from "@enterprise-brain/core";
-import { activityLog, agents, approvals, companies, departments, runEvents, runs, runSteps, type DatabaseHandle } from "@enterprise-brain/db";
+import { activityLog, agents, approvals, companies, departments, runEvents, runs, runSteps, users, type DatabaseHandle } from "@enterprise-brain/db";
 import type { LlmUsage } from "@enterprise-brain/llm";
 import { describeAction, executeAction } from "./actions.ts";
 import { MailService } from "./mail.ts";
@@ -76,6 +76,8 @@ export interface StartRunOptions {
   recorded?: Record<string, unknown>;
   /** A turn in a conversation: no task is opened; `task` holds what the AI employee reads. */
   conversation?: ConversationScope;
+  /** Run again from a step: what the steps before it found, taken as done. */
+  resume?: { steps: Record<string, unknown>; completed: string[] };
 }
 
 export interface Decision {
@@ -91,7 +93,7 @@ export interface Decision {
 /** Where people act outside the app, as the audit log says it. */
 const VIA_LABELS: Record<string, string> = { email: "an email", teams: "Microsoft Teams", "google-chat": "Google Chat" };
 
-const AUTOMATED_TRIGGERS = new Set(["mailbox", "schedule", "recurring", "webhook", "paperclip", "connector-event"]);
+const AUTOMATED_TRIGGERS = new Set(["mailbox", "schedule", "recurring", "webhook", "paperclip", "connector-event", "failure", "colleague"]);
 
 export class RunError extends Error {
   constructor(message: string, readonly status = 400) {
@@ -113,6 +115,8 @@ const DEFAULT_LOOP_ITEMS = 200;
 const MAX_LOOP_ITEMS = 1000;
 /** The most of a step's input or output the inspector keeps. */
 const STEP_DATA_BYTES = 64 * 1024;
+/** The longest a retry waits, however its wait doubles. */
+const MAX_RETRY_WAIT_SECONDS = 600;
 
 /** A run while it executes: its row, state and scope, what it used so far, and whether a step ran yet in this pass. */
 interface RunEnv {
@@ -244,8 +248,8 @@ export class RunEngine {
 
     if ((options.definition || options.recorded) && !options.isTest) throw new RunError("Only test runs can run a version that isn't live");
     const state: PersistedRunState = {
-      steps: {},
-      completed: [],
+      steps: options.resume ? { ...options.resume.steps } : {},
+      completed: options.resume ? [...options.resume.completed] : [],
       ...(options.task ? { task: options.task } : {}),
       ...(options.definition ? { override: AgentDefinition.parse(options.definition) as unknown as Record<string, unknown> } : {}),
       ...(options.recorded ? { recorded: options.recorded } : {}),
@@ -759,40 +763,114 @@ export class RunEngine {
 
   /** One step that does something: run it, and pause, wait, or keep its result. */
   private async runLeaf(step: WorkflowStep, key: string, frame: SequenceFrame, env: RunEnv): Promise<StepEnd> {
-    const { run, state, companyId, agentName } = env;
+    const { run, state } = env;
     const runId = run.id;
     const scope: ExecutionScope = { ...env.scope, context: frame.context, stepKey: key };
     await this.persist(runId, { currentStep: key });
     await this.emit(runId, { type: "step.started", stepId: step.id, message: stepLabel(step), data: { type: step.type, ...(key !== step.id ? { key } : {}) } });
     await this.openStepRow(env, step, key, frame, resolvedInputOf(step, frame.context));
     let outcome: StepOutcome;
-    const started = Date.now();
-    try {
-      outcome = await executeStep(step, scope, this.toolDeps);
-    } catch (error) {
-      const spent = usageOfError(error);
-      if (spent) {
-        env.usage = mergeUsage(env.usage, spent);
-        await this.persist(runId, { usage: (env.usage ?? {}) as Record<string, unknown> });
+    let started = Date.now();
+    const attempts = (state.attempts ??= {});
+    for (;;) {
+      attempts[key] = (attempts[key] ?? 0) + 1;
+      try {
+        outcome = await this.withTimeout(step, (signal) => executeStep(step, { ...scope, signal }, this.toolDeps));
+        delete attempts[key];
+        break;
+      } catch (error) {
+        const spent = usageOfError(error);
+        if (spent) {
+          env.usage = mergeUsage(env.usage, spent);
+          await this.persist(runId, { usage: (env.usage ?? {}) as Record<string, unknown> });
+        }
+        const used = attempts[key]!;
+        if (step.retry && used <= step.retry.times) {
+          // Try again after a wait (doubling each time when asked); the failed attempt stays in the inspector.
+          const base = step.retry.waitSeconds ?? 0;
+          const waitSeconds = Math.min(step.retry.backoff === "double" ? base * 2 ** (used - 1) : base, MAX_RETRY_WAIT_SECONDS);
+          await this.closeStepRow(env, key, { status: "failed", error: errorMessage(error), usage: spent, started });
+          await this.persist(runId, { context: state as unknown as Record<string, unknown> });
+          await this.emit(runId, {
+            type: "step.retried",
+            stepId: step.id,
+            message: `${stepLabel(step)} failed (${errorMessage(error)}); trying again${waitSeconds ? ` in ${waitSeconds} s` : ""} (${used + 1} of ${
+              step.retry.times + 1
+            })`,
+            data: { attempt: used + 1, waitSeconds, error: errorMessage(error), ...(key !== step.id ? { key } : {}) },
+          });
+          if (waitSeconds) await new Promise((resolve) => setTimeout(resolve, waitSeconds * 1000));
+          if (await this.holdAtBoundary(run)) return "stopped";
+          await this.openStepRow(env, step, key, frame, resolvedInputOf(step, frame.context));
+          started = Date.now();
+          continue;
+        }
+        delete attempts[key];
+        await this.persist(runId, { context: state as unknown as Record<string, unknown> });
+        return this.leafFailed(env, step, key, frame, error, spent, started);
       }
-      if (step.onError === "continue" || step.onError === "skip") {
-        await this.completeStep(
-          env,
-          step,
-          key,
-          frame,
-          { error: errorMessage(error) },
-          `${stepLabel(step)} failed, ${step.onError === "skip" ? "leaving out the rest" : "continuing"}: ${errorMessage(error)}`,
-          spent,
-          "failed",
-        );
-        return step.onError === "skip" ? "skip-rest" : "done";
-      }
-      await this.emit(runId, { type: "step.failed", stepId: step.id, message: `${stepLabel(step)} failed: ${errorMessage(error)}` });
-      await this.closeStepRow(env, key, { status: "failed", error: errorMessage(error), usage: spent, started });
-      throw new StepFailedError(step.id, key, error);
     }
+    return this.leafOutcome(env, step, key, frame, outcome, started);
+  }
 
+  /**
+   * A step's work, stopped when it takes longer than its timeout: the step fails with that, and a step
+   * that can stop early (the agent's tool loop) is told to. Work already sent to a system may still finish.
+   */
+  private async withTimeout<T>(step: WorkflowStep, work: (signal?: AbortSignal) => Promise<T>): Promise<T> {
+    if (!step.timeoutSeconds) return work();
+    const controller = new AbortController();
+    const seconds = step.timeoutSeconds;
+    let timer: NodeJS.Timeout | undefined;
+    const running = work(controller.signal);
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort(new Error(`Took longer than ${seconds} seconds`));
+        reject(new Error(`Took longer than ${seconds} seconds`));
+      }, seconds * 1000);
+    });
+    try {
+      return await Promise.race([running, timedOut]);
+    } finally {
+      clearTimeout(timer);
+      // What the abandoned work does later is nobody's to handle.
+      running.catch(() => undefined);
+    }
+  }
+
+  /** A step's work failed for good: its error policy decides (keep going, leave out the rest, or fail). */
+  private async leafFailed(
+    env: RunEnv,
+    step: WorkflowStep,
+    key: string,
+    frame: SequenceFrame,
+    error: unknown,
+    spent: LlmUsage | undefined,
+    started: number,
+  ): Promise<StepEnd> {
+    if (step.onError === "continue" || step.onError === "skip") {
+      const how = step.onError === "skip" ? "leaving out the rest" : "continuing";
+      const message = `${stepLabel(step)} failed, ${how}: ${errorMessage(error)}`;
+      await this.completeStep(env, step, key, frame, { error: errorMessage(error) }, message, spent, "failed");
+      return step.onError === "skip" ? "skip-rest" : "done";
+    }
+    await this.emit(env.run.id, { type: "step.failed", stepId: step.id, message: `${stepLabel(step)} failed: ${errorMessage(error)}` });
+    await this.closeStepRow(env, key, { status: "failed", error: errorMessage(error), usage: spent, started });
+    throw new StepFailedError(step.id, key, error);
+  }
+
+  /** What a step's work came to: a result kept, a person asked (the run pauses), or a wait (the task waits). */
+  private async leafOutcome(
+    env: RunEnv,
+    step: WorkflowStep,
+    key: string,
+    frame: SequenceFrame,
+    done: StepOutcome,
+    started: number,
+  ): Promise<StepEnd> {
+    const { run, state, companyId, agentName } = env;
+    const runId = run.id;
+    let outcome = done;
     if (outcome.kind === "pause" && run.isTest) {
       // Test runs never touch real systems: gated actions become dry runs, decisions auto-approve. A replay
       // takes the decision people made in the original task, when they were asked there too.
@@ -1304,7 +1382,10 @@ export class RunEngine {
     await this.deps.tasks.update(task.id, { status: "working", closedAt: null });
     await this.deps.tasks.record(companyId, task.id, { type: "retried", message: `${by} retried the task`, actor: by, runId: run.id });
     for (const item of await this.deps.work.openFor(task.id, "failure")) await this.deps.work.resolve(companyId, item.id, { status: "done", by, answer: "Retried" });
-    await this.persist(run.id, { status: "running", error: null, finishedAt: null });
+    // A person's retry gives the failed step its retries again.
+    const retried = normalizeState(run.context);
+    retried.attempts = {};
+    await this.persist(run.id, { status: "running", error: null, finishedAt: null, context: retried as unknown as Record<string, unknown> });
     await this.emit(run.id, { type: "run.retried", message: `${by} retried from the step that failed` });
     const execution = this.execute(run.id);
     if (options.wait ?? true) await execution;
@@ -1374,16 +1455,20 @@ export class RunEngine {
       const task = await this.deps.tasks.byId(run.taskId);
       const agent = await this.deps.agents.find(run.companyId, run.agentId);
       if (task && agent) {
+        // The job's on-failure duty: the person it names hears instead of the manager, and a colleague may be given it.
+        const duty = (await this.deps.agents.definitionAt(run.agentId, run.agentVersion).catch(() => agent.definition)).onFailure;
+        const told = duty?.tell ? await this.personByEmail(run.companyId, duty.tell) : undefined;
         await this.deps.work.create(run.companyId, {
           kind: "failure",
           title: `${agent.definition.name} couldn't finish: ${task.title}`,
-          details: message,
+          details: duty?.note ? `${message}\n\n${duty.note}` : message,
           suggestion: "Fix the cause (a connection, missing data), then retry: it continues from the step that failed.",
           taskId: task.id,
           agentId: agent.row.id,
           departmentId: agent.row.departmentId,
-          assigneeUserId: agent.row.managerUserId,
+          assigneeUserId: told ?? agent.row.managerUserId,
         });
+        if (duty?.giveTo && run.trigger !== "failure") await this.giveFailure(run, task, agent.definition.name, duty.giveTo, message, stepId, duty.note);
       }
     }
     await this.deps.activity.record(run.companyId, {
@@ -1394,6 +1479,82 @@ export class RunEngine {
       summary: `Run failed: ${truncate(message, 200)}`,
     });
     await this.afterRun(run.companyId, run.agentId).catch(() => undefined);
+  }
+
+  /** A signed-in person of the company by their email (the on-failure duty names people so). */
+  private async personByEmail(companyId: string, email: string): Promise<string | undefined> {
+    const [row] = await this.deps.handle.db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(users.companyId, companyId), sql`lower(${users.email}) = ${email.trim().toLowerCase()}`));
+    return row?.id;
+  }
+
+  /** Give a failed task to the colleague the job names: a new task for it with what failed (never a chain of failures). */
+  private async giveFailure(run: RunRow, task: TaskRow, agentName: string, colleague: string, message: string, stepId: string | undefined, note?: string) {
+    const brief = [
+      `${agentName} couldn't finish task ${task.ref} (“${task.title}”).`,
+      `What failed${stepId ? ` (step ${stepId})` : ""}: ${message}`,
+      `What it was given: ${truncate(stringify(run.input), 3000)}`,
+      note ? `What to do: ${note}` : "Look into it and do what can be done; ask a person when a decision is needed.",
+    ].join("\n\n");
+    try {
+      await this.start(run.companyId, colleague, {}, {
+        task: brief,
+        request: `Handle ${task.ref}, which failed: ${truncate(message, 300)}`,
+        title: `Failed: ${task.title}`,
+        trigger: "failure",
+        triggerRef: task.id,
+        requestedBy: agentName,
+        actor: `agent:${run.agentId}`,
+        wait: false,
+      });
+      await this.deps.tasks.record(run.companyId, task.id, {
+        type: "handed_over",
+        message: `Given to ${colleague} to handle the failure`,
+        actor: `agent:${run.agentId}`,
+        runId: run.id,
+      });
+    } catch (error) {
+      await this.deps.tasks.record(run.companyId, task.id, {
+        type: "warning",
+        message: `Couldn't give the failure to ${colleague}: ${errorMessage(error)}`,
+        actor: "system",
+        runId: run.id,
+      });
+    }
+  }
+
+  /**
+   * Run the job again from one of its top-level steps, with what the steps before it found: a new run
+   * (and task) on the job as it is now, so a fixed step runs fixed. Not from inside a branch or loop.
+   */
+  async rerunFrom(companyId: string, runId: string, stepId: string, by: string, options: { wait?: boolean } = {}): Promise<RunRow> {
+    const old = await this.getRow(companyId, runId);
+    if (["running", "waiting", "waiting_approval", "queued"].includes(old.status)) {
+      throw new RunError("The run is still going: wait for it, or stop it first", 409);
+    }
+    const definition = await this.deps.agents.definitionAt(old.agentId, old.agentVersion);
+    const current = (await this.deps.agents.get(companyId, old.agentId)).definition;
+    const workflow = current.workflow.length ? current.workflow : definition.workflow;
+    const at = workflow.findIndex((s) => s.id === stepId);
+    if (at < 0) throw new RunError(`The job has no step "${stepId}" at its top level to run again from`, 404);
+    const before = new Set([...walkSteps(workflow.slice(0, at))].map((v) => v.step.id));
+    const state = normalizeState(old.context);
+    const steps = Object.fromEntries(Object.entries(state.steps).filter(([id]) => before.has(id)));
+    // Every step before it counts as done, with what it found then (nothing, when it failed).
+    const completed = workflow.slice(0, at).map((s) => s.id);
+    const stepName = workflow[at]!.name ?? stepId;
+    return this.start(companyId, old.agentId, old.input, {
+      trigger: "rerun",
+      triggerRef: runId,
+      isTest: old.isTest,
+      actor: by,
+      title: `Run again from “${stepName}”`,
+      requestedBy: by,
+      resume: { steps, completed },
+      wait: options.wait ?? false,
+    });
   }
 
   /** Model use outside a step (an approved action that worked screens), added to the run's cost. */
@@ -1779,6 +1940,7 @@ function normalizeState(value: unknown): PersistedRunState {
     pending: isRecord(record.pending) ? (record.pending as PersistedRunState["pending"]) : undefined,
     frames: isRecord(record.frames) ? (record.frames as Record<string, FrameState>) : undefined,
     outputStepId: typeof record.outputStepId === "string" ? record.outputStepId : undefined,
+    attempts: isRecord(record.attempts) ? (record.attempts as Record<string, number>) : undefined,
     warnings: Array.isArray(record.warnings) ? (record.warnings as string[]) : undefined,
     task: typeof record.task === "string" ? record.task : undefined,
     override: isRecord(record.override) ? record.override : undefined,
@@ -1832,6 +1994,9 @@ const SOURCE_TEXT: Record<string, string> = {
   webhook: "Called by another system",
   paperclip: "Assigned in Paperclip",
   "connector-event": "Event in a connected system",
+  rerun: "Run again",
+  failure: "Given a failure to handle",
+  colleague: "Given work by a colleague",
   chat: "Asked in chat",
   conversation: "Said in a conversation",
   teams: "Asked in Microsoft Teams",

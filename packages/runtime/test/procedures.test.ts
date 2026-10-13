@@ -106,6 +106,29 @@ const priceList: AgentDefinitionInput = {
   ],
 };
 
+const fragile: AgentDefinitionInput = {
+  slug: "fragile",
+  name: "Fragile Poster",
+  summary: "Posts to a system that is down.",
+  archetype: "process-automation",
+  instructions: "Post the entry.",
+  workflow: [
+    { id: "prepare", type: "output", value: { ready: true } },
+    { id: "post", type: "connector", connector: "nowhere", operation: "post", retry: { times: 2, waitSeconds: 0 } },
+    { id: "result", type: "output", value: { done: true, prepared: "{{ steps.prepare.ready }}" } },
+  ],
+  onFailure: { tell: "selin@acme.test", giveTo: "fixer", note: "Check the ERP connection." },
+};
+
+const fixer: AgentDefinitionInput = {
+  slug: "fixer",
+  name: "Fixer",
+  summary: "Looks into failures.",
+  archetype: "conversational",
+  instructions: "Look into what failed.",
+  tools: ["knowledge.search"],
+};
+
 let platform: Platform;
 let companyId: string;
 
@@ -113,7 +136,7 @@ beforeAll(async () => {
   platform = await Platform.create({
     dataDir: mkdtempSync(join(tmpdir(), "eb-procedures-")),
     inMemory: true,
-    llm: new ScriptedLlm({}),
+    llm: new ScriptedLlm({ "runtime.agent": { tools: () => ({ text: "Looked into it; the ERP connection needs IT." }) } }),
     embedder: new LocalHashEmbedder(),
     env: {},
   });
@@ -121,6 +144,9 @@ beforeAll(async () => {
   await platform.agents.create(companyId, { definition: orderChecker, status: "active" });
   await platform.agents.create(companyId, { definition: roundFailer, status: "active" });
   await platform.agents.create(companyId, { definition: priceList, status: "active" });
+  await platform.agents.create(companyId, { definition: fragile, status: "active" });
+  await platform.agents.create(companyId, { definition: fixer, status: "active" });
+  await platform.people.create(companyId, { name: "Selin Acar", email: "selin@acme.test" });
   await platform.handle.db.execute(sql`update companies set settings = jsonb_set(settings, '{variables}', '{"discount_from": 500}') where id = ${companyId}`);
 });
 afterAll(async () => {
@@ -216,5 +242,35 @@ describe("reshaping data and code", () => {
     const steps = await platform.engine.stepsOf(companyId, run.id);
     expect(steps.find((s) => s.key === "discount")).toMatchObject({ status: "succeeded", input: { input: { threshold: 500 } } });
     expect(steps.find((s) => s.key === "slow")).toMatchObject({ status: "failed" });
+  });
+});
+
+describe("when a step fails", () => {
+  it("tries again, then tells the person the job names and gives the failure to a colleague; a run starts again from a later step", async () => {
+    const run = await platform.engine.start(companyId, "fragile", {}, { wait: true });
+    expect(run.status).toBe("failed");
+    const { events } = await platform.engine.get(companyId, run.id);
+    expect(events.filter((e) => e.type === "step.retried").map((e) => (e.data as { attempt: number }).attempt)).toEqual([2, 3]);
+    const attempts = (await platform.engine.stepsOf(companyId, run.id)).filter((s) => s.key === "post");
+    expect(attempts.map((a) => [a.attempt, a.status])).toEqual([
+      [1, "failed"],
+      [2, "failed"],
+      [3, "failed"],
+    ]);
+
+    // The person the job names gets the failure, with its note; the colleague gets it as work.
+    const selin = await platform.people.findByEmail(companyId, "selin@acme.test");
+    const [failure] = await platform.work.list(companyId, { kind: "failure", taskId: run.taskId! });
+    expect(failure).toMatchObject({ assigneeUserId: selin!.id, details: expect.stringContaining("Check the ERP connection.") });
+    const given = (await platform.tasks.list(companyId, { limit: 20 })).find((t) => t.source === "failure");
+    expect(given).toMatchObject({ title: expect.stringContaining("Failed:"), sourceRef: run.taskId });
+    for (const colleagueRun of await platform.tasks.runsOf(given!.id)) await platform.engine.waitForSettled(companyId, colleagueRun.id);
+
+    // Again from the last step: what the steps before it found is reused, they don't run again.
+    const again = await platform.engine.rerunFrom(companyId, run.id, "result", "Selin", { wait: true });
+    expect(again.status).toBe("succeeded");
+    expect(again.output).toEqual({ done: true, prepared: true });
+    expect((await platform.engine.stepsOf(companyId, again.id)).map((s) => s.key)).toEqual(["result"]);
+    await expect(platform.engine.rerunFrom(companyId, run.id, "nowhere", "Selin")).rejects.toThrow(/no step "nowhere"/);
   });
 });
