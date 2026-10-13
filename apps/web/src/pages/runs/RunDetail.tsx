@@ -1,12 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Ban, CirclePlay, FlaskConical, ListTree, Monitor, Sparkles, UserCheck } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Link, useParams } from "react-router";
+import { Ban, CirclePlay, FlaskConical, ListOrdered, ListTree, Monitor, Pin, Sparkles, UserCheck } from "lucide-react";
+import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { Link, useNavigate, useParams } from "react-router";
 import { api, isApiError, subscribe } from "../../api.ts";
 import { ApprovalCard } from "../../components/ApprovalCard.tsx";
 import { Badge, StatusPill } from "../../components/Badge.tsx";
 import { Button, ButtonLink } from "../../components/Button.tsx";
 import { Card, CardHeader } from "../../components/Card.tsx";
+import { Dialog } from "../../components/Dialog.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { FileIdLink } from "../../components/FileLink.tsx";
 import { JsonDetails } from "../../components/JsonView.tsx";
@@ -14,6 +15,7 @@ import { KeyValue } from "../../components/KeyValue.tsx";
 import { Page } from "../../components/Layout.tsx";
 import { Markdown } from "../../components/Markdown.tsx";
 import { OutputView } from "../../components/OutputView.tsx";
+import { RunSteps } from "../../components/RunSteps.tsx";
 import { RunTimeline, useRunDetail } from "../../components/RunViews.tsx";
 import { ScreenRunView, isScreenRun } from "../../components/ScreenRun.tsx";
 import { ErrorState, LoadingBlock, Spinner } from "../../components/Spinner.tsx";
@@ -23,6 +25,7 @@ import { runTriggerLabel } from "../../lib/labels.ts";
 import { keys } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import { useDocumentTitle } from "../../lib/title.ts";
+import type { RunExample, RunRow } from "../../types.ts";
 
 function InputValue({ value }: { value: unknown }): ReactNode {
   if (isUuid(value)) return <FileIdLink fileId={value} />;
@@ -54,6 +57,53 @@ function InputValue({ value }: { value: unknown }): ReactNode {
   return <span className="whitespace-pre-wrap">{displayValue(value)}</span>;
 }
 
+/** A name for an example from what the run was given: its first short text. */
+function exampleName(input: Record<string, unknown>): string {
+  const text = Object.values(input).find((v): v is string => typeof v === "string" && v.trim().length > 0 && !isUuid(v));
+  return text ? text.trim().slice(0, 60) : "Example";
+}
+
+/** Keep what a run was given as an example, to try the AI employee with again. */
+function PinDialog({ slug, run, open, onClose }: { slug: string; run: RunRow; open: boolean; onClose: () => void }) {
+  const { company, path } = useCompany();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [name, setName] = useState(() => exampleName(run.input ?? {}));
+  const pin = useMutation({
+    mutationFn: () => api.post<{ example: RunExample }>(path(`/agents/${encodeURIComponent(slug)}/examples`), { name: name.trim(), runId: run.id }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.agent(company, slug) });
+      toast.success("Pinned as an example", { description: "Try it offers it, to run the AI employee on the same input again." });
+      onClose();
+    },
+    onError: (error) => toast.error(error),
+  });
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (name.trim()) pin.mutate();
+  };
+  return (
+    <Dialog open={open} onClose={onClose} title="Pin as an example" description="What this run was given is kept: Try it can start from it again.">
+      <form onSubmit={submit} className="space-y-4">
+        <div>
+          <label htmlFor="example-name" className="label">
+            Name
+          </label>
+          <input id="example-name" className="input" value={name} maxLength={120} onChange={(e) => setName(e.target.value)} data-autofocus />
+        </div>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" icon={Pin} loading={pin.isPending} disabled={!name.trim()}>
+            Pin it
+          </Button>
+        </div>
+      </form>
+    </Dialog>
+  );
+}
+
 export default function RunDetail() {
   const { id = "" } = useParams();
   useDocumentTitle("Run");
@@ -61,7 +111,9 @@ export default function RunDetail() {
   const queryClient = useQueryClient();
   const toast = useToast();
   const { data, isLoading, error, refetch } = useRunDetail(id, 5000);
+  const navigate = useNavigate();
   const [delta, setDelta] = useState("");
+  const [pinning, setPinning] = useState(false);
   const timer = useRef<number | null>(null);
   const status = data?.run.status;
   const live = status === "running" || status === "queued";
@@ -95,6 +147,16 @@ export default function RunDetail() {
       timer.current = null;
     };
   }, [live, id, path, refetch, queryClient, company]);
+
+  const rerun = useMutation({
+    mutationFn: (fromKey: string) => api.post<RunRow>(path(`/runs/${encodeURIComponent(id)}/rerun`), { fromKey }),
+    onSuccess: (again) => {
+      void queryClient.invalidateQueries({ queryKey: keys.runs(company) });
+      toast.success("Running again", { description: "A new run: the steps before keep what they found." });
+      navigate(`/runs/${again.id}`);
+    },
+    onError: (e) => toast.error(e),
+  });
 
   const cancel = useMutation({
     mutationFn: () => api.post(path(`/runs/${encodeURIComponent(id)}/cancel`)),
@@ -130,6 +192,7 @@ export default function RunDetail() {
   }
 
   const { run, events, approvals, agent } = data;
+  const settled = ["succeeded", "failed", "cancelled"].includes(run.status);
   const inputEntries = Object.entries(run.input ?? {});
   const usage = run.usage ?? {};
   // Steps that worked an old system's screens: what they found, and the last screen.
@@ -179,7 +242,12 @@ export default function RunDetail() {
             {run.currentStep && live ? ` · now: ${run.currentStep}` : ""}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {agent && data.canManage && Object.keys(run.input ?? {}).length > 0 && (
+            <Button size="sm" icon={Pin} onClick={() => setPinning(true)}>
+              Pin as an example
+            </Button>
+          )}
           {agent && (
             <ButtonLink to={`/ai/${agent.slug}/app`} size="sm">
               Open app
@@ -242,6 +310,27 @@ export default function RunDetail() {
               )}
             </div>
           </Card>
+
+          {(data.steps?.length ?? 0) > 0 && (
+            <Card className="overflow-hidden">
+              <CardHeader
+                title="Steps"
+                icon={ListOrdered}
+                subtitle={
+                  data.canManage && settled && data.rerunFrom?.length
+                    ? "What each step was given and gave. Run the job again from a step: the steps before it keep what they found."
+                    : "What each step was given and gave, in the order they ran."
+                }
+              />
+              <RunSteps
+                steps={data.steps ?? []}
+                workflow={agent?.workflow}
+                rerunFrom={data.canManage && settled ? (data.rerunFrom ?? []) : []}
+                onRerun={(key) => rerun.mutate(key)}
+                rerunning={rerun.isPending ? (rerun.variables ?? null) : null}
+              />
+            </Card>
+          )}
 
           {screenSteps.length > 0 && (
             <Card>
@@ -309,6 +398,7 @@ export default function RunDetail() {
           </Card>
         </div>
       </div>
+      {agent && pinning && <PinDialog slug={agent.slug} run={run} open={pinning} onClose={() => setPinning(false)} />}
     </Page>
   );
 }

@@ -37,7 +37,7 @@ import { Badge, StatusPill } from "../../components/Badge.tsx";
 import { Button, ButtonLink } from "../../components/Button.tsx";
 import { Card, CardHeader } from "../../components/Card.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
-import { EmploymentPanel, PROBATION } from "../../components/Employment.tsx";
+import { EmploymentPanel, MinutesPerTask, PROBATION } from "../../components/Employment.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Field } from "../../components/Form.tsx";
 import { Page } from "../../components/Layout.tsx";
@@ -47,6 +47,7 @@ import { Callout, ErrorState, LoadingBlock } from "../../components/Spinner.tsx"
 import { Tabs } from "../../components/Tabs.tsx";
 import { StackedBars } from "../../components/Charts.tsx";
 import { TaskTable } from "../../components/TaskList.tsx";
+import { TryExamples } from "../../components/TryExamples.tsx";
 import { WorkflowView } from "../../components/WorkflowView.tsx";
 import { WorkItemCard } from "../../components/WorkItemCard.tsx";
 import { useViewer } from "../../lib/auth.tsx";
@@ -558,6 +559,7 @@ function RulesTab({ detail }: { detail: AgentDetail }) {
   return (
     <div className="space-y-6">
       <EmploymentPanel detail={detail} />
+      <MinutesPerTask detail={detail} />
     </div>
   );
 }
@@ -737,7 +739,10 @@ function TryDialog({ detail, open, onClose }: { detail: AgentDetail; open: boole
           </Button>
         </div>
       ) : (
-        <RunForm slug={detail.agent.slug} definition={detail.definition} test submitLabel="Try it" onStarted={setRun} />
+        <div className="space-y-5">
+          <TryExamples detail={detail} onStarted={setRun} />
+          <RunForm slug={detail.agent.slug} definition={detail.definition} test submitLabel="Try it" onStarted={setRun} />
+        </div>
       )}
     </Dialog>
   );

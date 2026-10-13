@@ -1,7 +1,8 @@
-import { CircleCheck, History, ListChecks, SquareCheckBig, UserCheck } from "lucide-react";
+import { Activity, CircleCheck, History, ListChecks, SquareCheckBig, UserCheck } from "lucide-react";
 import { useSearchParams } from "react-router";
 import { Card, PageHeader } from "../../components/Card.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
+import { Executions, type ExecutionFilters } from "../../components/Executions.tsx";
 import { Page } from "../../components/Layout.tsx";
 import { ErrorState, LoadingBlock, Skeleton } from "../../components/Spinner.tsx";
 import { Segmented, Tabs } from "../../components/Tabs.tsx";
@@ -11,7 +12,7 @@ import { WorkItemCard } from "../../components/WorkItemCard.tsx";
 import { useAgents, useDepartments, useTasks, useTodoCount, useWork } from "../../lib/queries.ts";
 import type { WorkEntry } from "../../types.ts";
 
-type View = "queue" | "todos" | "tasks" | "handled";
+type View = "queue" | "todos" | "tasks" | "runs" | "handled";
 type Scope = "mine" | "all";
 
 const STATUS_FILTERS = [
@@ -109,6 +110,7 @@ export default function Work() {
           { id: "queue", label: "Needs a person", icon: UserCheck, count: mine.data?.length || undefined, alert: Boolean(mine.data?.length) },
           { id: "todos", label: "My tasks", icon: SquareCheckBig, count: myTasks || undefined, alert: Boolean(myTasks) },
           { id: "tasks", label: "Tasks", icon: ListChecks },
+          { id: "runs", label: "Executions", icon: Activity },
           { id: "handled", label: "Handled", icon: History },
         ]}
       />
@@ -140,6 +142,29 @@ export default function Work() {
           </p>
           <TodoList />
         </div>
+      )}
+
+      {view === "runs" && (
+        <Executions
+          filters={{
+            status: params.get("runStatus") ?? "",
+            agent,
+            department,
+            trigger: params.get("trigger") ?? "",
+            test: params.get("test") === "both" ? "" : (params.get("test") ?? "false"),
+            days: params.get("days") ?? "7",
+          }}
+          update={(patch: Partial<ExecutionFilters>) =>
+            update({
+              ...(patch.status !== undefined ? { runStatus: patch.status } : {}),
+              ...(patch.agent !== undefined ? { agent: patch.agent } : {}),
+              ...(patch.department !== undefined ? { department: patch.department } : {}),
+              ...(patch.trigger !== undefined ? { trigger: patch.trigger } : {}),
+              ...(patch.test !== undefined ? { test: patch.test === "false" ? null : patch.test || "both" } : {}),
+              ...(patch.days !== undefined ? { days: patch.days === "7" ? null : patch.days } : {}),
+            })
+          }
+        />
       )}
 
       {view === "tasks" && (

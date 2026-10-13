@@ -22,6 +22,7 @@ import { agentActor, ConversationService, GENERAL_CHANNEL, type ChannelSpec } fr
 import { MentionCards } from "./mentions.ts";
 import { ConnectorService } from "./connectors.ts";
 import { EmploymentService } from "./employment.ts";
+import { ExecutionService } from "./executions.ts";
 import { RunEngine } from "./engine.ts";
 import { ReportService } from "./reports.ts";
 import { PlatformEvents } from "./events.ts";
@@ -83,6 +84,8 @@ export class Platform {
   readonly coachingNotes: CoachingNotes;
   /** Performance and cost reports. */
   readonly reports: ReportService;
+  /** Runs as executions: filtered pages, insights, and the examples pinned from runs. */
+  readonly executions: ExecutionService;
   /** Conversations: people and AI employees in one thread. */
   readonly conversations: ConversationService;
   /** When each company's built-in channels were last brought in step. */
@@ -162,6 +165,7 @@ export class Platform {
     this.work = new WorkService(this.handle, this.events);
     this.coachingNotes = new CoachingNotes(this.handle, this.activity);
     this.reports = new ReportService(this.handle);
+    this.executions = new ExecutionService(this.handle, this.agents, this.reports);
     this.brain = new BrainService(this.handle, {
       priority: sourcePriority,
       originName: sourceName,

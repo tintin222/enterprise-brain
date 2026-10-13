@@ -1,4 +1,4 @@
-import type { Archetype, FieldSpec, RequirementSection, StakeholderRole, TriggerSpec, WorkflowStep } from "../types.ts";
+import type { Archetype, FieldSpec, RequirementSection, StakeholderRole, TransformOp, TriggerSpec, WorkflowStep } from "../types.ts";
 import { humanize } from "./format.ts";
 
 export const ARCHETYPE_LABELS: Record<Archetype, string> = {
@@ -173,6 +173,11 @@ export const RUN_TRIGGER_LABELS: Record<string, string> = {
   chat: "Chat",
   conversation: "Conversation",
   "connector-event": "System event",
+  rerun: "Run again from a step",
+  colleague: "From a colleague",
+  failure: "A failure to handle",
+  wake: "Woke up",
+  request: "Request",
 };
 
 export function runTriggerLabel(trigger: string): string {
@@ -226,12 +231,46 @@ export function describeStep(step: WorkflowStep): string {
       return "Produce an Excel file";
     case "agent":
       return "Work autonomously with its tools";
-    case "wait":
-      if (step.for === "reply") return `Wait for a reply${step.days ? ` (at most ${step.days} day${step.days === 1 ? "" : "s"})` : ""}`;
-      return step.days ? `Wait ${step.days} day${step.days === 1 ? "" : "s"}` : "Wait until the set date";
+    case "wait": {
+      const days = step.days ? `${step.days} day${step.days === 1 ? "" : "s"}` : "";
+      if (step.for === "reply") return `Wait for a reply${days ? ` (at most ${days})` : ""}`;
+      if (step.for === "callback") return `Wait for another system to call back${days ? ` (at most ${days})` : ""}`;
+      return days ? `Wait ${days}` : "Wait until the set date";
+    }
     case "output":
       return "Show the result";
+    case "branch":
+      return `Decide: ${step.cases.map((c) => plainCondition(c.when)).join(" / ")}${step.else ? " / otherwise" : ""}`;
+    case "each":
+      return `For each item of ${plainTemplate(step.over)}: ${step.steps.length} step${step.steps.length === 1 ? "" : "s"}`;
+    case "transform":
+      return `Reshape ${plainTemplate(step.from)} (${step.ops.map((o) => TRANSFORM_OP_LABELS[o.op]).join(", ")})`;
+    case "code":
+      return "Work it out with a short program (in a sandbox)";
+    case "call":
+      return `Give the work to ${step.colleague} and wait for its answer`;
+    case "chat.send":
+      return `Write in Chat to ${step.to === "task" ? "the task's conversation" : plainTemplate(step.to)}`;
+    case "respond":
+      return "Answer the system that called it";
   }
+}
+
+export const TRANSFORM_OP_LABELS: Record<TransformOp["op"], string> = {
+  set: "set fields",
+  filter: "keep some",
+  sort: "sort",
+  aggregate: "total",
+  dedupe: "drop repeats",
+  pick: "keep fields",
+  rename: "rename fields",
+  limit: "keep the first",
+};
+
+/** A condition in plain words: "steps.check.score >= 70" → "‹score› >= 70". */
+export function plainCondition(text: string): string {
+  if (text.includes("{{")) return plainTemplate(text);
+  return text.replace(/\b[A-Za-z_]\w*(?:\.\w+)+/g, (path) => `‹${humanize(path.split(".").pop() ?? path).toLowerCase()}›`);
 }
 
 export const STEP_TYPE_LABELS: Record<WorkflowStep["type"], string> = {
@@ -249,6 +288,13 @@ export const STEP_TYPE_LABELS: Record<WorkflowStep["type"], string> = {
   agent: "Autonomous agent",
   wait: "Wait",
   output: "Result",
+  branch: "Decision",
+  each: "For each",
+  transform: "Reshape data",
+  code: "Code",
+  call: "Ask a colleague",
+  "chat.send": "Chat message",
+  respond: "Answer the caller",
 };
 
 export const PERSONAL_DATA_LABELS: Record<string, string> = {

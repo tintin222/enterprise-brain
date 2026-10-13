@@ -313,3 +313,66 @@ export function EmploymentPanel({ detail }: { detail: AgentDetail }) {
     </Card>
   );
 }
+
+/**
+ * How long a task takes a person, as its manager estimates it: finished tasks then show as time saved
+ * on the Executions page (always worded as the manager's estimate).
+ */
+export function MinutesPerTask({ detail }: { detail: AgentDetail }) {
+  const { company, path } = useCompany();
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const current = detail.settings?.minutesPerTask ?? null;
+  const [value, setValue] = useState(current === null ? "" : String(current));
+  useEffect(() => setValue(current === null ? "" : String(current)), [current]);
+  const save = useMutation({
+    mutationFn: (minutes: number | null) => api.put(path(`/agents/${encodeURIComponent(detail.agent.slug)}/settings`), { minutesPerTask: minutes }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: keys.agent(company, detail.agent.slug) });
+      void queryClient.invalidateQueries({ queryKey: keys.runs(company) });
+      toast.success("Saved: finished tasks now count as time saved");
+    },
+    onError: (error) => toast.error(error),
+  });
+  const parsed = value.trim() === "" ? null : Number(value);
+  const valid = parsed === null || (Number.isFinite(parsed) && parsed > 0 && parsed <= 10_000);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (valid) save.mutate(parsed);
+  };
+  const editable = Boolean(detail.canManage);
+  return (
+    <Card>
+      <CardHeader title="Time it saves" icon={CalendarClock} subtitle="How long one of its tasks would take a person, as you estimate it." />
+      <form onSubmit={submit} className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-end">
+        <div className="sm:w-48">
+          <label className="label" htmlFor="minutes-per-task">
+            Minutes a task takes a person
+          </label>
+          <input
+            id="minutes-per-task"
+            type="number"
+            min={1}
+            max={10000}
+            inputMode="numeric"
+            className="input"
+            value={value}
+            disabled={!editable}
+            placeholder="Not set"
+            onChange={(e) => setValue(e.target.value)}
+          />
+        </div>
+        <p className="flex-1 text-xs text-muted">
+          {current === null
+            ? "Not set: the Executions page shows what its work cost instead of the time it saved."
+            : `Each finished task counts as ${current} minutes saved on the Executions page.`}
+        </p>
+        {editable && (
+          <Button type="submit" icon={Save} loading={save.isPending} disabled={!valid || parsed === current}>
+            Save
+          </Button>
+        )}
+      </form>
+    </Card>
+  );
+}

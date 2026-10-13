@@ -10,6 +10,7 @@ import {
   CalculationError,
   CoachingError,
   ConversationError,
+  ExecutionError,
   MailAccountError,
   PeopleError,
   ProjectError,
@@ -51,6 +52,7 @@ export function statusFor(error: unknown): number {
     error instanceof RecurringWorkError ||
     error instanceof ReviewError ||
     error instanceof ConversationError ||
+    error instanceof ExecutionError ||
     error instanceof ProjectError ||
     error instanceof TodoError ||
     error instanceof MailAccountError

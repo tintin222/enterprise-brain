@@ -53,14 +53,19 @@ export type Archetype = "document-processing" | "mail-triage" | "conversational"
 
 export type TriggerSpec =
   | { type: "manual" }
-  | { type: "form"; description?: string }
+  | {
+      type: "form";
+      description?: string;
+      /** A public page anyone with its link fills in (or anyone signed in, with signIn). */
+      public?: { enabled: boolean; title?: string; intro?: string; signIn?: boolean; thanks?: string };
+    }
   | {
       type: "mailbox";
       mailbox: string;
       filter?: { subjectContains?: string[]; fromDomains?: string[]; hasAttachment?: boolean; categories?: string[] };
     }
   | { type: "schedule"; cron: string; timezone?: string }
-  | { type: "webhook"; description?: string }
+  | { type: "webhook"; description?: string; auth?: "secret" | "hmac"; respond?: boolean; waitSeconds?: number }
   | { type: "chat" }
   | { type: "paperclip"; description?: string }
   | { type: "connector-event"; connector: string; event: string };
@@ -85,7 +90,28 @@ interface StepBase {
   id: string;
   name?: string;
   when?: string;
-  onError?: "fail" | "continue";
+  /** After its retries: stop the run, keep the error and go on, or leave out the steps after it. */
+  onError?: "fail" | "continue" | "skip";
+  retry?: { times: number; waitSeconds?: number; backoff?: "fixed" | "double" };
+  timeoutSeconds?: number;
+}
+
+/** One change a transform step makes to a list. */
+export type TransformOp =
+  | { op: "set"; fields: Record<string, unknown> }
+  | { op: "filter"; where: string }
+  | { op: "sort"; by: string; order?: "asc" | "desc" }
+  | { op: "aggregate"; groupBy?: string[]; values: Record<string, { fn: "count" | "sum" | "avg" | "min" | "max" | "first" | "last" | "list"; field?: string }> }
+  | { op: "dedupe"; by?: string[] }
+  | { op: "pick"; fields: string[] }
+  | { op: "rename"; fields: Record<string, string> }
+  | { op: "limit"; count: number; offset?: number };
+
+/** One case of a branch: the steps that run when its condition holds. */
+export interface BranchCase {
+  id?: string;
+  when: string;
+  steps: WorkflowStep[];
 }
 
 export type WorkflowStep = StepBase &
@@ -102,8 +128,24 @@ export type WorkflowStep = StepBase &
     | { type: "excel.read"; from: string; sheet?: string }
     | { type: "excel.write"; data: string; fileName?: string }
     | { type: "agent"; task: string; tools: string[]; maxTurns?: number }
-    | { type: "wait"; for: "reply" | "time"; days?: number; until?: string }
+    | { type: "wait"; for: "reply" | "time" | "callback"; days?: number; until?: string }
     | { type: "output"; value: Record<string, unknown> }
+    | { type: "transform"; from: string; ops: TransformOp[] }
+    | { type: "code"; code: string; input?: Record<string, unknown> }
+    | { type: "call"; colleague: string; request: string; input?: Record<string, unknown>; days?: number }
+    | { type: "chat.send"; to: string; via?: "chat" | "teams" | "google-chat"; text: string; requiresApproval?: boolean }
+    | { type: "respond"; status?: number; headers?: Record<string, string>; body?: unknown }
+    | { type: "branch"; cases: BranchCase[]; else?: WorkflowStep[] }
+    | {
+        type: "each";
+        over: string;
+        as?: string;
+        steps: WorkflowStep[];
+        batchSize?: number;
+        maxItems?: number;
+        collect?: unknown;
+        onItemError?: "fail" | "continue" | "skip";
+      }
   );
 
 export type WorkflowStepType = WorkflowStep["type"];
@@ -168,6 +210,8 @@ export interface AgentDefinition {
   ui: UiSpec;
   kpis: AgentKpi[];
   tests: AgentTest[];
+  /** When a task fails for good: who is told (an email), and the colleague given the failure (its slug). */
+  onFailure?: { tell?: string; giveTo?: string; note?: string };
   paperclip?: { role?: string; title?: string; reportsTo?: string; capabilities?: string };
 }
 
@@ -222,6 +266,23 @@ export interface AgentDetail {
   activity?: { id: string; actor: string; action: string; summary: string; createdAt: string }[];
   /** Work people asked it to do regularly. */
   recurring?: RecurringWork[];
+  /** Examples pinned from its runs to try it with, and the minutes a task takes a person. */
+  settings?: AgentSettings;
+}
+
+/** An example pinned from a run: what it was given, to try the AI employee with again. */
+export interface RunExample {
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+  runId: string | null;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface AgentSettings {
+  examples: RunExample[];
+  minutesPerTask: number | null;
 }
 
 /** How much an AI employee may do alone. */
@@ -359,7 +420,61 @@ export interface RunDetail {
   run: RunRow;
   events: RunEvent[];
   approvals: Approval[];
-  agent: { id: string; slug: string; name: string; outputs: FieldSpec[]; ui: UiSpec } | null;
+  agent: { id: string; slug: string; name: string; outputs: FieldSpec[]; ui: UiSpec; workflow?: WorkflowStep[] } | null;
+  /** Each step's attempts, with their input as resolved and their output (64 kB of each at most). */
+  steps?: RunStep[];
+  /** The viewer may run it again from a step and pin it as an example. */
+  canManage?: boolean;
+  /** The steps it may run again from: the top-level steps of the job as it is now. */
+  rerunFrom?: string[];
+}
+
+/** One attempt of a step of a run. */
+export interface RunStep {
+  id: string;
+  runId: string;
+  /** Where in the job: the step id at the top, "loop#2/step" inside a loop's third round. */
+  key: string;
+  stepId: string;
+  type: string;
+  iteration: number | null;
+  attempt: number;
+  status: "running" | "succeeded" | "failed" | "skipped" | "waiting";
+  input: unknown;
+  output: unknown;
+  inputTruncated: boolean;
+  outputTruncated: boolean;
+  error: string | null;
+  usage: Usage | null;
+  startedAt: string;
+  finishedAt: string | null;
+  durationMs: number | null;
+}
+
+/** A page of runs, and where the next one starts. */
+export interface RunsPage {
+  runs: RunRow[];
+  next: string | null;
+}
+
+/** What happened over a period. */
+export interface RunInsights {
+  from: string;
+  to: string;
+  runs: number;
+  succeeded: number;
+  failed: number;
+  needsPerson: number;
+  waiting: number;
+  running: number;
+  testRuns: number;
+  medianDurationMs: number | null;
+  costUsd: number;
+  tasksFinished: number;
+  finishedAlone: number;
+  /** The managers' estimate; null when no manager said how long a task takes a person. */
+  minutesSaved: number | null;
+  perDay: { date: string; succeeded: number; failed: number; other: number }[];
 }
 
 // ---------------------------------------------------------------------------

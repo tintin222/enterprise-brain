@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, qs } from "../api.ts";
 import type {
   AgentDetail,
@@ -39,7 +39,9 @@ import type {
   TableSummary,
   TableView,
   ReportPeriodKey,
+  RunInsights,
   RunRow,
+  RunsPage,
   SessionView,
   StoredFile,
   StudioThreadSummary,
@@ -124,6 +126,38 @@ export function useRuns(params: { agent?: string; status?: string; limit?: numbe
       const live = data?.some((r) => r.status === "running" || r.status === "queued");
       return live ? 2500 : (options.poll ?? false);
     },
+  });
+}
+
+/** Which runs the Executions list shows. */
+export interface RunsQuery {
+  agent?: string;
+  department?: string;
+  status?: string;
+  trigger?: string;
+  from?: string;
+  to?: string;
+  test?: "true" | "false";
+}
+
+/** Runs as executions, page by page (newest first); refreshed while some run is going. */
+export function useRunsPage(params: RunsQuery) {
+  const { company, path } = useCompany();
+  return useInfiniteQuery({
+    queryKey: [...keys.runs(company), "page", params],
+    queryFn: ({ pageParam }) => api.get<RunsPage>(path(`/runs/page${qs({ ...params, cursor: pageParam, limit: 50 })}`)),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next ?? undefined,
+    refetchInterval: (query) => (query.state.data?.pages[0]?.runs.some((r) => r.status === "running" || r.status === "queued") ? 5000 : false),
+  });
+}
+
+/** What happened over a period, for the Executions list. */
+export function useRunInsights(params: Pick<RunsQuery, "agent" | "department" | "from" | "to">) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.runs(company), "insights", params],
+    queryFn: () => api.get<RunInsights>(path(`/runs/insights${qs({ ...params })}`)),
   });
 }
 

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AgentStatus, Probation, TrustLimits, type AgentDefinition } from "@enterprise-brain/core";
+import { agentSettingsOf, workingHoursOf, type RunFilter } from "@enterprise-brain/runtime";
 import { actorOf, canHandleWork, canManageDepartment, canSeeDepartment, requireAdmin, viewerOf } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf, readMultipart, sse } from "../http.ts";
@@ -38,6 +39,24 @@ function inputFromMultipart(
   }
   return input;
 }
+
+/** Which runs to list: by AI employee or department, status, what started them, when, test or real, how long, what they cost. */
+const RunQuery = z.object({
+  agent: z.string().optional(),
+  department: z.string().optional(),
+  status: z.string().optional(),
+  trigger: z.string().optional(),
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  test: z.enum(["true", "false"]).optional(),
+  minDurationMs: z.coerce.number().min(0).optional(),
+  minCostUsd: z.coerce.number().min(0).optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().positive().max(200).default(50),
+});
+
+/** The longest period insights cover. */
+const MAX_INSIGHT_DAYS = 92;
 
 /** Events after which a live run stream ends, and the run status they leave behind. */
 const RUN_STATUS_AFTER: Record<string, string> = {
@@ -118,7 +137,36 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
       activity: activity.map((a) => ({ id: a.id, actor: a.actor, action: a.action, summary: a.summary, createdAt: a.createdAt })),
       /** Work people asked it to do regularly. */
       recurring,
+      /** Examples pinned from its runs to try it with, and the minutes a task takes a person. */
+      settings: agentSettingsOf(agent.row.settings),
     };
+  });
+
+  /** Pin what one of its runs was given as an example to try it with again (managers). */
+  app.post("/api/companies/:company/agents/:agent/examples", async (request) => {
+    const company = await companyOf(platform, request);
+    const { agent: ref } = request.params as { agent: string };
+    const body = z.object({ name: z.string().trim().min(1).max(120), runId: z.string().uuid() }).parse(request.body);
+    const agent = await agentFor(request, company.id, ref, true);
+    const example = await platform.executions.addExample(company.id, agent.row.id, { ...body, by: viewerOf(request).name });
+    return { example, settings: agentSettingsOf((await platform.agents.get(company.id, agent.row.id)).row.settings) };
+  });
+
+  app.delete("/api/companies/:company/agents/:agent/examples/:example", async (request) => {
+    const company = await companyOf(platform, request);
+    const { agent: ref, example } = request.params as { agent: string; example: string };
+    const agent = await agentFor(request, company.id, ref, true);
+    await platform.executions.removeExample(company.id, agent.row.id, example);
+    return { ok: true };
+  });
+
+  /** What a manager keeps besides its job: the minutes a task takes a person (for the time it saves). */
+  app.put("/api/companies/:company/agents/:agent/settings", async (request) => {
+    const company = await companyOf(platform, request);
+    const { agent: ref } = request.params as { agent: string };
+    const body = z.object({ minutesPerTask: z.number().positive().max(10_000).nullable() }).parse(request.body);
+    const agent = await agentFor(request, company.id, ref, true);
+    return platform.executions.setMinutesPerTask(company.id, agent.row.id, body.minutesPerTask);
   });
 
   app.put("/api/companies/:company/agents/:agent", async (request) => {
@@ -220,15 +268,57 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     return { ...run, context: undefined };
   });
 
+  /** The runs a request asks for, of the AI employees the viewer may see. */
+  const runPage = async (request: FastifyRequest, companyId: string) => {
+    const query = RunQuery.parse(request.query);
+    const visible = await visibleAgents(request, companyId);
+    let agentIds = [...visible.keys()];
+    if (query.agent) agentIds = [(await agentFor(request, companyId, query.agent)).row.id];
+    if (query.department) agentIds = agentIds.filter((id) => visible.get(id)?.row.departmentId === query.department);
+    const filter: RunFilter = {
+      agentIds,
+      status: query.status,
+      trigger: query.trigger,
+      from: query.from,
+      to: query.to,
+      test: query.test === undefined ? undefined : query.test === "true",
+      minDurationMs: query.minDurationMs,
+      minCostUsd: query.minCostUsd,
+      cursor: query.cursor,
+      limit: query.limit,
+    };
+    const page = await platform.executions.page(companyId, filter);
+    const runs = page.runs.map((r) => ({ ...r, context: undefined, agentName: visible.get(r.agentId)?.row.name, agentSlug: visible.get(r.agentId)?.row.slug }));
+    return { runs, next: page.next };
+  };
+
   app.get("/api/companies/:company/runs", async (request) => {
     const company = await companyOf(platform, request);
+    return (await runPage(request, company.id)).runs;
+  });
+
+  /** Runs as executions: a page, and where the next one starts. */
+  app.get("/api/companies/:company/runs/page", async (request) => {
+    const company = await companyOf(platform, request);
+    return runPage(request, company.id);
+  });
+
+  /** What happened over a period (the last 7 days unless asked), for the AI employees the viewer may see. */
+  app.get("/api/companies/:company/runs/insights", async (request) => {
+    const company = await companyOf(platform, request);
     const query = z
-      .object({ agent: z.string().optional(), status: z.string().optional(), limit: z.coerce.number().int().positive().max(200).default(50) })
+      .object({ agent: z.string().optional(), department: z.string().optional(), from: z.coerce.date().optional(), to: z.coerce.date().optional() })
       .parse(request.query);
-    const agentId = query.agent ? (await agentFor(request, company.id, query.agent)).row.id : undefined;
-    const visible = await visibleAgents(request, company.id);
-    const list = (await platform.engine.list(company.id, { agentId, status: query.status as never, limit: query.limit })).filter((r) => visible.has(r.agentId));
-    return list.map((r) => ({ ...r, context: undefined, agentName: visible.get(r.agentId)?.row.name, agentSlug: visible.get(r.agentId)?.row.slug }));
+    const to = query.to ?? new Date();
+    const from = query.from ?? new Date(to.getTime() - 7 * 86_400_000);
+    if (from >= to) throw new HttpError(400, "The period ends before it starts");
+    if (to.getTime() - from.getTime() > MAX_INSIGHT_DAYS * 86_400_000) throw new HttpError(400, `Insights cover at most ${MAX_INSIGHT_DAYS} days`);
+    const visible = [...(await visibleAgents(request, company.id)).values()];
+    const chosen = query.agent
+      ? [await agentFor(request, company.id, query.agent)]
+      : visible.filter((a) => !query.department || a.row.departmentId === query.department);
+    const insights = await platform.executions.insights(company.id, chosen, { from, to }, workingHoursOf(company.settings));
+    return { from: from.toISOString(), to: to.toISOString(), ...insights };
   });
 
   app.get("/api/companies/:company/runs/:run", async (request) => {
@@ -236,7 +326,36 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     const { run: runId } = request.params as { run: string };
     const detail = await platform.engine.get(company.id, runId);
     const agent = await agentFor(request, company.id, detail.run.agentId);
-    return { ...detail, agent: agent ? { id: agent.row.id, slug: agent.row.slug, name: agent.row.name, outputs: agent.definition.outputs, ui: agent.definition.ui } : null };
+    const canManage = canManageDepartment(viewerOf(request), agent.row.departmentId);
+    // A run starts again from a step of the job as it is now: from one of its top-level steps.
+    const rerunFrom = detail.run.context && "task" in detail.run.context ? [] : agent.definition.workflow.map((s) => s.id);
+    const ran = await platform.agents.definitionAt(agent.row.id, detail.run.agentVersion).catch(() => agent.definition);
+    return {
+      ...detail,
+      steps: await platform.engine.stepsOf(company.id, runId),
+      canManage,
+      rerunFrom,
+      agent: {
+        id: agent.row.id,
+        slug: agent.row.slug,
+        name: agent.row.name,
+        outputs: agent.definition.outputs,
+        ui: agent.definition.ui,
+        /** The steps of the job as the run ran it. */
+        workflow: ran.workflow,
+      },
+    };
+  });
+
+  /** Run the job again from one of its top-level steps, with what the steps before it found (managers). */
+  app.post("/api/companies/:company/runs/:run/rerun", async (request) => {
+    const company = await companyOf(platform, request);
+    const { run: runId } = request.params as { run: string };
+    const body = z.object({ fromKey: z.string().min(1), wait: z.boolean().default(false) }).parse(request.body);
+    const run = await platform.engine.getRow(company.id, runId);
+    await agentFor(request, company.id, run.agentId, true);
+    const again = await platform.engine.rerunFrom(company.id, runId, body.fromKey, actorOf(viewerOf(request)), { wait: body.wait });
+    return { ...again, context: undefined };
   });
 
   app.post("/api/companies/:company/runs/:run/cancel", async (request) => {
