@@ -1,0 +1,163 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { AgentDefinitionInput } from "@enterprise-brain/core";
+import { LocalHashEmbedder, ScriptedLlm } from "@enterprise-brain/llm";
+import { Platform } from "../src/index.ts";
+
+/**
+ * Procedures: a branch takes the first case that holds, a loop runs its steps for each item and resumes
+ * in the right round after an approval inside it, a failing round can be kept or left out, and every
+ * step's attempt is kept with its input and output for the run's inspector.
+ */
+
+const orderChecker: AgentDefinitionInput = {
+  slug: "order-checker",
+  name: "Order Checker",
+  summary: "Checks each line of an order; big quantities need a person.",
+  archetype: "process-automation",
+  instructions: "Check order lines.",
+  inputs: [
+    { key: "lines", type: "list", itemType: "object", required: true },
+    { key: "total", type: "number", required: true },
+  ],
+  outputs: [{ key: "size", type: "string" }],
+  workflow: [
+    {
+      id: "route",
+      type: "branch",
+      cases: [{ id: "big", when: "input.total > 1000", steps: [{ id: "label_big", type: "output", value: { size: "big" } }] }],
+      else: [{ id: "label_small", type: "output", value: { size: "small" } }],
+    },
+    {
+      id: "lines",
+      type: "each",
+      over: "{{ input.lines }}",
+      as: "line",
+      steps: [
+        { id: "check", type: "approval", title: "Approve {{ line.sku }} × {{ line.qty }}", when: "line.qty > 10" },
+        {
+          id: "line_result",
+          type: "output",
+          value: { sku: "{{ line.sku }}", approved: "{{ coalesce(steps.check.approved, 'not needed') }}", position: "{{ index }}" },
+        },
+      ],
+    },
+    {
+      id: "result",
+      type: "output",
+      value: { size: "{{ coalesce(steps.label_big.size, steps.label_small.size) }}", route: "{{ steps.route.case }}", lines: "{{ steps.lines.items }}" },
+    },
+  ],
+};
+
+const roundFailer: AgentDefinitionInput = {
+  slug: "round-failer",
+  name: "Round Failer",
+  summary: "One round of its loop fails.",
+  archetype: "process-automation",
+  instructions: "Go through the numbers.",
+  workflow: [
+    {
+      id: "numbers",
+      type: "each",
+      over: "3",
+      onItemError: "skip",
+      steps: [
+        { id: "boom", type: "connector", connector: "nowhere", operation: "explode", when: "item == 2" },
+        { id: "keep", type: "output", value: { n: "{{ item }}" } },
+      ],
+    },
+    { id: "broken", type: "connector", connector: "nowhere", operation: "explode", onError: "skip" },
+    { id: "left_out", type: "approval", title: "Never asked: the step before it failed" },
+    { id: "result", type: "output", value: { kept: "{{ steps.numbers.items | pluck:'n' }}", failed: "{{ steps.numbers.failed }}" } },
+  ],
+};
+
+let platform: Platform;
+let companyId: string;
+
+beforeAll(async () => {
+  platform = await Platform.create({
+    dataDir: mkdtempSync(join(tmpdir(), "eb-procedures-")),
+    inMemory: true,
+    llm: new ScriptedLlm({}),
+    embedder: new LocalHashEmbedder(),
+    env: {},
+  });
+  companyId = (await platform.ensureCompany({ slug: "acme", name: "Acme" })).id;
+  await platform.agents.create(companyId, { definition: orderChecker, status: "active" });
+  await platform.agents.create(companyId, { definition: roundFailer, status: "active" });
+});
+afterAll(async () => {
+  await platform?.close();
+});
+
+describe("branches and loops", () => {
+  const lines = [
+    { sku: "A-1", qty: 2 },
+    { sku: "B-2", qty: 20 },
+    { sku: "C-3", qty: 1 },
+  ];
+
+  it("takes the case that holds, and resumes a loop in the round where a person was asked", async () => {
+    const run = await platform.engine.start(companyId, "order-checker", { lines, total: 1500 }, { wait: true });
+    expect(run.status).toBe("waiting_approval");
+    const [approval] = (await platform.engine.listApprovals(companyId, { status: "pending" })).filter((a) => a.runId === run.id);
+    expect(approval?.title).toBe("Approve B-2 × 20");
+
+    await platform.engine.decide(companyId, approval!.id, { approved: true, decidedBy: "Selin" }, { wait: true });
+    const done = await platform.engine.getRow(companyId, run.id);
+    expect(done.status).toBe("succeeded");
+    expect(done.output).toEqual({
+      size: "big",
+      route: "big",
+      lines: [
+        { sku: "A-1", approved: "not needed", position: 0 },
+        { sku: "B-2", approved: true, position: 1 },
+        // The round after the approval starts clean: its skipped approval shows nothing.
+        { sku: "C-3", approved: "not needed", position: 2 },
+      ],
+    });
+
+    // The inspector keeps every step, round by round, with its input as resolved.
+    const steps = await platform.engine.stepsOf(companyId, run.id);
+    const byKey = Object.fromEntries(steps.map((s) => [s.key, s]));
+    expect(Object.keys(byKey)).toEqual(
+      expect.arrayContaining([
+        "route",
+        "label_big",
+        "lines",
+        "lines#0/check",
+        "lines#0/line_result",
+        "lines#1/check",
+        "lines#1/line_result",
+        "lines#2/line_result",
+        "result",
+      ]),
+    );
+    expect(byKey["label_small"]).toBeUndefined();
+    expect(byKey["lines#0/check"]).toMatchObject({ status: "skipped", iteration: 0 });
+    expect(byKey["lines#1/check"]).toMatchObject({ status: "succeeded", output: { approved: true, decidedBy: "Selin" } });
+    expect(byKey["lines#1/line_result"]).toMatchObject({ status: "succeeded", iteration: 1, input: { value: { sku: "B-2", approved: true, position: 1 } } });
+    expect(byKey["route"]).toMatchObject({ status: "succeeded", output: { case: "big", matched: true } });
+    expect(byKey["lines"]).toMatchObject({ status: "succeeded", output: { count: 3, failed: 0 } });
+  });
+
+  it("takes the otherwise case when no case holds", async () => {
+    const run = await platform.engine.start(companyId, "order-checker", { lines: [{ sku: "A-1", qty: 1 }], total: 50 }, { wait: true });
+    expect(run.status).toBe("succeeded");
+    expect(run.output).toMatchObject({ size: "small", route: "else" });
+  });
+
+  it("leaves a failed round out, and the steps after a failure with onError skip (an output at the end still runs)", async () => {
+    const run = await platform.engine.start(companyId, "round-failer", {}, { wait: true });
+    expect(run.status).toBe("succeeded");
+    expect(run.output).toEqual({ kept: [1, 3], failed: 1 });
+    const steps = await platform.engine.stepsOf(companyId, run.id);
+    expect(steps.find((s) => s.key === "numbers#1/boom")).toMatchObject({ status: "failed" });
+    expect(steps.find((s) => s.key === "broken")).toMatchObject({ status: "failed" });
+    expect(steps.find((s) => s.key === "left_out")).toMatchObject({ status: "skipped" });
+  });
+});

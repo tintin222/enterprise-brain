@@ -44,11 +44,30 @@ export interface RunContext {
   [alias: string]: unknown;
 }
 
+/** Where a branch or loop stands while the run is inside it (kept so a pause inside resumes in the right place). */
+export interface FrameState {
+  /** A branch: the case it took (its id or position), "else", or null when none held. */
+  case?: string | number | null;
+  /** A loop: its items (or batches), the next round, the rounds' results, how many failed and how many were left out. */
+  items?: unknown[];
+  index?: number;
+  /** The round whose steps were last cleared for a fresh start. */
+  round?: number;
+  results?: unknown[];
+  failed?: number;
+  leftOut?: number;
+}
+
 /** Persisted in runs.context between executions (resume after approvals). */
 export interface PersistedRunState {
   steps: Record<string, unknown>;
+  /** Keys of the steps done: their id at the top, "loop#2/step" inside a loop's third round. */
   completed: string[];
-  pending?: { stepId: string; approvalId?: string; kind: "decision" | "gated" | "wait" };
+  pending?: { stepId: string; stepKey?: string; approvalId?: string; kind: "decision" | "gated" | "wait" };
+  /** Branches and loops the run is inside, by key. */
+  frames?: Record<string, FrameState>;
+  /** The output step that ran last: its result is the run's output. */
+  outputStepId?: string;
   warnings?: string[];
   /** Free-form task (e.g. a Paperclip issue): run one autonomous step instead of the workflow. */
   task?: string;
@@ -94,6 +113,8 @@ export interface ExecutionScope {
   companyId: string;
   runId: string;
   agentId: string;
+  /** Where the step being run is in the job (its id at the top, "loop#2/step" inside a loop's third round). */
+  stepKey?: string;
   definition: AgentDefinition;
   /** Its level and limits, read when the run (re)starts: the manager's latest decision applies. */
   employment: Employment;

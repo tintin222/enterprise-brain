@@ -226,10 +226,39 @@ export const agents = pgTable(
     limits: jsonb("limits").$type<Record<string, unknown>>().notNull().default({}),
     /** It stops starting work when this month's model cost reaches the budget. */
     monthlyBudgetUsd: doublePrecision("monthly_budget_usd"),
+    /** Not versioned, like employment: examples pinned from runs for Try it, the manager's minutes per task. */
+    settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
   (t) => [uniqueIndex("agents_company_slug").on(t.companyId, t.slug)],
+);
+
+/**
+ * How other systems reach an AI employee: its webhook address (with a secret, kept encrypted) and its
+ * public form's link. One of each per AI employee; the token is the unguessable part of the address.
+ */
+export const agentEndpoints = pgTable(
+  "agent_endpoints",
+  {
+    id: id(),
+    companyId: companyId(),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    /** webhook or form */
+    kind: text("kind").notNull(),
+    token: text("token").notNull(),
+    secretCiphertext: text("secret_ciphertext"),
+    /** on or off */
+    status: text("status").notNull().default("on"),
+    createdBy: text("created_by"),
+    createdAt: createdAt(),
+    rotatedAt: timestamp("rotated_at", { withTimezone: true }),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    uses: integer("uses").notNull().default(0),
+  },
+  (t) => [uniqueIndex("agent_endpoints_token").on(t.token), uniqueIndex("agent_endpoints_agent_kind").on(t.agentId, t.kind)],
 );
 
 /** Every change to an agent definition is revisioned so it can be reviewed and rolled back. */
@@ -447,7 +476,12 @@ export const runs = pgTable(
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     createdAt: createdAt(),
   },
-  (t) => [index("runs_company_created").on(t.companyId, t.createdAt), index("runs_agent").on(t.agentId)],
+  (t) => [
+    index("runs_company_created").on(t.companyId, t.createdAt),
+    index("runs_agent").on(t.agentId),
+    index("runs_company_status").on(t.companyId, t.status, t.createdAt),
+    index("runs_agent_created").on(t.agentId, t.createdAt),
+  ],
 );
 
 export const runEvents = pgTable(
@@ -465,6 +499,59 @@ export const runEvents = pgTable(
     createdAt: createdAt(),
   },
   (t) => [uniqueIndex("run_events_run_seq").on(t.runId, t.seq)],
+);
+
+/**
+ * What each step of a run got and gave, for the run's inspector: one row per attempt, its input as the
+ * templates resolved and its output, each kept up to 64 kB (marked when cut).
+ */
+export const runSteps = pgTable(
+  "run_steps",
+  {
+    id: id(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    /** Where in the job: the step id at the top, "loop#2/step" inside a loop's third round. */
+    key: text("key").notNull(),
+    stepId: text("step_id").notNull(),
+    type: text("type").notNull(),
+    /** The round of the innermost loop it runs in (from 0). */
+    iteration: integer("iteration"),
+    attempt: integer("attempt").notNull().default(1),
+    /** running, succeeded, failed, skipped, waiting */
+    status: text("status").notNull(),
+    input: jsonb("input").$type<unknown>(),
+    output: jsonb("output").$type<unknown>(),
+    inputTruncated: boolean("input_truncated").notNull().default(false),
+    outputTruncated: boolean("output_truncated").notNull().default(false),
+    error: text("error"),
+    usage: jsonb("usage").$type<Record<string, unknown>>(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    durationMs: integer("duration_ms"),
+  },
+  (t) => [uniqueIndex("run_steps_run_key_attempt").on(t.runId, t.key, t.attempt), index("run_steps_run").on(t.runId, t.startedAt)],
+);
+
+/**
+ * The address another system calls to wake a run waiting at a callback step: one per run, made when the
+ * job has such a step. Only a hash of the token is kept; the token is in the address the run hands out.
+ */
+export const runCallbacks = pgTable(
+  "run_callbacks",
+  {
+    id: id(),
+    companyId: companyId(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => runs.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    calls: integer("calls").notNull().default(0),
+    lastCalledAt: timestamp("last_called_at", { withTimezone: true }),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("run_callbacks_token").on(t.tokenHash), uniqueIndex("run_callbacks_run").on(t.runId)],
 );
 
 export const approvals = pgTable(

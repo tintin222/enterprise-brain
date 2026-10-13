@@ -3,13 +3,16 @@ import {
   companyVariables,
   evaluateCondition,
   isRecord,
+  LITERAL_STEP_KEYS,
   possessive,
+  resolveTemplate,
   stringify,
   truncate,
+  walkSteps,
   AgentDefinition,
   type WorkflowStep,
 } from "@enterprise-brain/core";
-import { activityLog, agents, approvals, companies, departments, runEvents, runs, type DatabaseHandle } from "@enterprise-brain/db";
+import { activityLog, agents, approvals, companies, departments, runEvents, runs, runSteps, type DatabaseHandle } from "@enterprise-brain/db";
 import type { LlmUsage } from "@enterprise-brain/llm";
 import { describeAction, executeAction } from "./actions.ts";
 import { MailService } from "./mail.ts";
@@ -21,6 +24,7 @@ import type {
   ApprovalAction,
   ConversationScope,
   ExecutionScope,
+  FrameState,
   PersistedRunState,
   RunContext,
   RunEventInput,
@@ -102,6 +106,74 @@ export class BudgetError extends RunError {
     super(message, 409);
     this.name = "BudgetError";
   }
+}
+
+/** A loop goes through this many items unless it says otherwise, and never more than the most. */
+const DEFAULT_LOOP_ITEMS = 200;
+const MAX_LOOP_ITEMS = 1000;
+/** The most of a step's input or output the inspector keeps. */
+const STEP_DATA_BYTES = 64 * 1024;
+
+/** A run while it executes: its row, state and scope, what it used so far, and whether a step ran yet in this pass. */
+interface RunEnv {
+  run: RunRow;
+  state: PersistedRunState;
+  scope: ExecutionScope;
+  companyId: string;
+  agentName: string;
+  usage: LlmUsage | undefined;
+  first: boolean;
+}
+
+/** Where a sequence of steps runs: the key prefix of its steps (inside loop rounds) and the context they see. */
+interface SequenceFrame {
+  prefix: string;
+  context: RunContext;
+  iteration?: number;
+}
+
+type SequenceEnd = "done" | "stopped";
+/** skip-rest: the step failed with onError skip, so the steps after it are left out. */
+type StepEnd = SequenceEnd | "skip-rest";
+
+/** A step failed and its error policy did not keep the run going: up to the step holding it, or to the run. */
+class StepFailedError extends Error {
+  constructor(
+    readonly stepId: string,
+    readonly key: string,
+    readonly failure: unknown,
+  ) {
+    super(errorMessage(failure));
+    this.name = "StepFailedError";
+  }
+}
+
+/** A value as the inspector keeps it: as is, or its first 64 kB as text when larger. */
+function boundedJson(value: unknown): { value: unknown; truncated: boolean } {
+  if (value === undefined) return { value: null, truncated: false };
+  let text: string;
+  try {
+    text = JSON.stringify(value) ?? "null";
+  } catch {
+    return { value: String(value), truncated: false };
+  }
+  if (text.length <= STEP_DATA_BYTES) return { value, truncated: false };
+  return { value: { truncated: true, preview: text.slice(0, STEP_DATA_BYTES) }, truncated: true };
+}
+
+/** What a step is given, as its templates resolve now: every field but the ones used as written and the steps it holds. */
+export function resolvedInputOf(step: WorkflowStep, context: RunContext): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(step)) {
+    if (key === "when" || LITERAL_STEP_KEYS.has(key)) continue;
+    try {
+      out[key] = resolveTemplate(value, context);
+    } catch (error) {
+      out[key] = { error: errorMessage(error) };
+    }
+  }
+  if (step.type === "code") out.code = step.code;
+  return out;
 }
 
 /** The default single step for agents without a workflow: an autonomous tool loop over the input. */
@@ -453,148 +525,39 @@ export class RunEngine {
       : definition.workflow.length
         ? definition.workflow
         : [defaultAgentStep(definition)];
-    let usage = (run.usage && "calls" in run.usage ? run.usage : undefined) as LlmUsage | undefined;
-
-    let first = true;
-    for (const step of workflow) {
-      if (state.completed.includes(step.id)) continue;
-      // Between steps: stop when the run was cancelled (its task stopped), hold when its task was paused.
-      if (!first && (await this.holdAtBoundary(run))) return;
-      first = false;
-      let shouldRun: boolean;
-      try {
-        shouldRun = evaluateCondition(step.when, context);
-      } catch (error) {
-        await this.fail(run, new Error(`Step "${step.id}" condition failed: ${errorMessage(error)}`));
+    const env: RunEnv = {
+      run,
+      state,
+      scope,
+      companyId,
+      agentName,
+      usage: (run.usage && "calls" in run.usage ? run.usage : undefined) as LlmUsage | undefined,
+      first: true,
+    };
+    let finished: SequenceEnd;
+    try {
+      finished = await this.runSequence(workflow, { prefix: "", context }, env);
+    } catch (error) {
+      if (error instanceof StepFailedError) {
+        await this.fail(run, error.failure, error.stepId);
         return;
       }
-      if (!shouldRun) {
-        state.completed.push(step.id);
-        await this.persist(runId, { context: state as unknown as Record<string, unknown> });
-        await this.emit(runId, { type: "step.skipped", stepId: step.id, message: `${stepLabel(step)} skipped (condition not met)` });
-        continue;
-      }
-      await this.persist(runId, { currentStep: step.id });
-      await this.emit(runId, { type: "step.started", stepId: step.id, message: stepLabel(step), data: { type: step.type } });
-      let outcome: StepOutcome;
-      const started = Date.now();
-      try {
-        outcome = await executeStep(step, scope, this.toolDeps);
-      } catch (error) {
-        const spent = usageOfError(error);
-        if (spent) {
-          usage = mergeUsage(usage, spent);
-          await this.persist(runId, { usage: (usage ?? {}) as Record<string, unknown> });
-        }
-        if (step.onError === "continue") {
-          state.steps[step.id] = { error: errorMessage(error) };
-          state.completed.push(step.id);
-          await this.persist(runId, { context: state as unknown as Record<string, unknown> });
-          await this.emit(runId, { type: "step.failed", stepId: step.id, message: `${stepLabel(step)} failed, continuing: ${errorMessage(error)}` });
-          continue;
-        }
-        await this.emit(runId, { type: "step.failed", stepId: step.id, message: `${stepLabel(step)} failed: ${errorMessage(error)}` });
-        await this.fail(run, error, step.id);
-        return;
-      }
-
-      if (outcome.kind === "pause" && run.isTest) {
-        // Test runs never touch real systems: gated actions become dry runs, decisions auto-approve. A replay
-        // takes the decision people made in the original task, when they were asked there too.
-        const decided = state.recorded?.[step.id];
-        outcome =
-          outcome.action.type === "decision" && isRecord(decided) && typeof decided.approved === "boolean"
-            ? { kind: "done", result: decided, message: `${outcome.title}: as decided in the original task (replay)` }
-            : {
-                kind: "done",
-                result:
-                  outcome.action.type === "decision"
-                    ? { approved: true, note: "Auto-approved in test run", decidedBy: "test" }
-                    : { dryRun: true, wouldExecute: outcome.action },
-                message: `${outcome.title} — skipped in test run (dry run)`,
-              };
-      }
-
-      if (outcome.kind === "pause") {
-        const [approval] = await this.deps.handle.db
-          .insert(approvals)
-          .values({
-            companyId,
-            runId,
-            agentId: run.agentId,
-            origin: "workflow",
-            stepId: step.id,
-            title: outcome.title,
-            details: outcome.details || describeAction(outcome.action),
-            action: outcome.action as unknown as Record<string, unknown>,
-            assigneeRole: outcome.assigneeRole ?? null,
-            reason: outcome.reason ?? null,
-          })
-          .returning();
-        state.pending = { stepId: step.id, approvalId: approval!.id, kind: outcome.action.type === "decision" ? "decision" : "gated" };
-        this.deps.events?.emit("queue.added", { companyId, type: "approval", id: approval!.id });
-        await this.persist(runId, {
-          status: "waiting_approval",
-          context: state as unknown as Record<string, unknown>,
-          usage: (usage ?? {}) as Record<string, unknown>,
-        });
-        await this.emit(runId, {
-          type: "approval.requested",
-          stepId: step.id,
-          message: outcome.title,
-          data: { approvalId: approval!.id, action: outcome.action as unknown as Record<string, unknown>, reason: outcome.reason ?? null },
-        });
-        await this.deps.activity.record(companyId, {
-          actor: `agent:${run.agentId}`,
-          action: "approval.requested",
-          entityType: "approval",
-          entityId: approval!.id,
-          summary: `${agentName}: ${outcome.title}`,
-        });
-        if (run.taskId) {
-          await this.deps.tasks.update(run.taskId, { status: "needs_person" });
-          await this.deps.tasks.record(companyId, run.taskId, {
-            type: "needs_person",
-            message: `Asked a person to decide: ${outcome.title}${outcome.reason ? ` (${outcome.reason})` : ""}`,
-            actor: `agent:${run.agentId}`,
-            runId,
-            data: { approvalId: approval!.id },
-          });
-        }
-        return;
-      }
-
-      if (outcome.kind === "wait") {
-        // The task waits for a reply or a time; waking it completes this step with what happened.
-        state.pending = { stepId: step.id, kind: "wait" };
-        await this.persist(runId, { status: "waiting", context: state as unknown as Record<string, unknown>, usage: (usage ?? {}) as Record<string, unknown> });
-        await this.emit(runId, { type: "task.waiting", stepId: step.id, message: outcome.title, data: { for: outcome.for, until: outcome.until?.toISOString() ?? null } });
-        if (run.taskId) {
-          const wait: TaskWait = { kind: outcome.for, since: new Date().toISOString(), days: outcome.days, runId, stepId: step.id };
-          await this.deps.tasks.update(run.taskId, { status: "waiting", waitingFor: wait as unknown as Record<string, unknown>, nextCheckAt: outcome.until ?? null });
-          await this.deps.tasks.record(companyId, run.taskId, { type: "waiting", message: outcome.title, actor: `agent:${run.agentId}`, runId });
-        }
-        return;
-      }
-
-      state.steps[step.id] = outcome.result;
-      state.completed.push(step.id);
-      usage = mergeUsage(usage, outcome.usage);
-      await this.persist(runId, {
-        context: state as unknown as Record<string, unknown>,
-        usage: (usage ?? {}) as Record<string, unknown>,
-      });
-      await this.emit(runId, {
-        type: "step.completed",
-        stepId: step.id,
-        message: outcome.message ? `${stepLabel(step)} — ${outcome.message}` : stepLabel(step),
-        data: { preview: truncate(stringify(outcome.result), 600), durationMs: Date.now() - started, usage: outcome.usage ?? null },
-      });
+      throw error;
     }
+    if (finished === "stopped") return;
+    const usage = env.usage;
 
+    // The run's output: the output step that ran last, else (runs from before) the last output step of the job, else the last step.
     const outputStep = [...workflow].reverse().find((s) => s.type === "output");
     const finalStep = workflow[workflow.length - 1];
-    const raw = outputStep ? state.steps[outputStep.id] : finalStep ? state.steps[finalStep.id] : undefined;
+    const raw =
+      state.outputStepId !== undefined
+        ? state.steps[state.outputStepId]
+        : outputStep
+          ? state.steps[outputStep.id]
+          : finalStep
+            ? state.steps[finalStep.id]
+            : undefined;
     const output = isRecord(raw) ? raw : { result: raw ?? null };
     const missing = definition.outputs.filter((f) => f.required && (output[f.key] === undefined || output[f.key] === null));
     if (missing.length) {
@@ -611,6 +574,438 @@ export class RunEngine {
     });
     await this.afterRun(companyId, run.agentId).catch(() => undefined);
     if (run.taskId) await this.settleTask(companyId, run.taskId, runId, outputText(output), answerText(output));
+  }
+
+  /**
+   * Run a sequence of steps (the job, a branch's case, a loop's round) from where the run stands: steps
+   * done are passed by, a step that pauses or waits stops the run until it is woken, and a step that
+   * fails throws StepFailedError up to the branch or loop holding it (or to the run).
+   */
+  private async runSequence(steps: readonly WorkflowStep[], frame: SequenceFrame, env: RunEnv): Promise<SequenceEnd> {
+    const { run, state } = env;
+    let leavingOut: string | undefined;
+    // Output steps after the last other step: they still run when the steps before them are left out.
+    const lastWork = steps.reduce((last, s, i) => (s.type === "output" ? last : i), -1);
+    for (const [position, step] of steps.entries()) {
+      const key = `${frame.prefix}${step.id}`;
+      if (state.completed.includes(key)) continue;
+      // Between steps: stop when the run was cancelled (its task stopped), hold when its task was paused.
+      if (!env.first && (await this.holdAtBoundary(run))) return "stopped";
+      env.first = false;
+      if (leavingOut && !(step.type === "output" && position > lastWork)) {
+        await this.markSkipped(env, step, key, frame, `${stepLabel(step)} left out: ${leavingOut}`);
+        continue;
+      }
+      let shouldRun: boolean;
+      try {
+        shouldRun = evaluateCondition(step.when, frame.context);
+      } catch (error) {
+        throw new StepFailedError(step.id, key, new Error(`Step "${step.id}" condition failed: ${errorMessage(error)}`));
+      }
+      if (!shouldRun) {
+        await this.markSkipped(env, step, key, frame, `${stepLabel(step)} skipped (condition not met)`);
+        continue;
+      }
+      let end: StepEnd;
+      try {
+        if (step.type === "branch") end = await this.runBranch(step, key, frame, env);
+        else if (step.type === "each") end = await this.runEach(step, key, frame, env);
+        else end = await this.runLeaf(step, key, frame, env);
+      } catch (error) {
+        if (!(error instanceof StepFailedError) || step.type === "branch" || step.type === "each") {
+          // A step holding steps fails when what it holds fails; its own error policy decides what then.
+          const failure = error instanceof StepFailedError ? error.failure : error;
+          if (step.onError === "continue" || step.onError === "skip") {
+            const how = step.onError === "skip" ? "leaving out the rest" : "continuing";
+            delete env.state.frames?.[key];
+            await this.completeStep(env, step, key, frame, { error: errorMessage(failure) }, `${stepLabel(step)} failed, ${how}: ${errorMessage(failure)}`, undefined, "failed");
+            if (step.onError === "skip") leavingOut = `${stepLabel(step)} failed`;
+            continue;
+          }
+          throw error instanceof StepFailedError ? error : new StepFailedError(step.id, key, failure);
+        }
+        throw error;
+      }
+      if (end === "stopped") return "stopped";
+      if (end === "skip-rest") leavingOut = `${stepLabel(step)} failed`;
+    }
+    return "done";
+  }
+
+  /** A branch: the first case whose condition holds runs (else its else steps); its result says which. */
+  private async runBranch(step: Extract<WorkflowStep, { type: "branch" }>, key: string, frame: SequenceFrame, env: RunEnv): Promise<StepEnd> {
+    const frames = (env.state.frames ??= {});
+    let chosen = frames[key];
+    if (!chosen) {
+      let picked: string | number | null = null;
+      for (const [i, c] of step.cases.entries()) {
+        let holds: boolean;
+        try {
+          holds = evaluateCondition(c.when, frame.context);
+        } catch (error) {
+          throw new StepFailedError(step.id, key, new Error(`Step "${step.id}" case ${c.id ?? i} condition failed: ${errorMessage(error)}`));
+        }
+        if (holds) {
+          picked = c.id ?? i;
+          break;
+        }
+      }
+      if (picked === null && step.else) picked = "else";
+      chosen = frames[key] = { case: picked };
+      await this.persist(env.run.id, { currentStep: key, context: env.state as unknown as Record<string, unknown> });
+      const label = picked === null ? "no case holds" : picked === "else" ? "otherwise" : `case ${picked}`;
+      await this.emit(env.run.id, { type: "step.started", stepId: step.id, message: `${stepLabel(step)}: ${label}`, data: { type: step.type, case: picked } });
+      await this.openStepRow(env, step, key, frame, { case: picked });
+    }
+    const picked = chosen.case ?? null;
+    const sequence = picked === "else" ? (step.else ?? []) : picked === null ? [] : (step.cases.find((c, i) => (c.id ?? i) === picked)?.steps ?? []);
+    const end = await this.runSequence(sequence, frame, env);
+    if (end === "stopped") return "stopped";
+    delete frames[key];
+    const took = picked === null ? "No case held" : picked === "else" ? "Took the otherwise case" : `Took case ${picked}`;
+    await this.completeStep(env, step, key, frame, { case: picked, matched: picked !== null }, took);
+    return "done";
+  }
+
+  /** A loop: its steps run for each item (or batch), from the round the run stands at; its result gathers the rounds'. */
+  private async runEach(step: Extract<WorkflowStep, { type: "each" }>, key: string, frame: SequenceFrame, env: RunEnv): Promise<StepEnd> {
+    const frames = (env.state.frames ??= {});
+    let loop = frames[key];
+    if (!loop) {
+      const raw = resolveTemplate(step.over, frame.context);
+      // A number (or a text that is one, as forms send it) is that many rounds: 1, 2, 3…
+      const resolved = typeof raw === "string" && /^\s*\d+\s*$/.test(raw) ? Number(raw) : raw;
+      let list: unknown[] =
+        typeof resolved === "number" && Number.isFinite(resolved)
+          ? Array.from({ length: Math.max(0, Math.min(Math.floor(resolved), 1000)) }, (_, i) => i + 1)
+          : Array.isArray(resolved)
+            ? resolved
+            : resolved === undefined || resolved === null || resolved === ""
+              ? []
+              : [resolved];
+      const most = Math.min(step.maxItems ?? DEFAULT_LOOP_ITEMS, MAX_LOOP_ITEMS);
+      const leftOut = Math.max(0, list.length - most);
+      list = list.slice(0, most);
+      if (step.batchSize && step.batchSize > 1) {
+        const batches: unknown[][] = [];
+        for (let i = 0; i < list.length; i += step.batchSize) batches.push(list.slice(i, i + step.batchSize));
+        list = batches;
+      }
+      loop = frames[key] = { items: list, index: 0, results: [], failed: 0, ...(leftOut ? { leftOut } : {}) };
+      await this.persist(env.run.id, { currentStep: key, context: env.state as unknown as Record<string, unknown> });
+      const count = list.length;
+      const batches = Boolean(step.batchSize && step.batchSize > 1);
+      const noun = batches ? (count === 1 ? "batch" : "batches") : count === 1 ? "item" : "items";
+      await this.emit(env.run.id, {
+        type: "step.started",
+        stepId: step.id,
+        message: `${stepLabel(step)}: ${count} ${noun}${leftOut ? ` (${leftOut} left out)` : ""}`,
+        data: { type: step.type, count, leftOut },
+      });
+      await this.openStepRow(env, step, key, frame, { count, ...(leftOut ? { leftOut } : {}) });
+    }
+    const items = loop.items ?? [];
+    const results = (loop.results ??= []);
+    for (let i = loop.index ?? 0; i < items.length; i++) {
+      const item = items[i];
+      const prefix = `${frame.prefix}${step.id}#${i}/`;
+      const context: RunContext = { ...frame.context, item, index: i, ...(step.as ? { [step.as]: item } : {}) };
+      const round: SequenceFrame = { prefix, context, iteration: i };
+      if (loop.round !== i) {
+        // A new round starts clean: a step it leaves out shows nothing, not the previous round's result.
+        for (const visit of walkSteps(step.steps)) delete env.state.steps[visit.step.id];
+        loop.round = i;
+        await this.persist(env.run.id, { context: env.state as unknown as Record<string, unknown> });
+      }
+      let value: unknown;
+      let keep = true;
+      try {
+        const end = await this.runSequence(step.steps, round, env);
+        if (end === "stopped") return "stopped";
+        value = step.collect !== undefined ? resolveTemplate(step.collect, context) : this.lastResultOf(step.steps, prefix, env.state);
+      } catch (error) {
+        if (!(error instanceof StepFailedError) || (step.onItemError ?? "fail") === "fail") throw error;
+        loop.failed = (loop.failed ?? 0) + 1;
+        await this.emit(env.run.id, {
+          type: "warning",
+          stepId: step.id,
+          message: `Round ${i + 1} of ${stepLabel(step)} failed: ${errorMessage(error.failure)}`,
+        });
+        if (step.onItemError === "skip") keep = false;
+        else value = { error: errorMessage(error.failure), item };
+      }
+      if (keep) results.push(value ?? null);
+      loop.index = i + 1;
+      // What the round's steps did stays in the inspector; the run keeps only where the loop stands.
+      env.state.completed = env.state.completed.filter((k) => !k.startsWith(prefix));
+      for (const k of Object.keys(frames)) if (k.startsWith(prefix)) delete frames[k];
+      await this.persist(env.run.id, { context: env.state as unknown as Record<string, unknown> });
+    }
+    delete frames[key];
+    const result = { items: results, count: results.length, failed: loop.failed ?? 0, ...(loop.leftOut ? { leftOut: loop.leftOut } : {}) };
+    const summary = `${results.length} done${loop.failed ? `, ${loop.failed} failed` : ""}${loop.leftOut ? `, ${loop.leftOut} left out` : ""}`;
+    await this.completeStep(env, step, key, frame, result, summary);
+    return "done";
+  }
+
+  /** What a round of a loop gave: the result of its last step that ran. */
+  private lastResultOf(steps: readonly WorkflowStep[], prefix: string, state: PersistedRunState): unknown {
+    for (let i = steps.length - 1; i >= 0; i--) {
+      const step = steps[i]!;
+      if (state.completed.includes(`${prefix}${step.id}`) && step.id in state.steps) return state.steps[step.id];
+    }
+    return null;
+  }
+
+  /** One step that does something: run it, and pause, wait, or keep its result. */
+  private async runLeaf(step: WorkflowStep, key: string, frame: SequenceFrame, env: RunEnv): Promise<StepEnd> {
+    const { run, state, companyId, agentName } = env;
+    const runId = run.id;
+    const scope: ExecutionScope = { ...env.scope, context: frame.context, stepKey: key };
+    await this.persist(runId, { currentStep: key });
+    await this.emit(runId, { type: "step.started", stepId: step.id, message: stepLabel(step), data: { type: step.type, ...(key !== step.id ? { key } : {}) } });
+    await this.openStepRow(env, step, key, frame, resolvedInputOf(step, frame.context));
+    let outcome: StepOutcome;
+    const started = Date.now();
+    try {
+      outcome = await executeStep(step, scope, this.toolDeps);
+    } catch (error) {
+      const spent = usageOfError(error);
+      if (spent) {
+        env.usage = mergeUsage(env.usage, spent);
+        await this.persist(runId, { usage: (env.usage ?? {}) as Record<string, unknown> });
+      }
+      if (step.onError === "continue" || step.onError === "skip") {
+        await this.completeStep(
+          env,
+          step,
+          key,
+          frame,
+          { error: errorMessage(error) },
+          `${stepLabel(step)} failed, ${step.onError === "skip" ? "leaving out the rest" : "continuing"}: ${errorMessage(error)}`,
+          spent,
+          "failed",
+        );
+        return step.onError === "skip" ? "skip-rest" : "done";
+      }
+      await this.emit(runId, { type: "step.failed", stepId: step.id, message: `${stepLabel(step)} failed: ${errorMessage(error)}` });
+      await this.closeStepRow(env, key, { status: "failed", error: errorMessage(error), usage: spent, started });
+      throw new StepFailedError(step.id, key, error);
+    }
+
+    if (outcome.kind === "pause" && run.isTest) {
+      // Test runs never touch real systems: gated actions become dry runs, decisions auto-approve. A replay
+      // takes the decision people made in the original task, when they were asked there too.
+      const decided = state.recorded?.[key] ?? state.recorded?.[step.id];
+      outcome =
+        outcome.action.type === "decision" && isRecord(decided) && typeof decided.approved === "boolean"
+          ? { kind: "done", result: decided, message: `${outcome.title}: as decided in the original task (replay)` }
+          : {
+              kind: "done",
+              result:
+                outcome.action.type === "decision"
+                  ? { approved: true, note: "Auto-approved in test run", decidedBy: "test" }
+                  : { dryRun: true, wouldExecute: outcome.action },
+              message: `${outcome.title} — skipped in test run (dry run)`,
+            };
+    }
+
+    if (outcome.kind === "pause") {
+      const [approval] = await this.deps.handle.db
+        .insert(approvals)
+        .values({
+          companyId,
+          runId,
+          agentId: run.agentId,
+          origin: "workflow",
+          stepId: step.id,
+          title: outcome.title,
+          details: outcome.details || describeAction(outcome.action),
+          action: outcome.action as unknown as Record<string, unknown>,
+          assigneeRole: outcome.assigneeRole ?? null,
+          reason: outcome.reason ?? null,
+        })
+        .returning();
+      state.pending = { stepId: step.id, stepKey: key, approvalId: approval!.id, kind: outcome.action.type === "decision" ? "decision" : "gated" };
+      this.deps.events?.emit("queue.added", { companyId, type: "approval", id: approval!.id });
+      await this.persist(runId, {
+        status: "waiting_approval",
+        context: state as unknown as Record<string, unknown>,
+        usage: (env.usage ?? {}) as Record<string, unknown>,
+      });
+      await this.closeStepRow(env, key, { status: "waiting", output: { approvalId: approval!.id, title: outcome.title }, started, open: true });
+      await this.emit(runId, {
+        type: "approval.requested",
+        stepId: step.id,
+        message: outcome.title,
+        data: { approvalId: approval!.id, action: outcome.action as unknown as Record<string, unknown>, reason: outcome.reason ?? null },
+      });
+      await this.deps.activity.record(companyId, {
+        actor: `agent:${run.agentId}`,
+        action: "approval.requested",
+        entityType: "approval",
+        entityId: approval!.id,
+        summary: `${agentName}: ${outcome.title}`,
+      });
+      if (run.taskId) {
+        await this.deps.tasks.update(run.taskId, { status: "needs_person" });
+        await this.deps.tasks.record(companyId, run.taskId, {
+          type: "needs_person",
+          message: `Asked a person to decide: ${outcome.title}${outcome.reason ? ` (${outcome.reason})` : ""}`,
+          actor: `agent:${run.agentId}`,
+          runId,
+          data: { approvalId: approval!.id },
+        });
+      }
+      return "stopped";
+    }
+
+    if (outcome.kind === "wait") {
+      // The task waits for a reply or a time; waking it completes this step with what happened.
+      state.pending = { stepId: step.id, stepKey: key, kind: "wait" };
+      await this.persist(runId, { status: "waiting", context: state as unknown as Record<string, unknown>, usage: (env.usage ?? {}) as Record<string, unknown> });
+      await this.closeStepRow(env, key, { status: "waiting", output: { for: outcome.for, until: outcome.until?.toISOString() ?? null }, started, open: true });
+      await this.emit(runId, { type: "task.waiting", stepId: step.id, message: outcome.title, data: { for: outcome.for, until: outcome.until?.toISOString() ?? null } });
+      if (run.taskId) {
+        const wait: TaskWait = { kind: outcome.for, since: new Date().toISOString(), days: outcome.days, runId, stepId: step.id, stepKey: key };
+        await this.deps.tasks.update(run.taskId, { status: "waiting", waitingFor: wait as unknown as Record<string, unknown>, nextCheckAt: outcome.until ?? null });
+        await this.deps.tasks.record(companyId, run.taskId, { type: "waiting", message: outcome.title, actor: `agent:${run.agentId}`, runId });
+      }
+      return "stopped";
+    }
+
+    env.usage = mergeUsage(env.usage, outcome.usage);
+    const message = outcome.message ? `${stepLabel(step)} — ${outcome.message}` : stepLabel(step);
+    await this.completeStep(env, step, key, frame, outcome.result, message, outcome.usage, "succeeded", started);
+    return "done";
+  }
+
+  /** A step that did not run (its condition, or a failure before it): kept as skipped. */
+  private async markSkipped(env: RunEnv, step: WorkflowStep, key: string, frame: SequenceFrame, message: string): Promise<void> {
+    env.state.completed.push(key);
+    await this.persist(env.run.id, { context: env.state as unknown as Record<string, unknown> });
+    await this.emit(env.run.id, { type: "step.skipped", stepId: step.id, message });
+    await this.deps.handle.db
+      .insert(runSteps)
+      .values({
+        runId: env.run.id,
+        key,
+        stepId: step.id,
+        type: step.type,
+        iteration: frame.iteration ?? null,
+        attempt: await this.nextAttempt(env.run.id, key),
+        status: "skipped",
+        finishedAt: new Date(),
+        durationMs: 0,
+      })
+      .onConflictDoNothing();
+  }
+
+  /** A step is done: its result kept (by id: the last round's in a loop), the run moved on, the inspector told. */
+  private async completeStep(
+    env: RunEnv,
+    step: WorkflowStep,
+    key: string,
+    frame: SequenceFrame,
+    result: unknown,
+    message: string,
+    usage?: LlmUsage,
+    status: "succeeded" | "failed" = "succeeded",
+    started?: number,
+  ): Promise<void> {
+    const { state, run } = env;
+    state.steps[step.id] = result;
+    state.completed.push(key);
+    if (step.type === "output" && status === "succeeded") state.outputStepId = step.id;
+    await this.persist(run.id, { context: state as unknown as Record<string, unknown>, usage: (env.usage ?? {}) as Record<string, unknown> });
+    const error = status === "failed" && isRecord(result) ? { error: String(result.error ?? "") } : {};
+    const opened = await this.closeStepRow(env, key, { status, output: result, usage, started, ...error });
+    if (!opened) {
+      // A step that never had a row (a branch or loop resumed from before rows were kept).
+      await this.openStepRow(env, step, key, frame, undefined);
+      await this.closeStepRow(env, key, { status, output: result, usage, started });
+    }
+    await this.emit(run.id, {
+      type: status === "failed" ? "step.failed" : "step.completed",
+      stepId: step.id,
+      message,
+      data: {
+        preview: truncate(stringify(result), 600),
+        ...(started !== undefined ? { durationMs: Date.now() - started } : {}),
+        usage: usage ?? null,
+        ...(key !== step.id ? { key } : {}),
+      },
+    });
+  }
+
+  /** The inspector's row for a step's attempt, with its input as the templates resolved. */
+  private async openStepRow(env: RunEnv, step: WorkflowStep, key: string, frame: SequenceFrame, input: unknown): Promise<void> {
+    const attempt = await this.nextAttempt(env.run.id, key);
+    const bounded = boundedJson(input);
+    await this.deps.handle.db
+      .insert(runSteps)
+      .values({
+        runId: env.run.id,
+        key,
+        stepId: step.id,
+        type: step.type,
+        iteration: frame.iteration ?? null,
+        attempt,
+        status: "running",
+        input: bounded.value,
+        inputTruncated: bounded.truncated,
+      })
+      .onConflictDoNothing();
+  }
+
+  /** Close the step's latest open attempt; false when there is none. `open` keeps it open (a pause or a wait). */
+  private async closeStepRow(
+    env: RunEnv,
+    key: string,
+    patch: { status: string; output?: unknown; error?: string; usage?: LlmUsage; started?: number; open?: boolean },
+  ): Promise<boolean> {
+    return this.closeStepRowOf(env.run.id, key, patch);
+  }
+
+  private async closeStepRowOf(
+    runId: string,
+    key: string,
+    patch: { status: string; output?: unknown; error?: string; usage?: LlmUsage; started?: number; open?: boolean },
+  ): Promise<boolean> {
+    const [row] = await this.deps.handle.db
+      .select({ id: runSteps.id, startedAt: runSteps.startedAt })
+      .from(runSteps)
+      .where(and(eq(runSteps.runId, runId), eq(runSteps.key, key), inArray(runSteps.status, ["running", "waiting"])))
+      .orderBy(desc(runSteps.attempt))
+      .limit(1);
+    if (!row) return false;
+    const bounded = patch.output === undefined ? undefined : boundedJson(patch.output);
+    const now = new Date();
+    await this.deps.handle.db
+      .update(runSteps)
+      .set({
+        status: patch.status,
+        ...(bounded ? { output: bounded.value, outputTruncated: bounded.truncated } : {}),
+        ...(patch.error ? { error: truncate(patch.error, 4000) } : {}),
+        ...(patch.usage ? { usage: patch.usage as unknown as Record<string, unknown> } : {}),
+        ...(patch.open ? {} : { finishedAt: now, durationMs: now.getTime() - (patch.started ?? row.startedAt.getTime()) }),
+      })
+      .where(eq(runSteps.id, row.id));
+    return true;
+  }
+
+  private async nextAttempt(runId: string, key: string): Promise<number> {
+    const [row] = await this.deps.handle.db
+      .select({ attempt: max(runSteps.attempt) })
+      .from(runSteps)
+      .where(and(eq(runSteps.runId, runId), eq(runSteps.key, key)));
+    return (row?.attempt ?? 0) + 1;
+  }
+
+  /** What each step of a run got and gave, in the order they ran. */
+  async stepsOf(companyId: string, runId: string) {
+    await this.getRow(companyId, runId);
+    return this.deps.handle.db.select().from(runSteps).where(eq(runSteps.runId, runId)).orderBy(runSteps.startedAt, runSteps.key, runSteps.attempt);
   }
 
   /**
@@ -759,7 +1154,7 @@ export class RunEngine {
             : wait.kind === "reply"
               ? { replied: false, timedOut: true }
               : { waited: true };
-        await this.continueRun(companyId, wait.runId, wait.stepId, result, options.wait ?? false);
+        await this.continueRun(companyId, wait.runId, wait.stepKey ?? wait.stepId, result, options.wait ?? false);
       } else {
         await this.start(companyId, task.agentId, task.input, {
           taskId: task.id,
@@ -779,17 +1174,21 @@ export class RunEngine {
     return this.deps.tasks.get(companyId, task.id);
   }
 
-  /** Continue a run held at a wait step (with what happened) or at a step boundary (paused task). */
-  private async continueRun(companyId: string, runId: string, stepId: string | undefined, result: unknown, wait: boolean) {
+  /** Continue a run held at a wait step (with what happened) or at a step boundary (paused task); the step by its key. */
+  private async continueRun(companyId: string, runId: string, stepKey: string | undefined, result: unknown, wait: boolean) {
     const run = await this.getRow(companyId, runId);
     if (run.status !== "waiting") return;
     const state = normalizeState(run.context);
-    if (stepId && state.pending?.kind === "wait" && state.pending.stepId === stepId) {
-      state.steps[stepId] = result;
-      state.completed.push(stepId);
+    const pending = state.pending;
+    if (stepKey && pending?.kind === "wait" && (pending.stepKey ?? pending.stepId) === stepKey) {
+      state.steps[pending.stepId] = result;
+      state.completed.push(stepKey);
       state.pending = undefined;
       const replied = isRecord(result) && result.replied === true;
-      await this.emit(runId, { type: "step.completed", stepId, message: replied ? "A reply arrived" : "The wait is over", data: { preview: truncate(stringify(result), 600) } });
+      const message =
+        isRecord(result) && result.received === true ? "The other system called back" : replied ? "A reply arrived" : "The wait is over";
+      await this.closeStepRowOf(runId, stepKey, { status: "succeeded", output: result });
+      await this.emit(runId, { type: "step.completed", stepId: pending.stepId, message, data: { preview: truncate(stringify(result), 600) } });
     }
     await this.persist(runId, { status: "running", context: state as unknown as Record<string, unknown> });
     const execution = this.execute(runId);
@@ -1207,6 +1606,7 @@ export class RunEngine {
             result = isRecord(executed) ? { ...executed, approvedBy: decidedBy } : { result: executed, approvedBy: decidedBy };
           } catch (error) {
             await this.addRunUsage(run.id, used);
+            await this.closeStepRowOf(run.id, state.pending.stepKey ?? approval.stepId, { status: "failed", error: errorMessage(error) });
             state.pending = undefined;
             await this.persist(run.id, { context: state as unknown as Record<string, unknown> });
             await this.fail(run, error, approval.stepId);
@@ -1215,10 +1615,12 @@ export class RunEngine {
         } else {
           result = { skipped: true, rejected: true, note: decision.note ?? "", decidedBy };
         }
+        const stepKey = state.pending.stepKey ?? approval.stepId;
         state.steps[approval.stepId] = result;
-        state.completed.push(approval.stepId);
+        state.completed.push(stepKey);
         state.pending = undefined;
         await this.persist(run.id, { status: "running", context: state as unknown as Record<string, unknown> });
+        await this.closeStepRowOf(run.id, stepKey, { status: "succeeded", output: result });
         await this.emit(run.id, {
           type: "step.completed",
           stepId: approval.stepId,
@@ -1375,6 +1777,8 @@ function normalizeState(value: unknown): PersistedRunState {
     steps: isRecord(record.steps) ? (record.steps as Record<string, unknown>) : {},
     completed: Array.isArray(record.completed) ? (record.completed as string[]) : [],
     pending: isRecord(record.pending) ? (record.pending as PersistedRunState["pending"]) : undefined,
+    frames: isRecord(record.frames) ? (record.frames as Record<string, FrameState>) : undefined,
+    outputStepId: typeof record.outputStepId === "string" ? record.outputStepId : undefined,
     warnings: Array.isArray(record.warnings) ? (record.warnings as string[]) : undefined,
     task: typeof record.task === "string" ? record.task : undefined,
     override: isRecord(record.override) ? record.override : undefined,
