@@ -32,7 +32,7 @@ export function PackageTab({ project }: { project: ProjectView }) {
   });
   const summary = preview.data?.summary;
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <div className="space-y-6">
         <Card>
           <CardHeader

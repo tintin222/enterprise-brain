@@ -12,7 +12,7 @@ Base URL: `http://localhost:3200` (configurable with `PORT` / `EB_PUBLIC_URL`).
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/health` | `{ ok, version }` |
-| GET | `/api/info` | `{ name, version, llm: {available, provider, model}, embeddings: {model}, database, defaultCompany, publicUrl, authRequired, paperclip: {configured, url} }` |
+| GET | `/api/info` | `{ name, version, llm: {available, provider, model}, embeddings: {model}, database, defaultCompany, publicUrl, oauthRedirectUrl, gmailRedirectUrl (where Google sends a person back after allowing their Gmail to be read), authRequired, paperclip: {configured, url} }` |
 | GET | `/api/companies` | List companies |
 | POST | `/api/companies` | `{ name, slug, mailDomain? }`: create a company. `mailDomain` (e.g. `acme.com.tr`) replaces the templates' placeholder addresses (`careers@company.com`) when agents are installed or built |
 | GET | `/api/companies/:company/dashboard` | `{ company, counts: {agents, activeAgents, runs24h, succeeded24h, failed24h, pendingApprovals, departments, knowledgeDocuments, openBuilderSessions}, costMonthUsd, recentRuns[], recentActivity[] }` |
@@ -393,13 +393,67 @@ What the company knows about itself: its people and what they know, processes, I
 
 **SyncResult**: `{ added, updated, unchanged, links {added, removed}, events, changes, byKind {kind: n}, skipped[] }`. Connected sources are read again every `EB_BRAIN_SYNC_MINUTES` (60; 0 turns it off) while the scheduler runs. As a demo installation (`EB_SEED_DEMO`) starts, its brain reads the sources it never read: all of them the first time, then the ones a newer version brings; a source turned off stays off. The sources are Enterprise Brain itself (its departments, people, AI employees and processes) and demo sources standing in for HR, IT inventory, intranet, CRM, ERP, IT service desk, projects, a data catalog (Microsoft Purview), Power BI, Teams, Slack and email, with made-up data of the demo company that matches the sandbox CRM, ERP and service desk; each reading brings what changed since the last (new messages, task and project progress).
 
+## Projects
+
+A project gathers a client's job or the owner's own work: what it uses from the brain and the data, the designs made for it, the person's own tasks for it, a private channel, and the development package (ADR 0010). Everyone signed in reads every project and may start one; its owner, admins and managers change it. `:ref` is the id or the slug.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/companies/:company/projects?status=&holding=` | `[ProjectSummary]`. `status`: `open` (the default: all but done and cancelled), `all`, or one status. `holding=<kind>:<ref>` keeps the projects that hold that asset (where a thing already is) |
+| POST | `/api/companies/:company/projects` | Signed in. `{ name, summary?, client?, status? }` → ProjectView. Makes the brain thing of kind `project` (or adopts one with the same name), links the owner's person (*leads*) and the client (*for_client*) when the brain knows them, and a private channel named after the slug (`#petrokim-supplier-portal-agents`) with the owner in it |
+| GET | `/api/companies/:company/projects/:ref` | ProjectView |
+| PATCH | `/api/companies/:company/projects/:ref` | Owner, managers and admins. `{ name?, summary?, client?, status?, ownerUserId? }`: mirrored to the thing (name, summary, status) and to the channel (title); `done` or `cancelled` archives the channel |
+| DELETE | `/api/companies/:company/projects/:ref` | Owner, managers and admins. Removes the project and its asset rows; the thing, the channel and the to-dos stay |
+| GET | `/api/companies/:company/projects/:ref/assets` | `[ProjectAsset]`: the ones the viewer may see |
+| POST | `/api/companies/:company/projects/:ref/assets` | Owner, managers and admins. `{ kind: thing\|table\|app\|calculation\|document\|file\|connection\|agent, ref, note? }` (`ref`: an id, or a table's, app's or calculation's key). 404 when it does not exist or the viewer may not see it; adding it twice is a no-op; a thing is linked to the project's thing (*for_client*, *works_on*, *uses*, *uses_data*, *follows* or *part_of*, as its kind allows) |
+| DELETE | `/api/companies/:company/projects/:ref/assets/:asset` | Owner, managers and admins |
+| POST | `/api/companies/:company/projects/:ref/files` | Owner, managers and admins. multipart: the files are stored (source `project`) and added as `file` assets → `[ProjectAsset]` |
+| GET | `/api/companies/:company/projects/:ref/designs` | `{ threads[] {id, title, status, ownerId, owner, builtAt, updatedAt, agentIds[]}, interviews[] {id, title, status, requesterEmail, department, agentId, updatedAt}, agents[] {id, slug, name, status, departmentId, from: studio\|interview\|attached} }`: the Studio conversations and interviews started inside the project (or attached), and the AI employees they made |
+| POST | `/api/companies/:company/projects/:ref/designs` | Owner, managers and admins. `{ kind: thread\|interview\|agent, id }`: attach one of the viewer's Studio conversations or interviews (404 for another person's), or an existing AI employee (kept as an `agent` asset) |
+| GET | `/api/companies/:company/projects/:ref/package?text=1` | What the package holds, as the Package tab shows it: `{ files[] {path, size, text? (inline up to 20 kB, with text=1)}, summary {folders[] {name, files, bytes}, files, bytes, agents[] {slug, name, source}, warnings[] (what the viewer may not see, left out), mcpUrl, exportedAt} }` |
+| GET | `/api/companies/:company/projects/:ref/package.zip` | The development package: `application/zip`, `<slug>-dev-package.zip`, everything under `<slug>/`. Records the export on the project (`lastExportedAt`, `exports`) and on the thing's timeline |
+| GET | `/api/companies/:company/projects/:ref/todos` | The viewer's open to-dos for the project: `[Todo]` |
+| POST | `/api/companies/:company/projects/:ref/todos` | `{ title, details?, dueAt? }` (source `project`) → Todo |
+
+**ProjectSummary**: `{ id, slug, name, summary, status (planned/active/on_hold/done/cancelled), client, ownerUserId, thingId, conversationId, lastExportedAt, exports (how many), counts {assets, designs, openTodos}, createdAt, updatedAt }`. **ProjectView** adds `owner {id, name} | null`, `channel {id, name, status} | null` and `canEdit`. **ProjectAsset**: `{ id, kind, ref, note, addedBy, createdAt, name, detail, exists, departmentId, shared }`.
+
+**The package** (under `<slug>/` in the zip): `README.md` (how to use it with Claude Code), `CLAUDE.md` (what to build, the rules in the owner's words, the folder map, the live brain over MCP), `.mcp.json` (this installation's MCP server with `Authorization: Bearer ${EB_API_KEY}`, a placeholder, never the key), `project.json`, `agents/<slug>/` (`SPEC.md`, `definition.json`, `conversation.md` or `interview.md`, `tests.md`), `brain/README.md`, `brain/<kind>/<key>.md` and `brain/things.json`, `data/tables/<key>/` (`README.md`, `schema.json`, `sample.csv`: up to 50 rows, personal fields `[personal]` unless the data protection officer approved them), `data/calculations/<key>.md` (its code for admins only), `data/apps/<key>.md` and `.json`, `knowledge/<collection>/<slug>.md`, `files/<name>`, `connections/<name>.md` (named actions, config keys and the names of secrets, never a value) and `tasks/PLAN.md` (the build order per AI employee, the open to-dos and the Studio's unanswered questions). The same project exports differently for people who may see different assets.
+
+## My tasks (to-dos)
+
+A person's own tasks: from a project, from the Studio (`project_add_task`), from their mail, or written by hand. Always the viewer's own; the API key and open mode have no person, so they get 409 "Sign in to have your own tasks".
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/companies/:company/todos?status=open\|done\|dismissed\|all&project=` | `[Todo]`: open ones by due date (soonest first, undated last), then newest; `project` (an id) keeps one project's |
+| POST | `/api/companies/:company/todos` | `{ title, details?, dueAt? ("2026-10-20" means 17:00 that day), projectId? }` (source `manual`) → Todo |
+| PATCH | `/api/companies/:company/todos/:id` | `{ status?, title?, details?, dueAt?, projectId?, quietSender? }`. `status: dismissed` with `quietSender: true` on a mail to-do asks for no more tasks from that sender |
+| DELETE | `/api/companies/:company/todos/:id` | |
+
+**Todo**: `{ id, title, details, dueAt, status (open/done/dismissed), source (manual/mail/studio/project), sourceRef, link (the email in Gmail, the Studio conversation), data (a mail to-do: from, subject, receivedAt), project {id, slug, name} | null, createdAt, doneAt }`. A source makes the same to-do once (`user, source, sourceRef`).
+
+## A person's Gmail
+
+A person's own mailbox, read for their to-dos only (ADR 0011): never a connection, never on the Mail page, never read by AI employees or the brain. Signed-in people only; the company is the viewer's.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/me/mail` | `{ configured (Google sign-in is set up, so Gmail can be connected), redirectUri, account: MailAccount \| null }` |
+| GET | `/api/me/mail/gmail/start?returnTo=` | Redirects to Google's consent screen with the installation's Google sign-in client: `openid email https://www.googleapis.com/auth/gmail.readonly`, offline access, consent forced (so a refresh token comes), PKCE, the person's email as the hint; the state waits in the sealed `eb_mail_connect` cookie for 10 minutes. 409 without a Google client ("Ask IT to set up Google sign-in first") |
+| GET | `/api/me/mail/gmail/callback` | The redirect URI to register on the Google OAuth client (`/api/info` names it as `gmailRedirectUrl`). Checks the state and the ID token as sign-in does, that the granted scope includes `gmail.readonly` and that a refresh token came; stores the account (the token encrypted) and redirects to `returnTo?gmail=connected`, or to `/?gmail=error&message=` |
+| POST | `/api/me/mail/check` | Reads the new mail now → `{ checked, made, first }` (`first`: the first check only sets where to start reading; older mail is left alone). 409 "Connect Gmail again" when Google no longer accepts the permission; 404 without an account |
+| PATCH | `/api/me/mail` | `{ tasksEnabled }`: tasks from mail on or off (the account stays) → MailAccount |
+| DELETE | `/api/me/mail/gmail` | Disconnects: the token is revoked at Google (best effort) and the account deleted; the to-dos stay. 404 without an account |
+
+**MailAccount**: `{ provider, address, status (ok/error), tasksEnabled, lastCheckedAt, lastCount, lastError, checked, made, quietSenders[], connectedAt }`, never a secret. The watcher checks every account with tasks on that was not checked in five minutes, on its pass over the company's mailboxes, up to 25 new messages a check; each message that asks something of the person becomes a to-do (`source: mail`, `sourceRef` the message id, `link` to it in Gmail), read by the model when available and otherwise by a plain rule; automatic senders, promotions and quiet senders make nothing.
+
 ## The Studio agent
 
 With Claude (409 without: use the guided interview below). Managers and admins start and continue conversations; a conversation is its owner's (IT sees all). A message starts a turn in the background: follow it with `GET …/:id` (the page polls while `status` is `working`).
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/companies/:company/studio/threads` | `{ text, departmentId?, fileIds? }`: start with what the person needs → ThreadView |
+| POST | `/api/companies/:company/studio/threads` | `{ text, departmentId?, fileIds?, projectId? }`: start with what the person needs → ThreadView. Inside a project (`projectId`) the Studio starts knowing it (its summary and assets) and has two more tools: `project_add_asset` (what it found in the brain that the AI employee will need) and `project_add_task` (what only the person can do) |
 | GET | `/api/companies/:company/studio/threads` | The viewer's conversations `{ id, title, status, owner, parts, builtAt, updatedAt }` |
 | GET | `/api/companies/:company/studio/threads/:id?after=` | ThreadView, with the events after `after` |
 | POST | `/api/companies/:company/studio/threads/:id/messages` | `{ text, fileIds? }`: the person's message, or their answer to the Studio's questions (409 while it works, or once it is at work) |
@@ -407,7 +461,7 @@ With Claude (409 without: use the guided interview below). Managers and admins s
 | POST | `/api/companies/:company/studio/threads/:id/put-to-work` | Make it live: tables and apps join their department, AI employees start their duties → ThreadView |
 | DELETE | `/api/companies/:company/studio/threads/:id` | Throw it away, with the drafts it made (tables only while empty) |
 
-**ThreadView**: `{ id, title, status (idle: its reply is in, working, asking: it waits for answers, failed, interrupted: a restart cut its turn short), error, owner, departmentId, questions[] {question, why?, options?, recommended?}, solution { employees[] {key, status (draft/active), name, role, department, duties[], abilities[], approvals[], level, levelText, form[], notes[], tries, lastTry {runId, status, example, outcome}}, tables[] {key, name, department, fields[] {label, type, personal?}, records, draft}, apps[] {key, name, description, pages[], made}, requests[] {id, system, needed, status, answer} }, built? {employees[], tables[], apps[], at}, usage {costUsd…}, events[] {seq, kind (user, answer, note, step, question, part, trying, try, request, removed, said, stopped, built, error), data, at} }`.
+**ThreadView**: `{ id, title, status (idle: its reply is in, working, asking: it waits for answers, failed, interrupted: a restart cut its turn short), error, owner, departmentId, projectId, project {id, slug, name} | null, questions[] {question, why?, options?, recommended?}, solution { employees[] {key, status (draft/active), name, role, department, duties[], abilities[], approvals[], level, levelText, form[], notes[], tries, lastTry {runId, status, example, outcome}}, tables[] {key, name, department, fields[] {label, type, personal?}, records, draft}, apps[] {key, name, description, pages[], made}, requests[] {id, system, needed, status, answer} }, built? {employees[], tables[], apps[], at}, usage {costUsd…}, events[] {seq, kind (user, answer, note, step, question, part, trying, try, request, removed, said, stopped, built, error), data, at} }`. A `part` event is also what the Studio adds to the project (`{ part: "asset", kind, name, ref }`) or a task it leaves the person (`{ part: "todo", title }`).
 
 ## The guided interview (Studio without Claude)
 
@@ -416,7 +470,7 @@ Managers and admins. An interview belongs to the manager who started it: they, t
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/companies/:company/builder/sessions` | Sessions `{ id, title, status, archetype, templateId, department, requesterName, requesterRole, agentId, createdAt, updatedAt }` |
-| POST | `/api/companies/:company/builder/sessions` | `{ description, formDescription?, requesterName?, requesterEmail?, requesterRole?, department?, language? ("en"/"tr"), roundSize? }` → SessionView. Signed in, the requester is the person, and `department` defaults to the one they manage |
+| POST | `/api/companies/:company/builder/sessions` | `{ description, formDescription?, requesterName?, requesterEmail?, requesterRole?, department?, language? ("en"/"tr"), roundSize?, projectId? }` → SessionView. Signed in, the requester is the person, and `department` defaults to the one they manage |
 | GET | `/api/companies/:company/builder/sessions/:id` | SessionView `{ session, tree, messages, requests, currentRound?, progress, draft?, job, agent?, llm }`. `job` is the job description in plain words: `{ duties[], needs[] {text, status: "ready"\|"to-ask"\|"asked"\|"answered"\|"yours"\|"manual"\|"open", who}, never[], level {value, label, alone, person}, samples, manager }` |
 | POST | `/api/companies/:company/builder/sessions/:id/reply` | JSON `{ text?, answers?: [{ nodeId, action?: answer|accept|delegate|skip, value?, delegateTo? }], fileIds? }` or multipart (`text` + files as samples) → SessionView |
 | POST | `/api/companies/:company/builder/sessions/:id/samples` | multipart sample files → SessionView |
@@ -448,4 +502,4 @@ Managers and admins. An interview belongs to the manager who started it: they, t
 
 ## MCP
 
-`POST /mcp` (or `/mcp/:company`): stateless Streamable HTTP MCP server. Tools: `knowledge_search`, `list_agents`, `run_agent`, `get_run`, `list_approvals`, and read-only operations of connected and sandbox systems (`erp__get_purchase_order`, `crm__search_accounts`, …).
+`POST /mcp` (or `/mcp/:company`): stateless Streamable HTTP MCP server. Tools: `knowledge_search`, `list_agents`, `run_agent`, `get_run`, `list_approvals`, `company_search` and `company_open` (the company brain, answered as text: what a development package's `.mcp.json` points Claude Code at), and read-only operations of connected and sandbox systems (`erp__get_purchase_order`, `crm__search_accounts`, …).

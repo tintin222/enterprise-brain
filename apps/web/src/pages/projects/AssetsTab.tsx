@@ -175,7 +175,7 @@ export function AssetsTab({ project }: { project: ProjectView }) {
   const groups = ASSET_KINDS.map((kind) => ({ kind, items: list.filter((a) => a.kind === kind) })).filter((g) => g.items.length);
   const held = new Set(list.map((a) => `${a.kind}:${a.ref}`));
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
       <div className="space-y-4">
         {assets.error && <ErrorState error={assets.error} onRetry={() => void assets.refetch()} />}
         {assets.isLoading && <Skeleton className="h-40" />}

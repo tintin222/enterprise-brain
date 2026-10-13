@@ -26,7 +26,7 @@ export function OverviewTab({ project, onTab }: { project: ProjectView; onTab: (
   });
   const open = todos.data ?? [];
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <div className="space-y-6">
         <Card>
           <CardHeader title="Details" />
@@ -46,7 +46,7 @@ export function OverviewTab({ project, onTab }: { project: ProjectView; onTab: (
             />
           </CardBody>
         </Card>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-2">
           {[
             { tab: "assets" as Tab, icon: Layers, label: plural(project.counts.assets, "asset"), hint: "from the brain and your systems" },
             { tab: "designs" as Tab, icon: WandSparkles, label: plural(project.counts.designs, "design"), hint: "Studio conversations and interviews" },
