@@ -192,12 +192,27 @@ function describeStep(step: WorkflowStep): string {
       return waitText(step);
     case "output":
       return "Show the result";
+    case "branch":
+      return step.name ?? `Decide: ${step.cases.map((c) => humanizeTemplate(c.when)).join(" / ")}${step.else ? " / otherwise" : ""}`;
+    case "each":
+      return step.name ?? `For each item of ${humanizeTemplate(step.over)}: ${step.steps.length} step${step.steps.length === 1 ? "" : "s"}`;
+    case "transform":
+      return step.name ?? `Reshape ${humanizeTemplate(step.from)} (${step.ops.map((o) => o.op).join(", ")})`;
+    case "code":
+      return step.name ?? "Work it out with a short program (in a sandbox)";
+    case "call":
+      return step.name ?? `Give the work to ${step.colleague} and wait for its answer`;
+    case "chat.send":
+      return step.name ?? `Write in Chat to ${humanizeTemplate(step.to)}`;
+    case "respond":
+      return step.name ?? "Answer the system that called it";
   }
 }
 
 function waitText(step: Extract<WorkflowStep, { type: "wait" }>): string {
   const days = step.days ? `${step.days} day${step.days === 1 ? "" : "s"}` : "";
   if (step.for === "reply") return `Wait for a reply${days ? ` (at most ${days})` : ""}`;
+  if (step.for === "callback") return `Wait for another system to call back${days ? ` (at most ${days})` : ""}`;
   return days ? `Wait ${days}` : "Wait until the set date";
 }
 

@@ -56,3 +56,21 @@ export function asArray<T>(value: T | T[] | undefined | null): T[] {
   if (value === undefined || value === null) return [];
   return Array.isArray(value) ? value : [value];
 }
+
+/** A company variable's name: letters, digits and underscores, starting with a letter or underscore. */
+export const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+/**
+ * The company's variables (Settings → Installation), as jobs read them: `{{ vars.invoice_limit }}`.
+ * Only names that fit and plain values (texts, numbers, true or false) count.
+ */
+export function companyVariables(settings: Record<string, unknown> | null | undefined): Record<string, string | number | boolean> {
+  const raw = settings && typeof settings === "object" ? (settings as { variables?: unknown }).variables : undefined;
+  const out: Record<string, string | number | boolean> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  for (const [name, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!VARIABLE_NAME.test(name)) continue;
+    if (typeof value === "string" || typeof value === "boolean" || (typeof value === "number" && Number.isFinite(value))) out[name] = value;
+  }
+  return out;
+}

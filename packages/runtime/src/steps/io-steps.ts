@@ -267,6 +267,7 @@ export function runOutput(step: Step<"output">, scope: ExecutionScope): StepOutc
  * nothing waits: the step completes at once as if the time had passed.
  */
 export function runWait(step: Step<"wait">, scope: ExecutionScope): StepOutcome {
+  if (step.for === "callback") throw new Error(`Step "${step.id}": waiting for a call from another system is not available yet`);
   let until: Date | undefined;
   if (step.until) {
     const resolved = renderTemplate(step.until, scope.context).trim();

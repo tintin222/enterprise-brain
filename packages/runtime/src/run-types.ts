@@ -36,6 +36,12 @@ export interface RunContext {
   trigger: { type: string; ref?: string | null };
   /** `date` is the run's start date (YYYY-MM-DD, server time zone), so "today" stays stable across resumes. */
   run: { id: string; isTest: boolean; startedAt: string; date: string };
+  /** The company's variables (Settings → Installation), read when the run (re)starts. */
+  vars: Record<string, string | number | boolean>;
+  /** Inside a loop: the current item (or batch) and its position from 0; a loop's own name for it too. */
+  item?: unknown;
+  index?: number;
+  [alias: string]: unknown;
 }
 
 /** Persisted in runs.context between executions (resume after approvals). */
@@ -82,7 +88,7 @@ export type StepOutcome =
   | { kind: "done"; result: unknown; usage?: LlmUsage; message?: string }
   | { kind: "pause"; title: string; details: string; assigneeRole?: string; action: ApprovalAction; reason?: string }
   /** A workflow `wait` step: the task waits for a reply or a date, then this step completes with what happened. */
-  | { kind: "wait"; title: string; for: "reply" | "time"; until?: Date; days?: number };
+  | { kind: "wait"; title: string; for: "reply" | "time" | "callback"; until?: Date; days?: number };
 
 export interface ExecutionScope {
   companyId: string;

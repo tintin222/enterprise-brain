@@ -45,6 +45,16 @@ export async function executeStep(step: WorkflowStep, scope: ExecutionScope, dep
       return runWait(step, scope);
     case "output":
       return runOutput(step, scope);
+    case "branch":
+    case "each":
+      // Steps that hold steps are run by the engine, which runs what they hold.
+      throw new Error(`Step "${step.id}" (${step.type}) holds other steps and is run by the engine`);
+    case "transform":
+    case "code":
+    case "call":
+    case "chat.send":
+    case "respond":
+      throw new Error(`Step "${step.id}": ${step.type} steps are not available yet`);
   }
 }
 

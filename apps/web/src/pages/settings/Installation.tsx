@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AtSign, Building, Clock, KeyRound, Moon, Save, Server, Sun } from "lucide-react";
+import { AtSign, Braces, Building, Clock, KeyRound, Moon, Plus, Save, Server, Sun, Trash2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { api, getApiKey, setApiKey } from "../../api.ts";
@@ -126,6 +126,129 @@ function CompanyTimeZone() {
   );
 }
 
+type VariableValue = string | number | boolean;
+interface VariableRow {
+  name: string;
+  kind: "text" | "number" | "yesno";
+  value: string;
+}
+
+const VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,63}$/;
+
+function rowsOf(variables: Record<string, VariableValue> | undefined): VariableRow[] {
+  return Object.entries(variables ?? {}).map(([name, value]) => ({
+    name,
+    kind: typeof value === "number" ? "number" : typeof value === "boolean" ? "yesno" : "text",
+    value: typeof value === "boolean" ? (value ? "yes" : "no") : String(value),
+  }));
+}
+
+/** Values every job can read as {{ vars.name }}: limits, addresses, rates kept in one place. */
+function CompanyVariables() {
+  const { company, path } = useCompany();
+  const toast = useToast();
+  const settings = useQuery({
+    queryKey: [company, "settings"],
+    queryFn: () => api.get<{ variables?: Record<string, VariableValue> }>(path("/settings")),
+  });
+  const [rows, setRows] = useState<VariableRow[]>([]);
+  useEffect(() => setRows(rowsOf(settings.data?.variables)), [settings.data]);
+  const problems = rows.flatMap((r, i) => {
+    const out: string[] = [];
+    if (!VARIABLE_NAME.test(r.name)) out.push(`Row ${i + 1}: a name is letters, digits and underscores, starting with a letter`);
+    if (r.kind === "number" && (r.value.trim() === "" || Number.isNaN(Number(r.value)))) out.push(`${r.name || `Row ${i + 1}`}: not a number`);
+    if (rows.findIndex((o) => o.name === r.name) !== i && r.name) out.push(`${r.name}: named twice`);
+    return out;
+  });
+  const save = useMutation({
+    mutationFn: () =>
+      api.put<{ variables: Record<string, VariableValue> }>(path("/settings"), {
+        variables: Object.fromEntries(rows.map((r) => [r.name, r.kind === "number" ? Number(r.value) : r.kind === "yesno" ? r.value === "yes" : r.value])),
+      }),
+    onSuccess: (res) => {
+      void settings.refetch();
+      toast.success(`${Object.keys(res.variables).length} variable${Object.keys(res.variables).length === 1 ? "" : "s"} saved`);
+    },
+    onError: (e) => toast.error(e),
+  });
+  const change = (i: number, patch: Partial<VariableRow>) => setRows((all) => all.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  return (
+    <Card>
+      <CardHeader
+        title="Variables"
+        icon={Braces}
+        subtitle="Values every AI employee's steps can use, kept in one place: a limit, an address, a rate. A step reads one as {{ vars.name }}."
+      />
+      <form
+        className="space-y-3 p-5"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (!problems.length) save.mutate();
+        }}
+      >
+        {rows.length === 0 && <p className="text-sm text-muted">No variables yet.</p>}
+        {rows.map((row, i) => (
+          <div key={i} className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_8rem_minmax(0,1.4fr)_auto]">
+            <input
+              className="input font-mono text-xs"
+              value={row.name}
+              onChange={(e) => change(i, { name: e.target.value })}
+              placeholder="invoice_limit"
+              aria-label="Name"
+            />
+            <select
+              className="input"
+              value={row.kind}
+              onChange={(e) => change(i, { kind: e.target.value as VariableRow["kind"], value: e.target.value === "yesno" ? "yes" : row.value })}
+              aria-label="Kind"
+            >
+              <option value="text">Text</option>
+              <option value="number">Number</option>
+              <option value="yesno">Yes or no</option>
+            </select>
+            {row.kind === "yesno" ? (
+              <select className="input" value={row.value} onChange={(e) => change(i, { value: e.target.value })} aria-label="Value">
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            ) : (
+              <input
+                className="input"
+                value={row.value}
+                inputMode={row.kind === "number" ? "decimal" : undefined}
+                onChange={(e) => change(i, { value: e.target.value })}
+                placeholder={row.kind === "number" ? "50000" : "finance@acme.com.tr"}
+                aria-label="Value"
+              />
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              icon={Trash2}
+              aria-label={`Remove ${row.name || "this variable"}`}
+              onClick={() => setRows((all) => all.filter((_, j) => j !== i))}
+            />
+          </div>
+        ))}
+        {problems.length > 0 && <p className="text-xs text-red-600 dark:text-red-400">{problems.join(" · ")}</p>}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            type="button"
+            icon={Plus}
+            onClick={() => setRows((all) => [...all, { name: "", kind: "text", value: "" }])}
+            disabled={!settings.data || rows.length >= 100}
+          >
+            Add a variable
+          </Button>
+          <Button type="submit" variant="primary" icon={Save} loading={save.isPending} disabled={!settings.data || problems.length > 0}>
+            Save
+          </Button>
+        </div>
+      </form>
+    </Card>
+  );
+}
+
 export default function Installation() {
   const { info, company, companies, setCompany } = useCompany();
   const { theme, setTheme } = useTheme();
@@ -160,6 +283,7 @@ export default function Installation() {
       <div className="space-y-6">
         <AiMailbox />
         <CompanyTimeZone />
+        <CompanyVariables />
         <Card>
           <CardHeader title="Company" icon={Building} subtitle="All data in the console belongs to the selected company." />
           <div className="space-y-5 p-5">

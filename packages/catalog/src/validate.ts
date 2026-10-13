@@ -1,14 +1,4 @@
-import {
-  SystemCategory,
-  evaluateCondition,
-  isRecord,
-  resolveTemplate,
-  type AgentTemplate,
-  type Catalog,
-  type FieldSpec,
-  type ProcessTemplate,
-  type WorkflowStep,
-} from "@enterprise-brain/core";
+import { SystemCategory, checkWorkflow, walkSteps, type AgentTemplate, type Catalog, type FieldSpec, type ProcessTemplate } from "@enterprise-brain/core";
 import {
   BUILTIN_CAPABILITIES,
   GUARDRAIL_CONNECTOR_POLICIES,
@@ -32,31 +22,6 @@ export const NON_REPLACEABLE_BUILDER_NODES = ["inputs.channels"] as const;
 const SYSTEM_CATEGORIES = new Set<string>(SystemCategory.options);
 const KEBAB = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
-/** Roots a template expression may start from (the run context) and literal words of the expression language. */
-const TEMPLATE_ROOTS = new Set(["input", "steps", "agent", "trigger", "run"]);
-const EXPRESSION_WORDS = new Set(["true", "false", "null", "undefined", "and", "or", "not", "in", "contains"]);
-const TEMPLATE_FILTERS = new Set(["json", "join", "default", "upper", "lower", "truncate", "length", "first", "pluck", "round", "bullets", "money"]);
-const DRY_RUN_CONTEXT = { input: {}, steps: {}, agent: {}, trigger: {}, run: {} };
-
-/** Step keys whose values are used verbatim by the runtime (a `{{ }}` there would never be resolved). */
-const LITERAL_STEP_KEYS = new Set([
-  "id",
-  "type",
-  "name",
-  "onError",
-  "ocr",
-  "format",
-  "connector",
-  "operation",
-  "assigneeRole",
-  "collections",
-  "criteria",
-  "categories",
-  "fields",
-  "tools",
-  "sheet",
-]);
-
 type Problems = string[];
 
 function describe(kind: string, entity: { id: string }): string {
@@ -72,120 +37,6 @@ function duplicates(values: readonly string[]): string[] {
 
 function quoteList(values: readonly string[]): string {
   return values.map((v) => `"${v}"`).join(", ");
-}
-
-// ---------------------------------------------------------------------------
-// Template expressions
-// ---------------------------------------------------------------------------
-
-/** The expressions inside `{{ … }}` of a template string. */
-function templateExpressions(text: string): string[] {
-  return [...text.matchAll(/\{\{([\s\S]+?)\}\}/g)].map((m) => m[1]!.trim());
-}
-
-/** Split an expression on filter pipes (single `|` outside quotes; `||` is logical or). */
-function splitPipes(expression: string): string[] {
-  const parts: string[] = [];
-  let quote: string | null = null;
-  let current = "";
-  for (let i = 0; i < expression.length; i++) {
-    const ch = expression[i]!;
-    if (quote) {
-      current += ch;
-      if (ch === quote) quote = null;
-    } else if (ch === "'" || ch === '"') {
-      quote = ch;
-      current += ch;
-    } else if (ch === "|" && expression[i + 1] === "|") {
-      current += "||";
-      i++;
-    } else if (ch === "|") {
-      parts.push(current);
-      current = "";
-    } else {
-      current += ch;
-    }
-  }
-  parts.push(current);
-  return parts.map((p) => p.trim());
-}
-
-/** Dotted identifiers of an expression (string literals removed). */
-function identifiers(expression: string): string[] {
-  const withoutStrings = expression.replace(/'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"/g, " ");
-  return [...withoutStrings.matchAll(/[A-Za-z_$][A-Za-z0-9_$.]*/g)].map((m) => m[0].replace(/\.+$/, ""));
-}
-
-interface ExpressionScope {
-  /** Step ids that complete before the step being checked. */
-  earlierSteps: ReadonlySet<string>;
-  allSteps: ReadonlySet<string>;
-  inputs: ReadonlySet<string>;
-}
-
-/** Check one expression (from `{{ }}` or a `when` condition); returns problem messages. */
-function checkExpression(expression: string, scope: ExpressionScope): string[] {
-  const problems: string[] = [];
-  const [main = "", ...filters] = splitPipes(expression);
-  const operands = [main];
-  for (const filter of filters) {
-    const colon = filter.indexOf(":");
-    const name = (colon < 0 ? filter : filter.slice(0, colon)).trim();
-    if (!TEMPLATE_FILTERS.has(name)) problems.push(`unknown filter "${name}" in "{{ ${expression} }}" (known: ${[...TEMPLATE_FILTERS].join(", ")})`);
-    if (colon >= 0) operands.push(filter.slice(colon + 1));
-  }
-  for (const operand of operands) {
-    for (const id of identifiers(operand)) {
-      const [root = "", second] = id.split(".");
-      if (EXPRESSION_WORDS.has(root.toLowerCase())) continue;
-      if (!TEMPLATE_ROOTS.has(root)) {
-        problems.push(`unknown reference "${id}" in "${expression}" (expressions start from input, steps, agent, trigger or run)`);
-      } else if (root === "steps" && second !== undefined) {
-        if (!scope.allSteps.has(second)) problems.push(`references unknown step "steps.${second}"`);
-        else if (!scope.earlierSteps.has(second)) problems.push(`references "steps.${second}", which has not run yet at this point`);
-      } else if (root === "input" && second !== undefined && !scope.inputs.has(second)) {
-        problems.push(`references "input.${second}", which is not a declared input`);
-      }
-    }
-  }
-  return problems;
-}
-
-function* stringsIn(value: unknown, path: string): Generator<[string, string]> {
-  if (typeof value === "string") yield [path, value];
-  else if (Array.isArray(value)) for (const [i, item] of value.entries()) yield* stringsIn(item, `${path}[${i}]`);
-  else if (isRecord(value)) for (const [key, item] of Object.entries(value)) yield* stringsIn(item, path ? `${path}.${key}` : key);
-}
-
-function checkStepTemplates(step: WorkflowStep, scope: ExpressionScope): string[] {
-  const problems: string[] = [];
-  for (const [key, value] of Object.entries(step)) {
-    if (key === "when") {
-      if (typeof value !== "string") continue;
-      const expressions = value.includes("{{") ? templateExpressions(value) : [value];
-      for (const expression of expressions) problems.push(...checkExpression(expression, scope).map((p) => `when: ${p}`));
-      try {
-        evaluateCondition(value, DRY_RUN_CONTEXT);
-      } catch (error) {
-        problems.push(`when: invalid condition "${value}": ${(error as Error).message}`);
-      }
-      continue;
-    }
-    for (const [path, text] of stringsIn(value, key)) {
-      if (!text.includes("{{")) continue;
-      if (LITERAL_STEP_KEYS.has(key)) {
-        problems.push(`${path}: templates are not resolved in "${key}"`);
-        continue;
-      }
-      for (const expression of templateExpressions(text)) problems.push(...checkExpression(expression, scope).map((p) => `${path}: ${p}`));
-      try {
-        resolveTemplate(text, DRY_RUN_CONTEXT);
-      } catch (error) {
-        problems.push(`${path}: invalid template: ${(error as Error).message}`);
-      }
-    }
-  }
-  return problems;
 }
 
 // ---------------------------------------------------------------------------
@@ -296,14 +147,11 @@ function validateAgent(agent: AgentTemplate, index: CatalogIndex): string[] {
   if (agent.workflow.length === 0) {
     if (agent.tools.length === 0) add("an agent without a workflow runs as an autonomous tool loop and needs tools");
   } else {
-    const stepIds = agent.workflow.map((s) => s.id);
-    for (const id of duplicates(stepIds)) add(`workflow: duplicate step id "${id}"`);
-    const allSteps = new Set(stepIds);
-    const earlier = new Set<string>();
+    // Ids, templates and conditions, nested steps included (shared with the Studio and the step editor).
+    for (const p of checkWorkflow(agent.workflow, { inputs: inputKeys, strictInputs: true })) add(p);
     const approvals: string[] = [];
-    for (const step of agent.workflow) {
+    for (const { step } of walkSteps(agent.workflow)) {
       const where = `workflow step "${step.id}"`;
-      for (const p of checkStepTemplates(step, { earlierSteps: earlier, allSteps, inputs: inputKeys })) add(`${where}: ${p}`);
       for (const needed of stepCapabilities(step)) {
         const p = capabilityProblem(needed, where);
         if (p) add(p);
@@ -397,7 +245,6 @@ function validateAgent(agent: AgentTemplate, index: CatalogIndex): string[] {
           add(`${where}: requiresApproval is false but the step is not conditioned on an earlier approval step (when: steps.<approval>.approved)`);
         }
       }
-      earlier.add(step.id);
     }
     const last = agent.workflow[agent.workflow.length - 1];
     if (last?.type !== "output") add(`workflow must end with an "output" step (last step is "${last?.id}")`);

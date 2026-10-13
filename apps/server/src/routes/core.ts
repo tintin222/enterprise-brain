@@ -1,7 +1,7 @@
 import { and, count, eq, gte, sql } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { TimeZone } from "@enterprise-brain/core";
+import { TimeZone, VARIABLE_NAME, companyVariables } from "@enterprise-brain/core";
 import { agents, approvals, builderSessions, companies, departments, knowledgeDocuments, runs } from "@enterprise-brain/db";
 import type { AppContext } from "../context.ts";
 import { oauthRedirectUrl } from "./connection-signin.ts";
@@ -41,6 +41,7 @@ export async function coreRoutes(app: FastifyInstance, ctx: AppContext) {
     aiMailbox: typeof settings.aiMailbox === "string" ? settings.aiMailbox : null,
     mailDomain: settings.mailDomain ?? null,
     timeZone: typeof settings.timeZone === "string" ? settings.timeZone : null,
+    variables: companyVariables(settings),
   });
 
   app.get("/api/companies/:company/settings", async (request) => {
@@ -56,6 +57,14 @@ export async function coreRoutes(app: FastifyInstance, ctx: AppContext) {
       .object({
         aiMailbox: z.string().email().or(z.literal("")).nullable().optional(),
         timeZone: TimeZone.nullable().optional(),
+        /** Values every job can read as `vars.<name>`: the whole set, replacing the one before. */
+        variables: z
+          .record(
+            z.string().regex(VARIABLE_NAME, "A variable's name is letters, digits and underscores"),
+            z.union([z.string().max(2000), z.number(), z.boolean()]),
+          )
+          .refine((v) => Object.keys(v).length <= 100, "At most 100 variables")
+          .optional(),
       })
       .parse(request.body);
     const settings = { ...company.settings };
@@ -69,6 +78,11 @@ export async function coreRoutes(app: FastifyInstance, ctx: AppContext) {
       if (body.timeZone) settings.timeZone = body.timeZone;
       else delete settings.timeZone;
       changed.push("the time zone");
+    }
+    if (body.variables !== undefined) {
+      if (Object.keys(body.variables).length) settings.variables = body.variables;
+      else delete settings.variables;
+      changed.push("the variables");
     }
     await platform.handle.db.update(companies).set({ settings }).where(eq(companies.id, company.id));
     await platform.activity.record(company.id, {

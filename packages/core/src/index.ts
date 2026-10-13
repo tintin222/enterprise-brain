@@ -4,6 +4,7 @@ export * from "./catalog.ts";
 export * from "./builder.ts";
 export * from "./connector.ts";
 export * from "./expressions.ts";
+export * from "./workflow-check.ts";
 export * from "./util.ts";
 export * from "./employment.ts";
 export * from "./notifications.ts";

@@ -6,8 +6,9 @@ import { getPath, isRecord } from "./util.ts";
  *   "{{ steps.evaluate.score }}"            -> raw value (number)
  *   "Hello {{ input.name | default:'there' }}" -> interpolated string
  *   evaluateExpression("steps.evaluate.score >= 70 && input.role != 'intern'", ctx)
+ *   "{{ formatDate(addDays(run.date, 3), 'DD.MM.YYYY') }}"   -> functions from a fixed list
  *
- * No `eval`, no property access beyond plain data paths.
+ * No `eval`, no property access beyond plain data paths, and only the functions listed here.
  */
 
 const SINGLE_EXPR = /^\s*\{\{([\s\S]+?)\}\}\s*$/;
@@ -58,7 +59,170 @@ const FILTERS: Record<string, Filter> = {
     const currency = arg === undefined || arg === null ? "" : stringify(arg).trim();
     return currency ? `${amount} ${currency}` : amount;
   },
+  trim: (v) => (typeof v === "string" ? v.trim() : v),
+  /** A text cut into a list: `tags | split:','` (a comma by default; each part trimmed, empty ones dropped). */
+  split: (v, arg) =>
+    typeof v === "string"
+      ? v
+          .split(arg === undefined || arg === null ? "," : stringify(arg))
+          .map((x) => x.trim())
+          .filter(Boolean)
+      : v,
+  last: (v) => (Array.isArray(v) ? v[v.length - 1] : v),
+  /** A list without repeats; with a field, the first item of each value: `orders | unique:'customer'`. */
+  unique: (v, arg) => (Array.isArray(v) ? uniqueBy(v, arg === undefined || arg === null ? "" : stringify(arg)) : v),
+  /** The sum of a list of numbers, or of a field of each item: `lines | sum:'amount'`. */
+  sum: (v, arg) => (Array.isArray(v) ? numbersOf(v, arg).reduce((a, b) => a + b, 0) : v),
+  keys: (v) => (isRecord(v) ? Object.keys(v) : []),
+  number: (v) => toNumber(v),
 };
+
+/** The values a list sums or compares: its numbers, or a field of each item. */
+function numbersOf(list: unknown[], path?: unknown): number[] {
+  const field = path === undefined || path === null ? "" : stringify(path);
+  return list.map((x) => toNumber(field ? getPath(x, field) : x)).filter((n): n is number => n !== null);
+}
+
+/**
+ * A number from a number or a numeric text; null when it isn't one. Texts with both separators take the
+ * last one as the decimal point ("1,250.50", "1.250,50"); a single comma not followed by exactly three
+ * digits is a decimal comma ("12,5"); otherwise commas separate thousands ("1,250").
+ */
+function toNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  let text = value.trim().replace(/\s/g, "");
+  if (!text || !/^[-+]?[\d.,]+$/.test(text)) return null;
+  const comma = text.lastIndexOf(",");
+  const dot = text.lastIndexOf(".");
+  if (comma >= 0 && dot >= 0) text = comma > dot ? text.replace(/\./g, "").replace(",", ".") : text.replace(/,/g, "");
+  else if (comma >= 0) text = (text.match(/,/g) ?? []).length === 1 && !/,\d{3}$/.test(text) ? text.replace(",", ".") : text.replace(/,/g, "");
+  const n = Number(text);
+  return Number.isFinite(n) ? n : null;
+}
+
+function uniqueBy(list: unknown[], path: string): unknown[] {
+  const seen = new Set<string>();
+  const out: unknown[] = [];
+  for (const item of list) {
+    const key = JSON.stringify(path ? (getPath(item, path) ?? null) : item);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+/** A date or date-time as an instant; a bare day ("2026-10-13") is that day at midnight UTC. */
+function toDate(value: unknown): Date | undefined {
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value;
+  if (typeof value !== "string" && typeof value !== "number") return undefined;
+  const text = typeof value === "string" ? value.trim() : value;
+  if (text === "") return undefined;
+  const date = typeof text === "string" && /^\d{4}-\d{2}-\d{2}$/.test(text) ? new Date(`${text}T00:00:00.000Z`) : new Date(text);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+/** The parts of an instant in a time zone (UTC when none, or when the zone is unknown). */
+function partsOf(date: Date, zone?: string): Record<"YYYY" | "MM" | "DD" | "HH" | "mm" | "ss", string> {
+  try {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: zone || "UTC",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(date);
+    const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "00";
+    return { YYYY: get("year"), MM: get("month"), DD: get("day"), HH: get("hour"), mm: get("minute"), ss: get("second") };
+  } catch {
+    return partsOf(date);
+  }
+}
+
+/** A date in a pattern of YYYY, MM, DD, HH, mm and ss: `formatDate(run.date, 'DD.MM.YYYY')`. */
+function formatDate(value: unknown, pattern?: unknown, zone?: unknown): unknown {
+  const date = toDate(value);
+  if (!date) return value ?? null;
+  const parts = partsOf(date, zone === undefined || zone === null ? undefined : stringify(zone));
+  const shape = pattern === undefined || pattern === null || stringify(pattern) === "" ? "YYYY-MM-DD" : stringify(pattern);
+  return shape.replace(/YYYY|MM|DD|HH|mm|ss/g, (token) => parts[token as keyof typeof parts]);
+}
+
+/** A date moved by whole days; a bare day stays a bare day, an instant stays an instant. */
+function addDays(value: unknown, days: unknown): unknown {
+  const date = toDate(value);
+  const n = toNumber(days);
+  if (!date || n === null) return value ?? null;
+  const moved = new Date(date.getTime() + n * 86_400_000);
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim()) ? moved.toISOString().slice(0, 10) : moved.toISOString();
+}
+
+type Fn = (...args: unknown[]) => unknown;
+
+/**
+ * Functions a template or condition may call. Every filter can be called too, with its value first:
+ * `round(steps.total, 2)` is `steps.total | round:2`.
+ */
+const FUNCTIONS: Record<string, Fn> = {
+  ...Object.fromEntries(Object.entries(FILTERS).map(([name, filter]) => [name, (value: unknown, arg?: unknown) => filter(value, arg)])),
+  /** Now, as an ISO date-time. */
+  now: () => new Date().toISOString(),
+  /** Today's day ("2026-10-13"), in a time zone when given. */
+  today: (zone) => formatDate(new Date(), "YYYY-MM-DD", zone),
+  addDays,
+  formatDate,
+  /** Whole and part days from the second date to the first: `diffDays(input.due, run.date)`. */
+  diffDays: (a, b) => {
+    const first = toDate(a);
+    const second = toDate(b);
+    if (!first || !second) return null;
+    return Math.round(((first.getTime() - second.getTime()) / 86_400_000) * 100) / 100;
+  },
+  replace: (value, from, to) => (typeof value === "string" ? value.split(stringify(from)).join(stringify(to)) : value),
+  startsWith: (value, prefix) => typeof value === "string" && value.toLowerCase().startsWith(stringify(prefix).toLowerCase()),
+  endsWith: (value, suffix) => typeof value === "string" && value.toLowerCase().endsWith(stringify(suffix).toLowerCase()),
+  /** A list ordered by a field: `sortBy(steps.orders.items, 'amount', 'desc')`. */
+  sortBy: (list, path, order) => (Array.isArray(list) ? sortList(list, stringify(path ?? ""), stringify(order ?? "asc") === "desc" ? -1 : 1) : list),
+  /** The items whose field equals a value: `where(input.lines, 'status', 'open')`. */
+  where: (list, path, value) => (Array.isArray(list) ? list.filter((item) => looseEquals(getPath(item, stringify(path ?? "")), value)) : []),
+  /** The first value that isn't empty. */
+  coalesce: (...values) => values.find((v) => v !== undefined && v !== null && v !== "") ?? null,
+  min: (...values) => {
+    const numbers = (values.length === 1 && Array.isArray(values[0]) ? numbersOf(values[0]) : numbersOf(values)) as number[];
+    return numbers.length ? Math.min(...numbers) : null;
+  },
+  max: (...values) => {
+    const numbers = (values.length === 1 && Array.isArray(values[0]) ? numbersOf(values[0]) : numbersOf(values)) as number[];
+    return numbers.length ? Math.max(...numbers) : null;
+  },
+  /** One value or another: `if(steps.check.approved, 'yes', 'no')`. */
+  if: (condition, yes, no) => (truthy(condition) ? yes : (no ?? null)),
+  /** Texts and lists joined: `concat(input.first, ' ', input.last)`. */
+  concat: (...values) => (values.every(Array.isArray) ? (values as unknown[][]).flat() : values.map((v) => stringify(v)).join("")),
+};
+
+/** The names a template may call as functions, and use as filters. */
+export const TEMPLATE_FUNCTION_NAMES: readonly string[] = Object.keys(FUNCTIONS);
+export const TEMPLATE_FILTER_NAMES: readonly string[] = Object.keys(FILTERS);
+
+function sortList(list: unknown[], path: string, direction: 1 | -1): unknown[] {
+  return [...list].sort((a, b) => direction * compareValues(path ? getPath(a, path) : a, path ? getPath(b, path) : b));
+}
+
+/** Numbers by value, other texts (and ISO dates) in order, empty values last. */
+export function compareValues(a: unknown, b: unknown): number {
+  const emptyA = a === undefined || a === null || a === "";
+  const emptyB = b === undefined || b === null || b === "";
+  if (emptyA || emptyB) return emptyA === emptyB ? 0 : emptyA ? 1 : -1;
+  const na = toNumber(a);
+  const nb = toNumber(b);
+  if (na !== null && nb !== null) return na - nb;
+  return stringify(a).localeCompare(stringify(b));
+}
 
 export function stringify(value: unknown): string {
   if (value === undefined || value === null) return "";
@@ -285,13 +449,13 @@ class Parser {
       case "!=":
         return !looseEquals(left, right);
       case ">":
-        return Number(left) > Number(right);
+        return ordered(left, right) > 0;
       case ">=":
-        return Number(left) >= Number(right);
+        return ordered(left, right) >= 0;
       case "<":
-        return Number(left) < Number(right);
+        return ordered(left, right) < 0;
       case "<=":
-        return Number(left) <= Number(right);
+        return ordered(left, right) <= 0;
       case "in":
         return contains(right, left);
       case "contains":
@@ -339,6 +503,24 @@ class Parser {
       case "str":
         return tok.v;
       case "id": {
+        const next = this.peek();
+        if (next?.t === "punc" && next.v === "(" && !tok.v.includes(".")) {
+          const fn = FUNCTIONS[tok.v];
+          if (!fn) throw new Error(`Unknown function "${tok.v}" in expression: ${this.source}`);
+          this.pos++;
+          const args: unknown[] = [];
+          if (this.peek()?.t === "punc" && (this.peek() as { v: string }).v === ")") {
+            this.pos++;
+            return fn();
+          }
+          for (;;) {
+            args.push(this.or());
+            const sep = this.tokens[this.pos++];
+            if (sep?.t === "punc" && sep.v === ")") break;
+            if (!(sep?.t === "punc" && sep.v === ",")) throw new Error(`Expected , or ) in ${this.source}`);
+          }
+          return fn(...args);
+        }
         const lower = tok.v.toLowerCase();
         if (lower === "true") return true;
         if (lower === "false") return false;
@@ -384,6 +566,19 @@ export function truthy(value: unknown): boolean {
   return Boolean(value);
 }
 
+/**
+ * How two values compare for < and >: as numbers when both are numbers (or numeric texts), else texts in
+ * order (so ISO dates compare as dates); NaN when either is missing, so every comparison with it is false.
+ */
+function ordered(a: unknown, b: unknown): number {
+  if (a === undefined || a === null || b === undefined || b === null) return Number.NaN;
+  const na = typeof a === "number" ? a : toNumber(a);
+  const nb = typeof b === "number" ? b : toNumber(b);
+  if (na !== null && nb !== null) return na - nb;
+  if (typeof a === "string" && typeof b === "string") return a < b ? -1 : a > b ? 1 : 0;
+  return Number(a) - Number(b);
+}
+
 function looseEquals(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a === null || a === undefined || b === null || b === undefined) return (a ?? null) === (b ?? null);
@@ -405,8 +600,9 @@ export function evaluateExpression(expression: string, context: unknown): unknow
   return new Parser(tokens, context, expression).parse();
 }
 
+/** A `when` condition: an expression (with filters and functions), bare or inside `{{ }}`. */
 export function evaluateCondition(expression: string | undefined, context: unknown): boolean {
   if (!expression || !expression.trim()) return true;
   const inner = expression.match(SINGLE_EXPR)?.[1] ?? expression;
-  return truthy(evaluateExpression(inner, context));
+  return truthy(evaluateTemplateExpression(inner, context));
 }

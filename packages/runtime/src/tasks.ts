@@ -23,12 +23,17 @@ export type TaskPlan =
 
 /** What a waiting task waits for. A workflow waiting at a `wait` step names its run and step. */
 export interface TaskWait {
-  kind: "reply" | "time";
+  /** reply: an answer to its emails; time: a moment; callback: another system calling its address; colleague: another AI employee's answer. */
+  kind: "reply" | "time" | "callback" | "colleague";
   since: string;
   days?: number;
   note?: string;
   runId?: string;
   stepId?: string;
+  /** Where in the job the waiting step is (inside a loop: "loop#2/step"); its id when at the top. */
+  stepKey?: string;
+  /** colleague: the task given to the colleague. */
+  taskId?: string;
 }
 
 /** Why a task wakes up. */

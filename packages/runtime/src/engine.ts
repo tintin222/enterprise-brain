@@ -1,5 +1,6 @@
 import { and, desc, eq, gte, inArray, max, sql } from "drizzle-orm";
 import {
+  companyVariables,
   evaluateCondition,
   isRecord,
   possessive,
@@ -422,6 +423,8 @@ export class RunEngine {
       await this.fail(run, error);
       return;
     }
+    const [company] = await this.deps.handle.db.select({ settings: companies.settings }).from(companies).where(eq(companies.id, companyId));
+    const vars = companyVariables(company?.settings);
     const state = persisted;
     const started = run.startedAt ?? run.createdAt;
     const context: RunContext = {
@@ -430,6 +433,7 @@ export class RunEngine {
       agent: { id: run.agentId, name: agentName, slug: agentSlug, department: definition.department },
       trigger: { type: run.trigger, ref: run.triggerRef },
       run: { id: run.id, isTest: run.isTest, startedAt: started.toISOString(), date: started.toLocaleDateString("sv-SE") },
+      vars,
     };
     const scope: ExecutionScope = {
       companyId,

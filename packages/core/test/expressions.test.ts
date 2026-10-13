@@ -73,3 +73,50 @@ describe("templates", () => {
     });
   });
 });
+
+describe("functions and the filters that came with procedures", () => {
+  const data = {
+    input: {
+      due: "2026-10-20",
+      lines: [
+        { amount: 2, status: "open" },
+        { amount: 5, status: "done" },
+        { amount: "1,5", status: "open" },
+      ],
+      tags: " x, y ,,z",
+    },
+    run: { date: "2026-10-13" },
+    vars: { limit: 50 },
+    steps: { check: { score: "75" } },
+  };
+
+  it("calls functions from a fixed list, and any filter as a function", () => {
+    expect(resolveTemplate("{{ addDays(run.date, 3) }}", data)).toBe("2026-10-16");
+    expect(resolveTemplate("{{ formatDate(input.due, 'DD.MM.YYYY') }}", data)).toBe("20.10.2026");
+    expect(resolveTemplate("{{ diffDays(input.due, run.date) }}", data)).toBe(7);
+    expect(resolveTemplate("{{ sum(where(input.lines, 'status', 'open'), 'amount') }}", data)).toBe(3.5);
+    expect(resolveTemplate("{{ sortBy(input.lines, 'amount', 'desc') | pluck:'amount' }}", data)).toEqual([5, 2, "1,5"]);
+    expect(resolveTemplate("{{ if(steps.check.score >= 70, 'pass', 'fail') }}", data)).toBe("pass");
+    expect(resolveTemplate("{{ coalesce(input.missing, input.due) }}", data)).toBe("2026-10-20");
+    expect(resolveTemplate("Total {{ round(sum(input.lines, 'amount'), 1) }}", data)).toBe("Total 8.5");
+    expect(() => evaluateExpression("shell('rm')", data)).toThrow(/Unknown function "shell"/);
+  });
+
+  it("has filters for texts and lists", () => {
+    expect(resolveTemplate("{{ input.tags | split }}", data)).toEqual(["x", "y", "z"]);
+    expect(resolveTemplate("{{ input.lines | sum:'amount' }}", data)).toBe(8.5);
+    expect(resolveTemplate("{{ input.lines | unique:'status' | length }}", data)).toBe(2);
+    expect(resolveTemplate("{{ '  padded ' | trim }}", data)).toBe("padded");
+    expect(resolveTemplate("{{ vars | keys }}", data)).toEqual(["limit"]);
+  });
+
+  it("accepts filters and functions in conditions, and compares dates in order", () => {
+    expect(evaluateCondition("input.lines | length", data)).toBe(true);
+    expect(evaluateCondition("length(where(input.lines, 'status', 'open')) == 2", data)).toBe(true);
+    expect(evaluateCondition("input.due > run.date", data)).toBe(true);
+    expect(evaluateCondition("'2026-01-02' < '2026-01-10'", data)).toBe(true);
+    expect(evaluateCondition("'10' > '9'", data)).toBe(true);
+    expect(evaluateCondition("input.missing > 3", data)).toBe(false);
+    expect(evaluateCondition("sum(input.lines, 'amount') < vars.limit", data)).toBe(true);
+  });
+});
