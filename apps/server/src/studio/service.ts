@@ -16,6 +16,7 @@ import {
   abilitiesOf,
   compileEmployee,
   employeeCard,
+  procedureOutline,
   plainApp,
   proposeApp,
   settle,
@@ -866,7 +867,7 @@ export class StudioService {
           may_use: abilitiesOf(agent.definition),
           asks_approval_for: agent.definition.guardrails.approvalRequiredFor,
           job: truncate(agent.definition.instructions, 12_000),
-          fixed_steps: agent.definition.workflow.map((s) => s.name ?? s.id),
+          fixed_steps: procedureOutline(agent.definition.workflow),
         }),
       };
     }
@@ -1085,6 +1086,12 @@ export class StudioService {
         saved: mine ? "changed (still a draft)" : "made, as a draft: it works only in tries until the solution is put to work",
         duties: dutiesOf(agent.definition),
         may_use: abilitiesOf(agent.definition),
+        ...(agent.definition.workflow.length
+          ? {
+              procedure: procedureOutline(agent.definition.workflow),
+              form_fields: agent.definition.inputs.map((f) => ({ key: f.key, label: f.label ?? f.key })),
+            }
+          : {}),
         notes: solution.employees.find((e) => e.agentId === agent.row.id)?.notes ?? compiled.notes,
         next: "Try it on real examples with try_ai_employee.",
       }),

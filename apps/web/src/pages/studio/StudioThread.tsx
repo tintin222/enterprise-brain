@@ -491,6 +491,7 @@ function EmployeeCard({ employee }: { employee: StudioEmployee }) {
         </div>
       </div>
       <List label="Works when" items={[...employee.duties, "People give it work"]} />
+      {employee.steps && employee.steps.length > 0 && <List label="Follows these steps" items={employee.steps} />}
       <List label="May use" items={employee.abilities} />
       <List label="A person approves first" items={employee.approvals} />
       <p className="text-xs text-muted">{employee.levelText}</p>

@@ -249,6 +249,119 @@ describe("work that doesn't come by email", () => {
   });
 });
 
+describe("a procedure from plain words", () => {
+  const orderDesk = {
+    name: "Order Desk",
+    role: "Checks each order line and tells the team",
+    department: "operations",
+    job: "For each order: check every line against the purchase order, log the big ones, and tell the team in Chat.",
+    starts: [{ when: "form" as const }],
+    form: [
+      { label: "Order number", type: "text" as const, required: true },
+      { label: "Lines", type: "long_text" as const },
+    ],
+    can: { tables: [{ table: "supplier_complaints", can: ["find" as const] }] },
+    approval: ["changes" as const],
+    level: "supervised" as const,
+  };
+
+  it("compiles into the job's steps, nested where a step holds steps, and acts in the systems it names", () => {
+    const { definition, problems } = compileEmployee(
+      {
+        ...orderDesk,
+        procedure: [
+          {
+            do: "do_in_system",
+            name: "Find the purchase order",
+            system: "demo-erp",
+            action: "get_purchase_order",
+            values: { number: "{{ input.order_number }}" },
+          },
+          {
+            do: "for_each",
+            name: "Each line",
+            over: "{{ steps.find_the_purchase_order.lines }}",
+            as: "line",
+            steps: [
+              {
+                do: "if",
+                name: "Big line",
+                when: "line.amount > 10000",
+                then: [
+                  {
+                    do: "do_in_system",
+                    name: "Log it",
+                    system: "tables",
+                    action: "add_supplier_complaints",
+                    values: { supplier: "{{ line.supplier }}" },
+                  },
+                ],
+                otherwise: [{ do: "code", name: "Round it", code: "return Math.round(ctx.values.amount)", values: { amount: "{{ line.amount }}" } }],
+              },
+            ],
+          },
+          { do: "ask_colleague", name: "Ask the buyer", colleague: "buyer", request: "Confirm the dates of {{ input.order_number }}", days: 2 },
+          {
+            do: "post_in_chat",
+            name: "Tell the team",
+            to: "#operations",
+            text: "Order {{ input.order_number }} checked",
+            only_when: "steps.each_line.count > 0",
+          },
+          { do: "result", name: "Result", value: { lines: "{{ steps.each_line.count }}" } },
+        ],
+      },
+      ctx,
+    );
+    expect(problems).toEqual([]);
+    expect(definition.workflow.map((s) => [s.id, s.type])).toEqual([
+      ["find_the_purchase_order", "connector"],
+      ["each_line", "each"],
+      ["ask_the_buyer", "call"],
+      ["tell_the_team", "chat.send"],
+      ["result", "output"],
+    ]);
+    const loop = definition.workflow[1] as Extract<(typeof definition.workflow)[number], { type: "each" }>;
+    expect(loop).toMatchObject({ over: "{{ steps.find_the_purchase_order.lines }}", as: "line" });
+    expect(loop.steps[0]).toMatchObject({
+      id: "big_line",
+      type: "branch",
+      cases: [{ when: "line.amount > 10000", steps: [{ id: "log_it", type: "connector", connector: "tables", operation: "add_supplier_complaints" }] }],
+      else: [{ id: "round_it", type: "code" }],
+    });
+    expect(definition.workflow[3]).toMatchObject({ when: "steps.each_line.count > 0" });
+    // The systems its steps act in join its connections, with the actions they use.
+    expect(definition.connectors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ref: "tables", operations: expect.arrayContaining(["find_supplier_complaints", "add_supplier_complaints"]) }),
+        expect.objectContaining({ ref: "erp", operations: ["get_purchase_order"] }),
+      ]),
+    );
+    expect(employeeCard(definition, "supervised").steps).toEqual(["Find the purchase order", "Each line", "Ask the buyer", "Tell the team", "Result"]);
+  });
+
+  it("says what a step is missing or names wrongly instead of guessing", () => {
+    const { problems } = compileEmployee(
+      {
+        ...orderDesk,
+        procedure: [
+          { do: "extract", name: "Read the order", from: "{{ input.lines }}" },
+          { do: "do_in_system", name: "Post it", system: "demo-erp", action: "delete_everything" },
+          { do: "write", name: "Write back", text: "Thanks for {{ steps.nowhere.total }}" },
+          { do: "result", name: "Done", value: { when: "{{ shout(input.order_number) }}" } },
+        ],
+      },
+      ctx,
+    );
+    expect(problems).toEqual([
+      'Step "Read the order" (extract): give the fields to find.',
+      'Step "Post it" (do_in_system): Demo ERP has no action "delete_everything". Its actions: get_purchase_order, post_invoice.',
+      expect.stringContaining('references unknown step "steps.nowhere"'),
+      expect.stringContaining('unknown function "shout"'),
+    ]);
+  });
+});
+
 describe("the Studio's own parts", () => {
   it("plans an app on the tables it was given", () => {
     const design = AppDesign.parse(

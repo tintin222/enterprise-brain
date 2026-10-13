@@ -159,7 +159,8 @@ function triggerLabel(trigger: AgentDefinition["triggers"][number]): string {
   }
 }
 
-function describeStep(step: WorkflowStep): string {
+/** A step of a job in a few plain words. */
+export function describeStep(step: WorkflowStep): string {
   switch (step.type) {
     case "extract":
       return "Read the document (OCR for scans and photos)";

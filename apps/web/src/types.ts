@@ -2206,6 +2206,8 @@ export interface StudioEmployee {
   level: "shadow" | "supervised" | "trusted";
   levelText: string;
   form: string[];
+  /** The steps it follows, when it has fixed ones. */
+  steps?: string[];
   notes: string[];
   tries: number;
   lastTry: StudioTry | null;

@@ -165,6 +165,8 @@ function checkCondition(value: string, label: string, scope: ExpressionScope): s
   const problems: string[] = [];
   const expressions = value.includes("{{") ? templateExpressions(value) : [value];
   for (const expression of expressions) problems.push(...checkExpression(expression, scope).map((p) => `${label}: ${p}`));
+  // Read it as the run would, unless its names were already wrong (that says it better).
+  if (problems.length) return problems;
   try {
     evaluateCondition(value, DRY_RUN_CONTEXT);
   } catch (error) {
@@ -178,7 +180,9 @@ function checkTemplates(value: unknown, path: string, scope: ExpressionScope): s
   const problems: string[] = [];
   for (const [where, text] of stringsIn(value, path)) {
     if (!text.includes("{{")) continue;
-    for (const expression of templateExpressions(text)) problems.push(...checkExpression(expression, scope).map((p) => `${where}: ${p}`));
+    const found = templateExpressions(text).flatMap((expression) => checkExpression(expression, scope).map((p) => `${where}: ${p}`));
+    problems.push(...found);
+    if (found.length) continue;
     try {
       resolveTemplate(text, DRY_RUN_CONTEXT);
     } catch (error) {

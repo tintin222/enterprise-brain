@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   AgentDefinition,
   PROBATION_LEVELS,
+  checkWorkflow,
   describeDuties,
   repeatCron,
   slugify,
@@ -12,6 +13,8 @@ import {
   type TriggerSpec,
 } from "@enterprise-brain/core";
 import type { ToolDefinition } from "@enterprise-brain/llm";
+import { compileProcedure, Procedure, PROCEDURE_KINDS } from "./procedure.ts";
+import { describeStep } from "./render.ts";
 
 /**
  * The Studio as an agent: Claude works with a person the way Claude Code works with a developer. It
@@ -85,6 +88,8 @@ export const EmployeeSpec = z.object({
   can: EmployeeAbilities.default({}),
   approval: z.array(z.enum(["emails", "changes"])).default(["emails", "changes"]),
   level: z.enum(["shadow", "supervised", "trusted"]).default("supervised"),
+  /** Fixed steps it follows in order, when the work has them; without them it works each task out with its tools. */
+  procedure: Procedure.optional(),
 });
 export type EmployeeSpec = z.infer<typeof EmployeeSpec>;
 
@@ -390,6 +395,27 @@ export const STUDIO_TOOLS: ToolDefinition[] = [
           enum: ["shadow", "supervised", "trusted"],
           description: "shadow: only prepares, a person does everything; supervised (default): acts after approval; trusted: acts alone within limits",
         },
+        procedure: {
+          type: "array",
+          description: [
+            "Only when the work follows fixed steps: the steps it follows for each task, in order. Leave it out and it works each task out with its tools.",
+            "Each step: do (its kind), name (a few words; its key is the name in lower case with _), only_when (a condition), retry (times to try again), on_error (stop, continue, skip_rest), and the fields its kind needs:",
+            "read_file from · extract from, fields[{label,type,required,choices}] · classify from, categories · evaluate from, criteria[{label,kind: must|nice|deal_breaker}], pass_score · write text (what to write) · look_up query (in the company's knowledge) · work_it_out task (decide or do with its tools) · do_in_system system, action, values, ask_first (tables: system tables, action find_/add_/update_ + the table's key) · ask_person question, text, who · send_email to, subject, text · wait_for_reply days · wait_for_time days or until · wait_for_call days (another system calls the address {{ run.callbackUrl }}) · ask_colleague colleague (an AI employee's key), request, values, days · post_in_chat to (#channel, a person's email, or task), text, via · for_each over, as, steps, at_most · if when + then (+ otherwise), or cases[{when, then}] + otherwise · transform from, ops · code code (JavaScript returning the result; ctx.values holds values), values · answer_caller status, body · result value.",
+            "Values are text with {{ }}: {{ input.<form field key> }}, {{ input.email.subject }}, {{ steps.<step key>.<what it found> }}, {{ item }} inside for_each, {{ vars.<company variable> }}; functions like today(), addDays(), sum(). Conditions are bare: steps.check.score >= 70 and input.country == 'TR'.",
+          ].join(" "),
+          items: {
+            type: "object",
+            properties: {
+              do: { type: "string", enum: [...PROCEDURE_KINDS] },
+              name: string("What the step does, in a few words"),
+              only_when: string("A condition, e.g. steps.classify.category == 'urgent'"),
+              steps: { type: "array", items: { type: "object" }, description: "for_each: its steps (the same shape)" },
+              then: { type: "array", items: { type: "object" }, description: "if: the steps when it holds" },
+              otherwise: { type: "array", items: { type: "object" }, description: "if: the steps otherwise" },
+            },
+            required: ["do", "name"],
+          },
+        },
       },
       required: ["name", "role", "job"],
     },
@@ -522,6 +548,7 @@ export function studioSystemPrompt(ctx: StudioContext): string {
     "- Build with save_table (what should be tracked, one record per case), save_ai_employee (who does the work) and save_app (the screens people use). Reuse what the company already has when it fits.",
     "- Check who already works on the same mailbox or table (look_around shows it): two AI employees on one mailbox both handle every email, so settle it with the person.",
     "- Give each AI employee only the abilities its job needs. Its job text is its whole briefing: complete, specific, in plain words, with the person's rules and examples.",
+    "- When the work follows fixed steps in a fixed order (the same checks every time, each line of an order, a decision by a clear rule, waiting for a reply or for another system, giving part of it to a colleague), also give save_ai_employee its procedure: the steps it follows, each named in a few words. Its own judgement stays in its job text and in work_it_out steps. When the work varies too much for fixed steps, leave the procedure out: it works each task out with its tools.",
     "- Try each AI employee with try_ai_employee on real examples (emails from the mailbox, the person's samples) before you call it ready, and read each result critically. When it falls short, fix the job and try again. Tries send nothing and change nothing.",
     "- When a system or an action it needs isn't connected, don't invent one: ask IT with ask_it and tell the person.",
     "- Nothing works for real until the person puts the solution to work from this page. When it is built and tried, say so, and say what will happen once it is at work.",
@@ -778,6 +805,22 @@ export function compileEmployee(input: EmployeeSpec, ctx: CompileContext): Compi
   if (spec.form.length && !spec.starts.some((s) => s.when === "form")) triggers.push({ type: "form", description: spec.role });
   triggers.push({ type: "manual" });
 
+  // Fixed steps, when the work has them: compiled into the job's steps; the systems they act in join its connections.
+  const procedure = spec.procedure?.length
+    ? compileProcedure(spec.procedure, {
+        systems: ctx.systems,
+        tables: ctx.tables,
+        tablesConnectionId: ctx.tablesConnectionId,
+        connectors,
+        tools: [...capabilities],
+        refOf,
+      })
+    : undefined;
+  if (procedure) {
+    problems.push(...procedure.problems);
+    notes.push(...procedure.notes);
+  }
+
   const email = spec.starts.some((s) => s.when === "email");
   const form = triggers.some((t) => t.type === "form");
   const approvalRequiredFor = [...(spec.approval.includes("emails") ? ["mail.send"] : []), ...(spec.approval.includes("changes") ? ["connector:write"] : [])];
@@ -796,7 +839,7 @@ export function compileEmployee(input: EmployeeSpec, ctx: CompileContext): Compi
       model: { effort: "medium" },
       inputs,
       outputs: [],
-      workflow: [],
+      workflow: procedure?.workflow ?? [],
       tools: [...capabilities],
       triggers,
       knowledge: { collections },
@@ -808,6 +851,8 @@ export function compileEmployee(input: EmployeeSpec, ctx: CompileContext): Compi
     problems.push(error instanceof Error ? error.message : String(error));
     definition = AgentDefinition.parse({ slug, name: spec.name, summary: spec.role, archetype: "process-automation", instructions: spec.job });
   }
+  // What its steps refer to must be there by then: inputs it has, steps that ran before, functions there are.
+  if (definition.workflow.length) problems.push(...checkWorkflow(definition.workflow, { inputs: definition.inputs.map((f) => f.key) }));
   return { definition, problems, notes };
 }
 
@@ -897,6 +942,8 @@ export function employeeCard(definition: AgentDefinition, level: Probation, name
     level,
     levelText: `${PROBATION_LEVELS[level].label}: a person approves ${PROBATION_LEVELS[level].person.charAt(0).toLowerCase()}${PROBATION_LEVELS[level].person.slice(1)}`,
     form: definition.inputs.filter((f) => f.key !== "email").map((f) => f.label ?? f.key),
+    /** The steps it follows, when it has fixed ones. */
+    steps: definition.workflow.map((step) => (step.name ? step.name : describeStep(step))),
   };
 }
 
