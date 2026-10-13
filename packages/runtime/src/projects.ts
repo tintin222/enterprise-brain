@@ -616,6 +616,17 @@ export class ProjectService {
           return { ref: file.id, name: file.name, detail: `${file.mimeType} · ${formatBytes(file.size)}`, departmentId: null, shared: true };
         }
         case "connection": {
+          // A built-in demo system by its type (`sandbox-erp`), else a connection by its id.
+          const demo = this.deps.connectors.demoSystem(ref);
+          if (demo) {
+            return {
+              ref: demo.type,
+              name: demo.name,
+              detail: `${demo.category} · a demo system standing in for the real one`,
+              departmentId: null,
+              shared: true,
+            };
+          }
           const connection = await this.deps.connectors.get(companyId, ref);
           return {
             ref: connection.id,

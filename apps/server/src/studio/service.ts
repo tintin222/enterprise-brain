@@ -730,7 +730,16 @@ export class StudioService {
       }
       case "connection": {
         const connections = await this.platform.connectors.list(companyId);
-        return connections.find((c) => c.id === ref)?.id ?? connections.find((c) => same(c.name, ref))?.id;
+        const connection = connections.find((c) => c.id === ref)?.id ?? connections.find((c) => same(c.name, ref))?.id;
+        if (connection) return connection;
+        // A demo system: by the key look_around shows (demo-erp), its type (sandbox-erp), its name or its category.
+        const wanted = ref
+          .trim()
+          .toLowerCase()
+          .replace(/^demo-/, "");
+        return (await this.platform.connectors.demoSystems(companyId)).find(
+          (m) => m.type === ref.trim() || same(m.name, ref) || m.category === wanted || m.type === `sandbox-${wanted}`,
+        )?.type;
       }
       case "file": {
         const files = solutionOf(await this.row(companyId, id)).files;

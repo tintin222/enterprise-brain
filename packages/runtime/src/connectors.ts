@@ -131,6 +131,23 @@ export class ConnectorService {
     return this.registry.list();
   }
 
+  /** A built-in demo system by its connector type (`sandbox-erp`, …): it stands in for a system category until IT connects the real one. */
+  demoSystem(type: string): ConnectorManifest | undefined {
+    const manifest = this.registry.get(type)?.manifest;
+    return manifest?.maturity === "sandbox" ? manifest : undefined;
+  }
+
+  /** The demo systems a company still works with: every built-in one whose category has no real connection. */
+  async demoSystems(companyId: string): Promise<ConnectorManifest[]> {
+    const real = new Set((await this.list(companyId)).filter((i) => !i.sandbox).map((i) => i.category));
+    const out: ConnectorManifest[] = [];
+    for (const manifest of this.registry.list()) {
+      if (manifest.maturity !== "sandbox" || real.has(manifest.category) || out.some((o) => o.type === manifest.type)) continue;
+      out.push(manifest);
+    }
+    return out;
+  }
+
   private splitConfig(manifest: ConnectorManifest, values: Record<string, unknown>) {
     const config: Record<string, unknown> = {};
     const secrets: Record<string, string> = {};

@@ -15,7 +15,8 @@ import { FileLink } from "../../components/FileLink.tsx";
 import { ErrorState, Skeleton } from "../../components/Spinner.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { timeAgo } from "../../lib/format.ts";
-import { keys, useAgents, useConnectors, useProjectAssets } from "../../lib/queries.ts";
+import { paths } from "../../lib/paths.ts";
+import { keys, useAgents, useConnectorCatalog, useConnectors, useProjectAssets } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { MentionHit, ProjectAsset, ProjectAssetKind, ProjectView } from "../../types.ts";
 import { ASSET_ICONS, ASSET_KINDS, ASSET_LABELS, assetHref } from "./shared.tsx";
@@ -136,6 +137,7 @@ export function AssetsTab({ project }: { project: ProjectView }) {
   const queryClient = useQueryClient();
   const assets = useProjectAssets(project.id);
   const connectors = useConnectors();
+  const catalog = useConnectorCatalog();
   const agents = useAgents();
   const [adding, setAdding] = useState(false);
   const [connection, setConnection] = useState("");
@@ -174,6 +176,13 @@ export function AssetsTab({ project }: { project: ProjectView }) {
   const list = assets.data?.assets ?? [];
   const groups = ASSET_KINDS.map((kind) => ({ kind, items: list.filter((a) => a.kind === kind) })).filter((g) => g.items.length);
   const held = new Set(list.map((a) => `${a.kind}:${a.ref}`));
+  // Real connections first; then the built-in demo systems whose category nothing real serves yet (the runtime's rule).
+  const connected = (connectors.data ?? []).filter((c) => !held.has(`connection:${c.id}`));
+  const realCategories = new Set((connectors.data ?? []).filter((c) => !c.sandbox).map((c) => c.category));
+  const demoSystems = (catalog.data ?? []).filter(
+    (m, i, all) =>
+      m.maturity === "sandbox" && !held.has(`connection:${m.type}`) && !realCategories.has(m.category) && all.findIndex((o) => o.type === m.type) === i,
+  );
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
       <div className="space-y-4">
@@ -220,18 +229,40 @@ export function AssetsTab({ project }: { project: ProjectView }) {
               <Button variant="primary" icon={Brain} className="w-full" onClick={() => setAdding(true)}>
                 Add from the brain and the data
               </Button>
-              <Field label="A connection" hint="Named actions go into the package; secrets never do.">
+              <Field
+                label="A connection"
+                hint={
+                  <>
+                    Named actions go into the package; secrets never do. Connections are set up under{" "}
+                    <Link to={paths.settings("connections")} className="font-medium text-fg hover:underline">
+                      Settings → Connections
+                    </Link>
+                    ; the demo systems stand in until then.
+                  </>
+                }
+              >
                 {(id) => (
                   <div className="flex gap-2">
                     <select id={id} className="input min-w-0 flex-1" value={connection} onChange={(e) => setConnection(e.target.value)}>
                       <option value="">Choose…</option>
-                      {(connectors.data ?? [])
-                        .filter((c) => !held.has(`connection:${c.id}`))
-                        .map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
+                      {connected.length > 0 && (
+                        <optgroup label="Connected">
+                          {connected.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
+                      {demoSystems.length > 0 && (
+                        <optgroup label="Demo systems">
+                          {demoSystems.map((m) => (
+                            <option key={m.type} value={m.type}>
+                              {m.name} (demo)
+                            </option>
+                          ))}
+                        </optgroup>
+                      )}
                     </select>
                     <Button
                       icon={Plug}

@@ -222,8 +222,12 @@ export async function buildDevPackage(ctx: AppContext, viewer: Viewer, company: 
           break;
         }
         case "connection": {
-          const view = await platform.connectors.get(companyId, asset.ref);
-          const operations = await platform.connectors.operationsOf(companyId, view.id);
+          // A built-in demo system has no row: its page comes from its manifest.
+          const demo = platform.connectors.demoSystem(asset.ref);
+          const view = demo
+            ? { id: demo.type, type: demo.type, name: demo.name, category: demo.category, config: {}, secretFields: [], status: "demo", sandbox: true }
+            : await platform.connectors.get(companyId, asset.ref);
+          const operations = demo ? demo.operations : await platform.connectors.operationsOf(companyId, view.id);
           put(
             `connections/${fileStem(view.name)}.md`,
             renderConnection(

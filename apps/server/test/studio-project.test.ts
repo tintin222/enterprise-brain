@@ -37,10 +37,11 @@ function script(request: ToolLoopRequest, turn: number, results: string[]) {
           { name: "project_add_asset", input: { kind: "thing", ref: "Petrokim", note: "The client" } },
           { name: "project_add_asset", input: { kind: "table", ref: "supplier_complaints" } },
           { name: "project_add_asset", input: { kind: "thing", ref: "Nothing of that name" } },
+          { name: "project_add_asset", input: { kind: "connection", ref: "demo-erp" } },
         ],
       };
     case 3:
-      assetResults = results.slice(1, 4);
+      assetResults = results.slice(1, 5);
       return {
         calls: [
           { name: "project_add_task", input: { title: "Get the API credentials from Petrokim", details: "Their IT contact has them.", due: "2026-11-15" } },
@@ -171,6 +172,7 @@ describe("the Studio agent inside a project", () => {
     expect(parts).toEqual([
       expect.objectContaining({ part: "asset", kind: "thing", name: "Petrokim" }),
       expect.objectContaining({ part: "asset", kind: "table", name: "Supplier complaints", ref: "supplier_complaints" }),
+      expect.objectContaining({ part: "asset", kind: "connection", name: "Sandbox ERP", ref: "sandbox-erp" }),
       expect.objectContaining({ part: "todo", title: "Get the API credentials from Petrokim", created: true }),
       expect.objectContaining({ part: "todo", title: "Get the API credentials from Petrokim", created: false }),
       expect.objectContaining({ part: "ai_employee", name: "Complaint Handler" }),
@@ -181,6 +183,11 @@ describe("the Studio agent inside a project", () => {
       project_now_uses: expect.arrayContaining([expect.stringContaining("Table: Supplier complaints")]),
     });
     expect(assetResults[2]).toContain('No thing in the brain called "Nothing of that name"');
+    // The demo ERP, by the key look_around shows.
+    expect(JSON.parse(assetResults[3]!)).toMatchObject({
+      added: { kind: "connection", name: "Sandbox ERP" },
+      project_now_uses: expect.arrayContaining([expect.stringContaining("Connection: Sandbox ERP")]),
+    });
     const assets = (await call("GET", `/projects/${project.slug}/assets`)).json() as {
       assets: { kind: string; name: string; note: string; addedBy: { name: string } }[];
     };
@@ -188,6 +195,7 @@ describe("the Studio agent inside a project", () => {
       ["thing", "Petrokim"],
       ["thing", "Supplier portal"],
       ["table", "Supplier complaints"],
+      ["connection", "Sandbox ERP"],
     ]);
     expect(assets.assets[0]).toMatchObject({ note: "The client", addedBy: { name: "The Studio" } });
 

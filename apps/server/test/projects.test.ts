@@ -206,6 +206,17 @@ describe("projects over HTTP", () => {
     expect((await add("kerem.yildiz", "document", documentId)).statusCode).toBe(200);
     expect((await add("kerem.yildiz", "file", fileId)).statusCode).toBe(200);
     expect((await add("kerem.yildiz", "connection", connectionId)).statusCode).toBe(200);
+    // A built-in demo system, by its type; one that does not exist is nothing.
+    const demo = await add("kerem.yildiz", "connection", "sandbox-erp");
+    expect(demo.statusCode, demo.body).toBe(200);
+    expect(demo.json()).toMatchObject({
+      kind: "connection",
+      ref: "sandbox-erp",
+      name: "Sandbox ERP",
+      detail: expect.stringContaining("demo system"),
+      exists: true,
+    });
+    expect((await add("kerem.yildiz", "connection", "sandbox-nothing")).statusCode).toBe(404);
     // An AI employee of HR: not Kerem's to see, so not his to add; the admin adds it.
     expect((await add("kerem.yildiz", "agent", hrAgentId)).statusCode).toBe(404);
     expect((await add("mehmet.oz", "agent", hrAgentId)).statusCode).toBe(200);
@@ -228,6 +239,7 @@ describe("projects over HTTP", () => {
       ["document", "Supplier portal manual"],
       ["file", "portal-spec.txt"],
       ["connection", "Petrokim ERP"],
+      ["connection", "Sandbox ERP"],
       ["agent", expect.any(String)],
     ]);
     expect(all.assets.find((a) => a.kind === "connection")!.detail).toBe("rest-api");
@@ -245,13 +257,15 @@ describe("projects over HTTP", () => {
     // Someone outside operations does not see its table (HR's AI employee is his own department's); the count says so.
     const seen = (await call("can.demir", "GET", "/projects/supplier-portal/assets")).json() as { assets: Asset[]; hidden: number };
     expect(seen.hidden).toBe(1);
-    expect(seen.assets.map((a) => a.kind)).toEqual(["thing", "thing", "document", "file", "connection", "agent"]);
+    expect(seen.assets.map((a) => a.kind)).toEqual(["thing", "thing", "document", "file", "connection", "connection", "agent"]);
 
     // Where a thing already is.
     const portalId = all.assets.find((a) => a.name === "Supplier portal")!.ref;
     const holding = (await call("can.demir", "GET", `/projects?holding=thing:${portalId}`)).json() as ProjectView[];
     expect(holding.map((p) => p.slug)).toEqual(["supplier-portal"]);
-    expect(holding[0]!.counts.assets).toBe(7);
+    expect(holding[0]!.counts.assets).toBe(8);
+    const holdingDemo = (await call("can.demir", "GET", "/projects?holding=connection:sandbox-erp")).json() as ProjectView[];
+    expect(holdingDemo.map((p) => p.slug)).toEqual(["supplier-portal"]);
 
     // Out again.
     const asset = all.assets.find((a) => a.kind === "file")!;

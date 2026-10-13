@@ -180,6 +180,7 @@ describe("the development package", () => {
       { kind: "document", ref: document.id },
       { kind: "file", ref: file.id },
       { kind: "connection", ref: connection.id },
+      { kind: "connection", ref: "sandbox-erp" },
     ]) {
       const added = await call("selin.acar", "POST", `/projects/${project.id}/assets`, asset);
       expect(added.statusCode, added.body).toBe(200);
@@ -230,6 +231,7 @@ describe("the development package", () => {
         "knowledge/portal-docs/supplier-portal-manual.md",
         "files/portal spec.txt",
         "connections/petrokim-erp.md",
+        "connections/sandbox-erp.md",
         "tasks/PLAN.md",
       ]),
     );
@@ -257,6 +259,12 @@ describe("the development package", () => {
     expect(text("knowledge/portal-docs/supplier-portal-manual.md")).toContain("vendor number");
     expect(text("connections/petrokim-erp.md")).toContain("`base_url`: https://erp.petrokim.test/api");
     expect(text("connections/petrokim-erp.md")).toContain("`api_key`");
+    // The demo ERP: its actions from its manifest, no settings, no secrets, and what it stands in for.
+    expect(text("connections/sandbox-erp.md")).toContain("a demo system standing in for the real one");
+    expect(text("connections/sandbox-erp.md")).toContain("stands in for the company's real ERP until IT connects one");
+    expect(text("connections/sandbox-erp.md")).toContain("`get_purchase_order`");
+    expect(text("connections/sandbox-erp.md")).toContain("No secrets.");
+    expect(text("connections/sandbox-erp.md")).not.toContain("## Settings");
     expect(text("tasks/PLAN.md")).toContain("### 1. Build Complaint Handler");
     expect(text("tasks/PLAN.md")).toContain("- [ ] Confirm the escalation rule with Kerem — Selin Acar, due 2026-11-20");
     // Nowhere does the secret appear.

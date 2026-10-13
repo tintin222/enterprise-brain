@@ -5,6 +5,7 @@ import {
   compileEmployee,
   renderAgentSpec,
   renderClaudeMd,
+  renderConnection,
   renderMcpJson,
   renderPlan,
   renderTable,
@@ -273,5 +274,52 @@ describe("the development package's pages", () => {
     expect(uniquePath("files/spec.pdf", taken)).toBe("files/spec.pdf");
     expect(uniquePath("files/spec.pdf", taken)).toBe("files/spec-2.pdf");
     expect(uniquePath("files/spec.pdf", taken)).toBe("files/spec-3.pdf");
+  });
+});
+
+describe("a connection's page", () => {
+  const operations = [
+    {
+      id: "get_purchase_order",
+      name: "Get purchase order",
+      description: "Purchase order with lines.",
+      kind: "read" as const,
+      input: { type: "object", properties: { po_number: { type: "string", description: "PO number" } }, required: ["po_number"] },
+    },
+    { id: "post_invoice", name: "Post invoice", kind: "write" as const },
+  ];
+
+  it("names a real connection's settings and the names of its secrets, never their values", () => {
+    const page = renderConnection(
+      {
+        name: "Petrokim ERP",
+        type: "rest-api",
+        category: "erp",
+        status: "connected",
+        config: { base_url: "https://erp.petrokim.test/api", auth_type: "api_key" },
+        secretFields: ["api_key"],
+        sandbox: false,
+      },
+      operations,
+    );
+    expect(page).toContain("# Petrokim ERP");
+    expect(page).toContain("## Settings");
+    expect(page).toContain("`base_url`: https://erp.petrokim.test/api");
+    expect(page).toContain("Secrets (names only, never their values; set them in the environment of what you build): `api_key`");
+    expect(page).toContain("`get_purchase_order` — Get purchase order (read): Purchase order with lines. Takes `po_number`* (PO number)");
+    expect(page).toContain("`post_invoice` — Post invoice (write)");
+    expect(page).not.toContain("demo system");
+  });
+
+  it("says what a demo system stands in for, with its actions and no settings", () => {
+    const page = renderConnection(
+      { name: "Sandbox ERP", type: "sandbox-erp", category: "erp", status: "demo", config: {}, secretFields: [], sandbox: true },
+      operations,
+    );
+    expect(page).toContain("Status on the platform: demo (a demo system standing in for the real one)");
+    expect(page).toContain("stands in for the company's real ERP until IT connects one");
+    expect(page).not.toContain("## Settings");
+    expect(page).toContain("No secrets.");
+    expect(page).toContain("`get_purchase_order`");
   });
 });

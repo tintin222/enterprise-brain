@@ -716,6 +716,18 @@ export interface PackageOperation {
   input?: unknown;
 }
 
+/** What a demo system stands in for, in the words of the package. */
+const CATEGORY_WORDS: Record<string, string> = {
+  erp: "ERP",
+  accounting: "accounting system",
+  scm: "supply chain system",
+  crm: "CRM",
+  hris: "HR system",
+  ats: "recruiting system (ATS)",
+  itsm: "IT service desk",
+  calendar: "calendar",
+};
+
 export function renderConnection(
   view: { name: string; type: string; category: string; status: string; config: Record<string, unknown>; secretFields: string[]; sandbox: boolean },
   operations: PackageOperation[],
@@ -735,26 +747,36 @@ export function renderConnection(
       `Status on the platform: ${view.status}${view.sandbox ? " (a demo system standing in for the real one)" : ""}`,
     ]),
     "",
-    "## Settings",
-    "",
-    list(
-      Object.entries(view.config)
-        .filter(([, value]) => value !== "" && value !== null && value !== undefined)
-        .map(([key, value]) => `\`${key}\`: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`),
-      "None.",
-    ),
-    "",
-    view.secretFields.length
-      ? `Secrets (names only, never their values; set them in the environment of what you build): ${view.secretFields.map((s) => `\`${s}\``).join(", ")}`
-      : "No secrets.",
-    "",
+    ...(view.sandbox
+      ? [
+          `A built-in demo system: it stands in for the company's real ${CATEGORY_WORDS[view.category] ?? view.category} until IT connects one. Build against the real system; these actions show what the AI employee expects of it (names, inputs, read or write).`,
+          "",
+          "No secrets.",
+          "",
+        ]
+      : [
+          "## Settings",
+          "",
+          list(
+            Object.entries(view.config)
+              .filter(([, value]) => value !== "" && value !== null && value !== undefined)
+              .map(([key, value]) => `\`${key}\`: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`),
+            "None.",
+          ),
+          "",
+          view.secretFields.length
+            ? `Secrets (names only, never their values; set them in the environment of what you build): ${view.secretFields.map((s) => `\`${s}\``).join(", ")}`
+            : "No secrets.",
+          "",
+        ]),
     "## Named actions",
     "",
     list(
-      operations.map(
-        (op) =>
-          `\`${op.id}\` — ${op.name} (${op.kind})${op.description ? `: ${op.description}` : ""}${properties(op.input) ? `. Takes ${properties(op.input)}` : ""}`,
-      ),
+      operations.map((op) => {
+        const description = (op.description ?? "").trim().replace(/\.$/, "");
+        const takes = properties(op.input);
+        return `\`${op.id}\` — ${op.name} (${op.kind})${description ? `: ${description}` : ""}${takes ? `. Takes ${takes}` : ""}`;
+      }),
       "None.",
     ),
     "",
