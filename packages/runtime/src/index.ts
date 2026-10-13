@@ -44,3 +44,5 @@ export * from "./versions.ts";
 export * from "./reviews.ts";
 export * from "./projects.ts";
 export * from "./todos.ts";
+export * from "./mail-accounts.ts";
+export * from "./mail-tasks.ts";

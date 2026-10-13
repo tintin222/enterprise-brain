@@ -67,6 +67,8 @@ const PatchBody = z.object({
   dueAt: z.string().nullish(),
   projectId: z.string().uuid().nullish(),
   status: z.enum(TODO_STATUSES).optional(),
+  /** "Not a task": with the dismissal, mail from this to-do's sender makes no more to-dos. */
+  quietSender: z.boolean().optional(),
 });
 
 /**
@@ -113,6 +115,10 @@ export async function todoRoutes(app: FastifyInstance, ctx: AppContext) {
     const { id } = request.params as { id: string };
     const body = PatchBody.parse(request.body);
     if (body.projectId) await platform.projects.get(company.id, body.projectId);
+    if (body.quietSender) {
+      const current = await platform.todos.get(company.id, id, viewer.userId);
+      if (current.source === "mail" && typeof current.data.from === "string") await platform.mailAccounts.quiet(company.id, viewer.userId, current.data.from);
+    }
     const todo = await platform.todos.update(company.id, id, viewer.userId, {
       ...(body.title !== undefined ? { title: body.title } : {}),
       ...(body.details !== undefined ? { details: body.details } : {}),

@@ -25,6 +25,8 @@ export async function coreRoutes(app: FastifyInstance, ctx: AppContext) {
     publicUrl: config.publicUrl,
     /** Where OAuth 2.0 providers send people back after signing a connection in. */
     oauthRedirectUrl: oauthRedirectUrl(config.publicUrl),
+    /** Where Google sends a person back after allowing their Gmail to be read for their tasks. */
+    gmailRedirectUrl: `${config.publicUrl}/api/me/mail/gmail/callback`,
     /** Legacy: open mode protected by EB_API_KEY (the console asks for the key). */
     authRequired: Boolean(config.apiKey) && (config.auth?.mode ?? "open") === "open",
     auth: { mode: config.auth?.mode ?? "open" },

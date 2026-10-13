@@ -20,6 +20,7 @@ import type {
   PerformanceReport,
   Person,
   DevPackagePreview,
+  MyMail,
   ProjectAsset,
   ProjectDesigns,
   ProjectStatus,
@@ -84,6 +85,7 @@ export const keys = {
   projects: (company: string) => [company, "projects"] as const,
   project: (company: string, ref: string) => [company, "projects", ref] as const,
   todos: (company: string) => [company, "todos"] as const,
+  myMail: ["me", "mail"] as const,
 };
 
 export function useCatalog() {
@@ -545,4 +547,15 @@ export function useTodos(status: TodoStatus | "all" = "open", options: { project
 export function useTodoCount(): number {
   const { data } = useTodos("open");
   return data?.length ?? 0;
+}
+
+/** The signed-in person's own mailbox, for their to-dos (off for machines and open mode). */
+export function useMyMail(options: { enabled?: boolean } = {}) {
+  const viewer = useViewer();
+  return useQuery({
+    queryKey: keys.myMail,
+    queryFn: () => api.get<MyMail>("/api/me/mail"),
+    enabled: (options.enabled ?? true) && viewer?.kind === "session",
+    staleTime: 30_000,
+  });
 }

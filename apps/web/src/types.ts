@@ -367,6 +367,8 @@ export interface Info {
   publicUrl: string;
   /** Where OAuth 2.0 providers send people back after signing a connection in. */
   oauthRedirectUrl?: string;
+  /** Where Google sends a person back after allowing their Gmail to be read for their tasks. */
+  gmailRedirectUrl?: string;
   /** Open mode protected by EB_API_KEY: the console asks for the key. */
   authRequired: boolean;
   auth?: { mode: "accounts" | "open" };
@@ -2546,4 +2548,28 @@ export interface Todo {
   project: { id: string; slug: string; name: string } | null;
   createdAt: string;
   doneAt: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// A person's own mail
+
+export interface MailAccountView {
+  provider: string;
+  address: string;
+  status: "ok" | "error" | string;
+  tasksEnabled: boolean;
+  lastCheckedAt: string | null;
+  lastCount: number;
+  lastError: string | null;
+  checked: number;
+  made: number;
+  quietSenders: string[];
+  connectedAt: string;
+}
+
+export interface MyMail {
+  /** Google sign-in is set up on this installation (a person's Gmail is read with the same client). */
+  configured: boolean;
+  redirectUri: string;
+  account: MailAccountView | null;
 }

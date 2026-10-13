@@ -33,6 +33,8 @@ import { initials } from "../lib/format.ts";
 import { isTyping, useStoredFlag } from "../lib/preferences.ts";
 import { useChatBadge, useTodoCount, useWork } from "../lib/queries.ts";
 import { useTheme } from "../lib/theme.ts";
+import { useToast } from "../lib/toast.tsx";
+import { GmailDialog } from "./GmailDialog.tsx";
 import { NotificationsDialog } from "./NotificationSettings.tsx";
 import { Wordmark } from "./Logo.tsx";
 import { PORTAL_LABEL, PortalSwitch, rememberPlace } from "./PortalSwitch.tsx";
@@ -238,8 +240,10 @@ function LlmBadge() {
 function PersonMenu() {
   const viewer = useViewer();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [open, setOpen] = useState(false);
   const [notifications, setNotifications] = useState(false);
+  const [gmail, setGmail] = useState(false);
   const [search, setSearch] = useSearchParams();
   const ref = useRef<HTMLDivElement>(null);
   // "Change what reaches you" in an email opens the app with ?notifications=1.
@@ -250,6 +254,18 @@ function PersonMenu() {
     next.delete("notifications");
     setSearch(next, { replace: true });
   }, [search, setSearch]);
+  // Back from Google (?gmail=connected|error), or a page asking to open it (?gmail=open).
+  useEffect(() => {
+    const state = search.get("gmail");
+    if (!state) return;
+    if (state === "connected") toast.success("Gmail connected", { description: "New emails that need you become tasks from now on." });
+    if (state === "error") toast.error(search.get("message") || "Gmail was not connected");
+    setGmail(true);
+    const next = new URLSearchParams(search);
+    next.delete("gmail");
+    next.delete("message");
+    setSearch(next, { replace: true });
+  }, [search, setSearch, toast]);
   useEffect(() => {
     if (!open) return;
     const onPointer = (e: MouseEvent) => {
@@ -305,6 +321,18 @@ function PersonMenu() {
           <button
             type="button"
             role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              setGmail(true);
+            }}
+            className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-subtle"
+          >
+            <Mail className="size-4 text-muted" />
+            Gmail tasks
+          </button>
+          <button
+            type="button"
+            role="menuitem"
             onClick={() => void signOut(queryClient)}
             className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-subtle"
           >
@@ -314,6 +342,7 @@ function PersonMenu() {
         </div>
       )}
       <NotificationsDialog open={notifications} onClose={() => setNotifications(false)} />
+      <GmailDialog open={gmail} onClose={() => setGmail(false)} />
     </div>
   );
 }

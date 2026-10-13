@@ -62,6 +62,26 @@ export interface OidcIdentity {
   name: string;
 }
 
+/** A sign-in that asks for more than an identity: a person's own mailbox, kept reachable with a refresh token. */
+export interface OidcBeginOptions {
+  /** Default "openid email profile". */
+  scope?: string;
+  /** "offline": a refresh token comes with the code (Google). */
+  accessType?: "offline";
+  /** Default "select_account"; "consent" makes Google show the permissions again and give a refresh token. */
+  prompt?: string;
+  /** The account the person is expected to use. */
+  loginHint?: string;
+}
+
+/** The identity and, when asked, the tokens the provider gave with it. */
+export interface OidcTokens extends OidcIdentity {
+  accessToken?: string;
+  refreshToken?: string;
+  /** The scopes the person actually granted, as the provider says them. */
+  scope?: string;
+}
+
 export class OidcError extends Error {
   constructor(message: string) {
     super(message);
@@ -95,7 +115,11 @@ export class OidcClient {
   }
 
   /** Where to send the browser, and what the callback must check afterwards. */
-  async begin(provider: OidcProvider, redirectUri: string): Promise<{ url: string; state: string; nonce: string; verifier: string }> {
+  async begin(
+    provider: OidcProvider,
+    redirectUri: string,
+    options: OidcBeginOptions = {},
+  ): Promise<{ url: string; state: string; nonce: string; verifier: string }> {
     const doc = await this.discover(provider.issuer);
     const state = random();
     const nonce = random();
@@ -105,18 +129,30 @@ export class OidcClient {
       response_type: "code",
       client_id: provider.clientId,
       redirect_uri: redirectUri,
-      scope: "openid email profile",
+      scope: options.scope ?? "openid email profile",
       state,
       nonce,
       code_challenge: createHash("sha256").update(verifier).digest("base64url"),
       code_challenge_method: "S256",
-      prompt: "select_account",
+      prompt: options.prompt ?? "select_account",
+      ...(options.accessType ? { access_type: options.accessType } : {}),
+      ...(options.loginHint ? { login_hint: options.loginHint } : {}),
       ...(provider.hostedDomain ? { hd: provider.hostedDomain } : {}),
     }).toString();
     return { url: url.toString(), state, nonce, verifier };
   }
 
-  async complete(provider: OidcProvider, input: { code: string; redirectUri: string; verifier: string; nonce: string }): Promise<OidcIdentity> {
+  async complete(provider: OidcProvider, input: { code: string; redirectUri: string; verifier: string; nonce: string }): Promise<OidcIdentity>;
+  async complete(
+    provider: OidcProvider,
+    input: { code: string; redirectUri: string; verifier: string; nonce: string },
+    options: { tokens: true },
+  ): Promise<OidcTokens>;
+  async complete(
+    provider: OidcProvider,
+    input: { code: string; redirectUri: string; verifier: string; nonce: string },
+    options: { tokens?: boolean } = {},
+  ): Promise<OidcIdentity | OidcTokens> {
     const doc = await this.discover(provider.issuer);
     const response = await this.fetchImpl(doc.token_endpoint, {
       method: "POST",
@@ -130,7 +166,14 @@ export class OidcClient {
         code_verifier: input.verifier,
       }).toString(),
     });
-    const body = (await response.json().catch(() => ({}))) as { id_token?: string; error?: string; error_description?: string };
+    const body = (await response.json().catch(() => ({}))) as {
+      id_token?: string;
+      access_token?: string;
+      refresh_token?: string;
+      scope?: string;
+      error?: string;
+      error_description?: string;
+    };
     if (!response.ok || !body.id_token) throw new OidcError(`Sign-in was not completed: ${body.error_description ?? body.error ?? `HTTP ${response.status}`}`);
 
     let keys = this.keySets.get(doc.jwks_uri);
@@ -152,11 +195,18 @@ export class OidcClient {
     }
     const email = [claims.email, claims.preferred_username, claims.upn].find((v): v is string => typeof v === "string" && v.includes("@"));
     if (!email || !claims.sub) throw new OidcError("The sign-in provider did not share an email address");
-    return {
+    const identity: OidcIdentity = {
       provider: provider.id,
       subject: claims.sub,
       email: email.toLowerCase(),
       name: typeof claims.name === "string" && claims.name.trim() ? claims.name.trim() : email,
+    };
+    if (!options.tokens) return identity;
+    return {
+      ...identity,
+      ...(body.access_token ? { accessToken: body.access_token } : {}),
+      ...(body.refresh_token ? { refreshToken: body.refresh_token } : {}),
+      ...(body.scope ? { scope: body.scope } : {}),
     };
   }
 }

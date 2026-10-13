@@ -5,6 +5,7 @@ import { companies, watchCursors, type DatabaseHandle } from "@enterprise-brain/
 import type { AgentService } from "./agents.ts";
 import type { ConnectorInstanceView, ConnectorService } from "./connectors.ts";
 import { RunError, type RunEngine } from "./engine.ts";
+import type { MailAccountService } from "./mail-accounts.ts";
 import type { MailService } from "./mail.ts";
 import type { TriggerService } from "./triggers.ts";
 
@@ -27,6 +28,8 @@ export interface WatchResult {
 export class WatcherService {
   private timer: NodeJS.Timeout | undefined;
   private running: Promise<WatchResult> | undefined;
+  /** People's own mailboxes, read for their to-dos on the same pass. */
+  private mailAccounts: MailAccountService | undefined;
 
   constructor(
     private readonly handle: DatabaseHandle,
@@ -36,6 +39,10 @@ export class WatcherService {
     private readonly engine: RunEngine,
     private readonly triggers: TriggerService,
   ) {}
+
+  useMailAccounts(service: MailAccountService): void {
+    this.mailAccounts = service;
+  }
 
   /** One pass over every company. Overlapping calls share the pass in progress. */
   pollAll(): Promise<WatchResult> {
@@ -69,6 +76,11 @@ export class WatcherService {
       result.events += await this.pollDuties(companyId, instances, result.errors, options.wait ?? false);
     } catch (error) {
       result.errors.push(message(error));
+    }
+    // People's own mailboxes: their to-dos, never the shared pipeline.
+    if (this.mailAccounts) {
+      const checked = await this.mailAccounts.checkDue(companyId);
+      result.errors.push(...checked.errors.map((e) => `Gmail: ${e}`));
     }
     return result;
   }

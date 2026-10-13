@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Check, CircleCheck, ExternalLink, Plus, RotateCcw, X } from "lucide-react";
+import { Check, CircleCheck, ExternalLink, Mail, Plus, RotateCcw, X } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { api } from "../api.ts";
@@ -9,7 +9,7 @@ import { useViewer } from "../lib/auth.tsx";
 import { useCompany } from "../lib/company.tsx";
 import { formatDate, timeAgo } from "../lib/format.ts";
 import { paths } from "../lib/paths.ts";
-import { keys, useProjects, useTodos } from "../lib/queries.ts";
+import { keys, useMyMail, useProjects, useTodos } from "../lib/queries.ts";
 import { useToast } from "../lib/toast.tsx";
 import type { Todo, TodoSource, TodoStatus } from "../types.ts";
 import { Button } from "./Button.tsx";
@@ -146,6 +146,7 @@ export function TodoList({ projectId, showProject = !projectId, className }: { p
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<"open" | "all">("open");
   const todos = useTodos(status, { projectId });
+  const mail = useMyMail({ enabled: !projectId });
   const [title, setTitle] = useState("");
   const [due, setDue] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -202,6 +203,15 @@ export function TodoList({ projectId, showProject = !projectId, className }: { p
           Add
         </Button>
       </form>
+      {!projectId && mail.data && !mail.data.account && (
+        <p className="flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-line-strong px-4 py-3 text-sm text-muted">
+          <Mail className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1">Connect your Gmail and the emails that need you become tasks here, for you alone.</span>
+          <Link to="?gmail=open" className="font-medium text-brand-700 hover:underline dark:text-brand-300">
+            Gmail tasks
+          </Link>
+        </p>
+      )}
       {todos.error && <ErrorState error={todos.error} onRetry={() => void todos.refetch()} />}
       {todos.isLoading && <Skeleton className="h-24" />}
       {todos.data && open.length === 0 && (

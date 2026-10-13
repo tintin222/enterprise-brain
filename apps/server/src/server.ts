@@ -23,6 +23,7 @@ import { coreRoutes } from "./routes/core.ts";
 import { homeRoutes } from "./routes/home.ts";
 import { knowledgeRoutes } from "./routes/knowledge.ts";
 import { mailRoutes } from "./routes/mail.ts";
+import { meMailRoutes } from "./routes/me-mail.ts";
 import { mcpRoutes } from "./routes/mcp.ts";
 import { appRoutes } from "./routes/apps.ts";
 import { calculationRoutes } from "./routes/calculations.ts";
@@ -92,6 +93,11 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   app.decorateRequest("viewer", undefined);
   // An AI employee hands a matter over only to colleagues the person who asked may see.
   ctx.platform.turns.useColleagues(colleaguesFor(ctx.platform, auth));
+  // A person's own Gmail is read with the Google client sign-in uses.
+  ctx.platform.mailAccounts.useGoogleClient(async (companyId) => {
+    const company = await ctx.platform.company(companyId);
+    return company ? auth.googleClient(company) : undefined;
+  });
 
   // Who is asking: a signed-in person (session cookie), a machine with EB_API_KEY, or, in open
   // mode (EB_AUTH=open, no EB_API_KEY), anyone acting as the owner.
@@ -154,6 +160,7 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   await connectorRoutes(app, ctx);
   await connectionSignInRoutes(app, ctx);
   await mailRoutes(app, ctx);
+  await meMailRoutes(app, ctx);
   await conversationRoutes(app, ctx);
   await builderRoutes(app, ctx);
   await studioRoutes(app, ctx);

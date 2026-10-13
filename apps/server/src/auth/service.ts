@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { eq } from "drizzle-orm";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { companies } from "@enterprise-brain/db";
-import type { CompanyRow, Person, Platform, UserRow } from "@enterprise-brain/runtime";
+import type { CompanyRow, GoogleClient, Person, Platform, UserRow } from "@enterprise-brain/runtime";
 import type { GateConfig, ServerConfig } from "../config.ts";
 import { HttpError } from "../http.ts";
 import { OidcClient, OidcError, googleProvider, microsoftProvider, type OidcProvider } from "./oidc.ts";
@@ -11,6 +11,11 @@ import { clearCookie, readCookie, setCookie, viewerFromPerson, type Viewer } fro
 export const SESSION_COOKIE = "eb_session";
 const SIGN_IN_COOKIE = "eb_sign_in";
 const SIGN_IN_WINDOW_MS = 10 * 60_000;
+/** A person connecting their own Gmail: the sealed state of that consent while they are at Google. */
+const MAIL_CONNECT_COOKIE = "eb_mail_connect";
+/** What a person's Gmail is read with: who they are, and their mail, read only. */
+export const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const GMAIL_SCOPES = `openid email ${GMAIL_SCOPE}`;
 /** The gate of a demo installation: a sealed cookie says the browser has entered the user name and password. */
 export const GATE_COOKIE = "eb_gate";
 const GATE_MS = 30 * 24 * 3600_000;
@@ -43,6 +48,24 @@ interface PendingSignIn {
   verifier: string;
   returnTo: string;
   expires: number;
+}
+
+interface PendingMailConnect {
+  userId: string;
+  state: string;
+  nonce: string;
+  verifier: string;
+  returnTo: string;
+  expires: number;
+}
+
+/** What a finished Gmail consent gives: whose mailbox, and the permission to read it. */
+export interface GmailConsent {
+  userId: string;
+  address: string;
+  refreshToken: string;
+  scope: string;
+  returnTo: string;
 }
 
 /** Only paths inside this app: "/work?x=1" yes; "//evil.example", "https://…" no. */
@@ -315,5 +338,79 @@ export class AuthService {
     if (!user || user.status !== "active") throw new OidcError("This account is disabled. Ask your administrator.");
     await this.startSession(reply, user, provider.id, identity.subject);
     return pending.returnTo;
+  }
+
+  // -------------------------------------------------------------------------
+  // A person's own Gmail: consent with the installation's Google client
+  // -------------------------------------------------------------------------
+
+  /** The Google OAuth client sign-in uses (Settings or the environment), for a person's Gmail too; none when Google sign-in is not set up. */
+  googleClient(company: CompanyRow): GoogleClient | undefined {
+    const google = this.providers(company).find((p) => p.id === "google");
+    return google ? { clientId: google.clientId, clientSecret: google.clientSecret } : undefined;
+  }
+
+  /** Where Google sends the person back after consenting to their mail being read: IT registers it on the OAuth client. */
+  gmailRedirectUri(): string {
+    return `${this.config.publicUrl}/api/me/mail/gmail/callback`;
+  }
+
+  /** Sends a signed-in person to Google to allow reading their mail; the state waits in a sealed cookie. */
+  async beginGmailConsent(reply: FastifyReply, viewer: Viewer & { userId: string }, returnTo: unknown): Promise<string> {
+    const company = await this.company();
+    const provider = this.providers(company).find((p) => p.id === "google");
+    if (!provider) throw new HttpError(409, "Ask IT to set up Google sign-in first: a person's Gmail is read with the same Google client");
+    const started = await this.oidc.begin(provider, this.gmailRedirectUri(), {
+      scope: GMAIL_SCOPES,
+      accessType: "offline",
+      prompt: "consent",
+      ...(viewer.email ? { loginHint: viewer.email } : {}),
+    });
+    const pending: PendingMailConnect = {
+      userId: viewer.userId,
+      state: started.state,
+      nonce: started.nonce,
+      verifier: started.verifier,
+      returnTo: safeReturnTo(returnTo),
+      expires: Date.now() + SIGN_IN_WINDOW_MS,
+    };
+    setCookie(reply, MAIL_CONNECT_COOKIE, this.platform.secretBox.encrypt(pending), { maxAgeSeconds: SIGN_IN_WINDOW_MS / 1000, secure: this.secure });
+    return started.url;
+  }
+
+  /** Finishes the consent: the address Google names and the refresh token, both checked, for the person who started it. */
+  async completeGmailConsent(
+    request: FastifyRequest,
+    reply: FastifyReply,
+    viewer: Viewer,
+    query: { code?: string; state?: string; error?: string; error_description?: string },
+  ): Promise<GmailConsent> {
+    const raw = readCookie(request, MAIL_CONNECT_COOKIE);
+    clearCookie(reply, MAIL_CONNECT_COOKIE, this.secure);
+    if (query.error) throw new OidcError(query.error === "access_denied" ? "You did not allow reading your mail. Nothing was connected." : query.error_description || query.error);
+    let pending: PendingMailConnect | undefined;
+    try {
+      pending = raw ? this.platform.secretBox.decrypt<PendingMailConnect>(raw) : undefined;
+    } catch {
+      pending = undefined;
+    }
+    if (!pending || pending.state !== query.state || pending.expires < Date.now() || !query.code) {
+      throw new OidcError("Connecting Gmail expired or was started elsewhere. Please try again.");
+    }
+    if (pending.userId !== viewer.userId) throw new OidcError("Connecting Gmail was started by someone else in this browser. Please try again.");
+    const company = await this.company();
+    const provider = this.providers(company).find((p) => p.id === "google");
+    if (!provider) throw new OidcError("Google sign-in is not set up");
+    const tokens = await this.oidc.complete(
+      provider,
+      { code: query.code, redirectUri: this.gmailRedirectUri(), verifier: pending.verifier, nonce: pending.nonce },
+      { tokens: true },
+    );
+    const granted = (tokens.scope ?? "").split(/\s+/).filter(Boolean);
+    if (!granted.includes(GMAIL_SCOPE)) throw new OidcError("Google did not grant reading your mail: tick the Gmail permission on the consent screen and try again.");
+    if (!tokens.refreshToken) {
+      throw new OidcError("Google gave no offline access. Remove Enterprise Brain under your Google account's connected apps, then connect again.");
+    }
+    return { userId: pending.userId, address: tokens.email, refreshToken: tokens.refreshToken, scope: tokens.scope ?? GMAIL_SCOPE, returnTo: pending.returnTo };
   }
 }

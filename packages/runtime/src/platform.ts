@@ -27,6 +27,7 @@ import { PlatformEvents } from "./events.ts";
 import { FileService } from "./files.ts";
 import { GoogleChatTransport } from "./google-chat.ts";
 import { ActionLinks } from "./links.ts";
+import { MailAccountService } from "./mail-accounts.ts";
 import { MailService } from "./mail.ts";
 import { EmailChannel, NotificationService } from "./notifications.ts";
 import { PeopleService } from "./people.ts";
@@ -132,6 +133,8 @@ export class Platform {
   readonly todos: TodoService;
   /** Projects: client work and the AI employees designed for it, with what they use and the development package. */
   readonly projects: ProjectService;
+  /** People's own mailboxes (Gmail), read for their to-dos only. */
+  readonly mailAccounts: MailAccountService;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -266,6 +269,16 @@ export class Platform {
       files: this.files,
       connectors: this.connectors,
     });
+    this.mailAccounts = new MailAccountService({
+      handle: this.handle,
+      secretBox: this.secretBox,
+      connectors: this.connectors,
+      todos: this.todos,
+      projects: this.projects,
+      people: this.people,
+      llm: this.llm,
+    });
+    this.watchers.useMailAccounts(this.mailAccounts);
     this.notifications.watchConversations(this.conversations);
     // A task's brief carries the comments people wrote in its conversation; its history shows there too.
     this.tasks.useBriefExtras((task) => this.conversations.taskBriefExtras(task));
