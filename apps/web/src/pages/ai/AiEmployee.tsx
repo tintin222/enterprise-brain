@@ -39,6 +39,7 @@ import { Card, CardHeader } from "../../components/Card.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { EmploymentPanel, MinutesPerTask, PROBATION } from "../../components/Employment.tsx";
 import { Entrances } from "../../components/Entrances.tsx";
+import { HowItWorks } from "../../components/HowItWorks.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Field } from "../../components/Form.tsx";
 import { Page } from "../../components/Layout.tsx";
@@ -283,6 +284,7 @@ function Overview({ detail, tasks, onTab, focus }: { detail: AgentDetail; tasks:
             </div>
           )}
         </Section>
+        {!results && <HowItWorks detail={detail} />}
       </div>
       {results ? (
         <div className="space-y-6">

@@ -110,4 +110,18 @@ describe("executions", () => {
     expect((await send(burak, "DELETE", `/api/companies/acme/agents/totaler/examples/${example.id}`)).statusCode).toBe(200);
     expect((await get(burak, "/api/companies/acme/agents/totaler")).json().settings.examples).toEqual([]);
   });
+
+  it("checks a job changed in the flow before it is saved", async () => {
+    const burak = await as("burak.sahin@acme.com.tr");
+    const { definition } = (await get(burak, "/api/companies/acme/agents/totaler")).json();
+    const check = async (changed: Record<string, unknown>) =>
+      (await send(burak, "POST", "/api/companies/acme/agents/totaler/check", { definition: changed })).json();
+    expect(await check(definition)).toEqual({ ok: true, problems: [] });
+    const late = { id: "late", type: "output", value: { x: "{{ steps.nowhere.y }}" } };
+    const broken = await check({ ...definition, workflow: [...definition.workflow, late] });
+    expect(broken).toMatchObject({ ok: false, problems: [expect.stringContaining('references unknown step "steps.nowhere"')] });
+    const shapeless = await check({ ...definition, workflow: [{ id: "x", type: "nothing" }] });
+    expect(shapeless.ok).toBe(false);
+    expect(shapeless.problems[0]).toMatch(/^workflow\.0/);
+  });
 });

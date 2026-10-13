@@ -8,6 +8,7 @@ import { Badge, StatusPill } from "../../components/Badge.tsx";
 import { Button, ButtonLink } from "../../components/Button.tsx";
 import { Card, CardHeader } from "../../components/Card.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
+import { FlowView } from "../../components/FlowView.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { FileIdLink } from "../../components/FileLink.tsx";
 import { JsonDetails } from "../../components/JsonView.tsx";
@@ -19,11 +20,13 @@ import { RunSteps } from "../../components/RunSteps.tsx";
 import { RunTimeline, useRunDetail } from "../../components/RunViews.tsx";
 import { ScreenRunView, isScreenRun } from "../../components/ScreenRun.tsx";
 import { ErrorState, LoadingBlock, Spinner } from "../../components/Spinner.tsx";
+import { Segmented } from "../../components/Tabs.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { displayValue, formatDateTime, formatMoney, formatNumber, humanize, isRecord, isUuid, runDuration } from "../../lib/format.ts";
 import { runTriggerLabel } from "../../lib/labels.ts";
 import { keys } from "../../lib/queries.ts";
 import { useToast } from "../../lib/toast.tsx";
+import { useStoredFlag } from "../../lib/preferences.ts";
 import { useDocumentTitle } from "../../lib/title.ts";
 import type { RunExample, RunRow } from "../../types.ts";
 
@@ -114,6 +117,7 @@ export default function RunDetail() {
   const navigate = useNavigate();
   const [delta, setDelta] = useState("");
   const [pinning, setPinning] = useState(false);
+  const [asFlow, setAsFlow] = useStoredFlag("eb.run.flow", () => false);
   const timer = useRef<number | null>(null);
   const status = data?.run.status;
   const live = status === "running" || status === "queued";
@@ -321,14 +325,43 @@ export default function RunDetail() {
                     ? "What each step was given and gave. Run the job again from a step: the steps before it keep what they found."
                     : "What each step was given and gave, in the order they ran."
                 }
+                actions={
+                  agent?.workflow?.length ? (
+                    <Segmented<"list" | "flow">
+                      value={asFlow ? "flow" : "list"}
+                      onChange={(v) => setAsFlow(v === "flow")}
+                      options={[
+                        { value: "list", label: "Steps" },
+                        { value: "flow", label: "Flow" },
+                      ]}
+                    />
+                  ) : undefined
+                }
               />
-              <RunSteps
-                steps={data.steps ?? []}
-                workflow={agent?.workflow}
-                rerunFrom={data.canManage && settled ? (data.rerunFrom ?? []) : []}
-                onRerun={(key) => rerun.mutate(key)}
-                rerunning={rerun.isPending ? (rerun.variables ?? null) : null}
-              />
+              {asFlow && agent?.workflow?.length ? (
+                <div className="p-4">
+                  <FlowView
+                    definition={{
+                      workflow: agent.workflow,
+                      triggers: [],
+                      tools: [],
+                      connectors: [],
+                      guardrails: { approvalRequiredFor: [], personalData: "none" },
+                    }}
+                    starts={[runTriggerLabel(run.trigger)]}
+                    runSteps={data.steps}
+                    className="max-h-[36rem]"
+                  />
+                </div>
+              ) : (
+                <RunSteps
+                  steps={data.steps ?? []}
+                  workflow={agent?.workflow}
+                  rerunFrom={data.canManage && settled ? (data.rerunFrom ?? []) : []}
+                  onRerun={(key) => rerun.mutate(key)}
+                  rerunning={rerun.isPending ? (rerun.variables ?? null) : null}
+                />
+              )}
             </Card>
           )}
 

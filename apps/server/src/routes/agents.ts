@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { AgentStatus, Probation, TrustLimits, type AgentDefinition } from "@enterprise-brain/core";
+import { AgentDefinition, AgentStatus, checkWorkflow, Probation, TrustLimits } from "@enterprise-brain/core";
 import { agentSettingsOf, workingHoursOf, type RunFilter } from "@enterprise-brain/runtime";
 import { actorOf, canHandleWork, canManageDepartment, canSeeDepartment, requireAdmin, viewerOf } from "../auth/viewer.ts";
 import type { AppContext } from "../context.ts";
@@ -178,6 +178,18 @@ export async function agentRoutes(app: FastifyInstance, ctx: AppContext) {
     const agent = await platform.agents.update(company.id, ref, body.definition as never, { note: body.note, createdBy: viewerOf(request).name });
     await platform.activity.record(company.id, { actor, action: "agent.updated", entityType: "agent", entityId: agent.row.id, summary: `Updated ${agent.definition.name} (v${agent.row.version})` });
     return { agent: agent.row, definition: agent.definition };
+  });
+
+  /** What is wrong with a changed job, before it is saved: its shape, and what its steps refer to. */
+  app.post("/api/companies/:company/agents/:agent/check", async (request) => {
+    const company = await companyOf(platform, request);
+    const { agent: ref } = request.params as { agent: string };
+    const body = z.object({ definition: z.record(z.string(), z.unknown()) }).parse(request.body);
+    await agentFor(request, company.id, ref);
+    const parsed = AgentDefinition.safeParse(body.definition);
+    if (!parsed.success) return { ok: false, problems: parsed.error.issues.map((i) => `${i.path.join(".") || "job"}: ${i.message}`) };
+    const problems = checkWorkflow(parsed.data.workflow, { inputs: parsed.data.inputs.map((f) => f.key) });
+    return { ok: problems.length === 0, problems };
   });
 
   app.post("/api/companies/:company/agents/:agent/status", async (request) => {
