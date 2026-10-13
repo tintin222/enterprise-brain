@@ -162,16 +162,18 @@ function Corrections({
           { key: "subject", label: "Subject", value: action.subject },
           { key: "body", label: "Text", value: action.body, long: true },
         ]
-      : action.type === "connector"
-        ? Object.entries(action.input ?? {})
-            .filter(([, value]) => value === null || ["string", "number", "boolean"].includes(typeof value))
-            .map(([key, value]) => ({
-              key,
-              label: key.replace(/[_-]+/g, " "),
-              value: value === null ? "" : String(value),
-              long: String(value ?? "").length > 80,
-            }))
-        : [];
+      : action.type === "chat.send"
+        ? [{ key: "text", label: "Message", value: action.text, long: true }]
+        : action.type === "connector"
+          ? Object.entries(action.input ?? {})
+              .filter(([, value]) => value === null || ["string", "number", "boolean"].includes(typeof value))
+              .map(([key, value]) => ({
+                key,
+                label: key.replace(/[_-]+/g, " "),
+                value: value === null ? "" : String(value),
+                long: String(value ?? "").length > 80,
+              }))
+          : [];
   if (!fields.length) return null;
   return (
     <div className="space-y-3 rounded-xl border border-brand-200 bg-brand-50/40 p-4 dark:border-brand-400/25 dark:bg-brand-400/5">
@@ -205,7 +207,7 @@ function Corrections({
 
 /** Only the fields the person changed, typed like the original (numbers stay numbers). */
 function changedEdits(action: ApprovalAction, edits: Record<string, string>): Record<string, unknown> | undefined {
-  if (action.type === "mail.send") {
+  if (action.type === "mail.send" || action.type === "chat.send") {
     const changed = Object.fromEntries(
       Object.entries(edits).filter(([key, value]) => value.trim() && value !== String((action as Record<string, unknown>)[key] ?? "")),
     );

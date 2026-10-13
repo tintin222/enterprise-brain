@@ -103,6 +103,17 @@ export function describeChange(action: Record<string, unknown> | null): { headin
       body: typeof action.body === "string" ? truncate(action.body, 2000) : undefined,
     };
   }
+  if (action.type === "chat.send") {
+    const via = action.via === "teams" ? "Microsoft Teams" : action.via === "google-chat" ? "Google Chat" : "Chat";
+    return {
+      heading: "Message to be written",
+      rows: [
+        ["To", display(action.to)],
+        ["In", via],
+      ],
+      body: typeof action.text === "string" ? truncate(action.text, 2000) : undefined,
+    };
+  }
   if (action.type === "connector") {
     const input = isRecord(action.input) ? action.input : {};
     const system = typeof action.system === "string" ? action.system : String(action.category ?? "System").toUpperCase();
@@ -126,6 +137,7 @@ export function explanationOf(entry: Pick<QueueEntry, "type" | "details" | "acti
   const action = entry.action;
   if (entry.type !== "approval" || !action || !details) return details;
   if (action.type === "mail.send" && /^(To|Subject): /.test(details)) return "";
+  if (action.type === "chat.send" && typeof action.text === "string" && details === action.text.trim()) return "";
   if (action.type === "connector") {
     const system = String(action.system ?? action.ref ?? "");
     if ((system && details.startsWith(`${system}: `)) || (!details.includes("\n") && / wants to .+ in .+\.$/.test(details))) return "";

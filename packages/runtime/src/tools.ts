@@ -9,7 +9,7 @@ import type { ConnectorService } from "./connectors.ts";
 import type { FileService } from "./files.ts";
 import type { MailService } from "./mail.ts";
 import { checkApproval, DEFAULT_EMPLOYMENT, type ApprovalCheck, type Employment, type WriteAction } from "./policy.ts";
-import type { ApprovalAction, ConversationScope, RunEventInput } from "./run-types.ts";
+import type { ApprovalAction, ChatPoster, ConversationScope, RunEventInput } from "./run-types.ts";
 import { withTaskRef, type TaskPlan, type TaskService } from "./tasks.ts";
 
 export interface DeferredApprovalRequest {
@@ -58,6 +58,8 @@ export interface ToolDeps {
   askPerson?: (request: AskPersonRequest) => Promise<{ id: string }>;
   /** The company brain, for "company.lookup". */
   brain?: BrainService;
+  /** Writes in Chat (and Teams and Google Chat) as the AI employee, for chat.send steps (set by the platform). */
+  chat?: ChatPoster;
 }
 
 export interface ToolScope {

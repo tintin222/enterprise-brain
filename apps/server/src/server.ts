@@ -34,6 +34,7 @@ import { studioRoutes } from "./routes/studio.ts";
 import { todoRoutes } from "./routes/todos.ts";
 import { tableRoutes } from "./routes/tables.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
+import { hookRoutes } from "./routes/hooks.ts";
 import { paperclipRoutes } from "./routes/paperclip.ts";
 import { peopleRoutes } from "./routes/people.ts";
 import { reportRoutes } from "./routes/reports.ts";
@@ -41,7 +42,7 @@ import { taskRoutes } from "./routes/tasks.ts";
 import { workRoutes } from "./routes/work.ts";
 
 /** Routes reachable without signing in (they carry their own credentials, or are the sign-in itself). */
-const PUBLIC_PREFIXES = ["/api/health", "/api/info", "/api/public/", "/api/hermes/", "/api/auth/", "/api/channels/"];
+const PUBLIC_PREFIXES = ["/api/health", "/api/info", "/api/public/", "/api/hermes/", "/api/auth/", "/api/channels/", "/api/hooks/"];
 
 /**
  * Routes that answer while the gate of a demo installation is locked for the browser: health and info,
@@ -57,6 +58,7 @@ const GATE_FREE = [
   "/api/public/",
   "/api/hermes/",
   "/api/channels/",
+  "/api/hooks/",
   "/mcp",
 ];
 
@@ -154,6 +156,7 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   await workRoutes(app, ctx);
   await notificationRoutes(app, ctx);
   await channelRoutes(app, ctx);
+  await hookRoutes(app, ctx);
   await homeRoutes(app, ctx);
   await reportRoutes(app, ctx);
   await knowledgeRoutes(app, ctx);

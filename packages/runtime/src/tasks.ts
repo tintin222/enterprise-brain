@@ -47,7 +47,11 @@ export type WakeReason =
     }
   | { kind: "resumed"; by: string }
   /** People wrote in the task's conversation. */
-  | { kind: "message"; messages: { seq: number; author: string; text: string }[] };
+  | { kind: "message"; messages: { seq: number; author: string; text: string }[] }
+  /** Another system called the address its run gave it (`seq`: the call's event on the run). */
+  | { kind: "callback"; payload: unknown; seq: number }
+  /** The task given to a colleague AI employee ended. */
+  | { kind: "colleague"; taskId: string; ref: string; status: string };
 
 // Letters and digits people don't confuse (no 0/O, 1/I/L).
 const REF_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
@@ -331,5 +335,11 @@ export function wakeText(reason: WakeReason, task?: Pick<TaskRow, "waitingFor">)
       return reason.messages.length === 1
         ? `${reason.messages[0]!.author} wrote in the task's conversation: ${truncate(reason.messages[0]!.text, 400)}`
         : `${reason.messages.length} new messages in the task's conversation, from ${[...new Set(reason.messages.map((m) => m.author))].join(", ")}.`;
+    case "callback":
+      return truncate(`Another system called back: ${JSON.stringify(reason.payload ?? null)}`, 1000);
+    case "colleague":
+      return reason.status === "done"
+        ? `The colleague finished the work it was given (${reason.ref}).`
+        : `The work given to a colleague (${reason.ref}) ended: ${reason.status}.`;
   }
 }

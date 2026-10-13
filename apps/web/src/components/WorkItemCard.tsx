@@ -6,6 +6,7 @@ import {
   ClipboardCheck,
   Mail,
   MessageCircleQuestion,
+  MessageSquare,
   PencilLine,
   Plug,
   RotateCcw,
@@ -41,6 +42,7 @@ const KIND: Record<WorkEntry["type"], { label: string; icon: LucideIcon }> = {
 
 function kindIcon(entry: WorkEntry): LucideIcon {
   if (entry.type === "approval" && entry.action?.type === "mail.send") return Mail;
+  if (entry.type === "approval" && entry.action?.type === "chat.send") return MessageSquare;
   if (entry.type === "approval" && entry.action?.type === "connector") return Plug;
   return KIND[entry.type].icon;
 }
@@ -112,6 +114,7 @@ function editableFields(action: ApprovalAction): { key: string; label: string; v
       { key: "body", label: "Message", value: action.body, long: true },
     ];
   }
+  if (action.type === "chat.send") return [{ key: "text", label: "Message", value: action.text, long: true }];
   if (action.type === "connector") {
     return Object.entries(action.input ?? {})
       .filter(([, value]) => value === null || ["string", "number", "boolean"].includes(typeof value))

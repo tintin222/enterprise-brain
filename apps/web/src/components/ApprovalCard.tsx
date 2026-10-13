@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { Check, ExternalLink, Mail, Plug, UserCheck, X } from "lucide-react";
+import { Check, ExternalLink, Mail, MessageSquare, Plug, UserCheck, X } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { api } from "../api.ts";
@@ -36,8 +36,24 @@ export function useDecideApproval() {
   });
 }
 
-/** What happens when the approval is granted: a system write, an outgoing email, or a plain decision. */
+const VIA_NAMES = { chat: "Chat", teams: "Microsoft Teams", "google-chat": "Google Chat" } as const;
+
+/** What happens when the approval is granted: a system write, an outgoing email, a message, or a plain decision. */
 export function ActionPreview({ action }: { action: ApprovalAction }) {
+  if (action.type === "chat.send") {
+    return (
+      <div className="overflow-hidden rounded-lg border border-line">
+        <div className="flex items-center gap-2 border-b border-line bg-subtle/60 px-3 py-2 text-xs font-medium text-muted">
+          <MessageSquare className="size-3.5" /> Message to be written in {VIA_NAMES[action.via ?? "chat"]}
+        </div>
+        <dl className="grid grid-cols-[4.5rem_1fr] gap-x-3 gap-y-1 px-3 py-2.5 text-[13px]">
+          <dt className="text-muted">To</dt>
+          <dd className="min-w-0 break-words text-fg">{action.to === "task" ? "The task's conversation" : action.to}</dd>
+        </dl>
+        <div className="max-h-72 overflow-y-auto border-t border-line px-3 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap text-fg">{action.text}</div>
+      </div>
+    );
+  }
   if (action.type === "mail.send") {
     return (
       <div className="overflow-hidden rounded-lg border border-line">
@@ -96,6 +112,8 @@ export function ApprovalCard({ approval, showAgent = true, className }: { approv
           >
             {approval.action.type === "mail.send" ? (
               <Mail className="size-4" />
+            ) : approval.action.type === "chat.send" ? (
+              <MessageSquare className="size-4" />
             ) : approval.action.type === "connector" ? (
               <Plug className="size-4" />
             ) : (

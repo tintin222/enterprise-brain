@@ -12,6 +12,7 @@ import { ActivityService } from "./activity.ts";
 import { AgentService } from "./agents.ts";
 import { brainCatalogDeps, brainSourceDeps } from "./brain-deps.ts";
 import { ChannelAccounts } from "./channel-accounts.ts";
+import { ChatPosts } from "./chat-posts.ts";
 import { ChatChannelSender } from "./chat-channels.ts";
 import { CatalogService } from "./catalog-service.ts";
 import { CoachingNotes } from "./coaching-notes.ts";
@@ -187,6 +188,7 @@ export class Platform {
       events: this.events,
       coaching: this.coachingNotes,
       brain: this.brain,
+      callbackKey: this.secretBox.deriveKey("run-callbacks"),
     });
     this.catalog = new CatalogService(this.handle, options.catalog, this.agents, this.knowledge, this.activity);
     this.brainSources = new BrainSources(
@@ -280,6 +282,17 @@ export class Platform {
     });
     this.watchers.useMailAccounts(this.mailAccounts);
     this.notifications.watchConversations(this.conversations);
+    // Procedures write in Chat (and in Teams and Google Chat) as the AI employee.
+    this.engine.useChat(
+      new ChatPosts({
+        conversations: this.conversations,
+        agents: this.agents,
+        people: this.people,
+        tasks: this.tasks,
+        accounts: this.channelAccounts,
+        transports: { teams: this.teams, "google-chat": this.googleChat },
+      }),
+    );
     // A task's brief carries the comments people wrote in its conversation; its history shows there too.
     this.tasks.useBriefExtras((task) => this.conversations.taskBriefExtras(task));
     this.tasks.onEvent((companyId, task, event) => this.conversations.mirrorTaskEvent(companyId, task, event));

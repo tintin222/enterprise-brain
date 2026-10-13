@@ -13,7 +13,8 @@ import {
   runOutput,
   runWait,
 } from "./io-steps.ts";
-import { runCode, runTransform } from "./control-steps.ts";
+import { runChatSend } from "./collab-steps.ts";
+import { runCode, runRespond, runTransform } from "./control-steps.ts";
 import { runLlmClassify, runLlmEvaluate, runLlmExtract, runLlmGenerate } from "./llm-steps.ts";
 
 export async function executeStep(step: WorkflowStep, scope: ExecutionScope, deps: ToolDeps): Promise<StepOutcome> {
@@ -54,10 +55,13 @@ export async function executeStep(step: WorkflowStep, scope: ExecutionScope, dep
       return runTransform(step, scope);
     case "code":
       return runCode(step, scope);
-    case "call":
     case "chat.send":
+      return runChatSend(step, scope, deps);
     case "respond":
-      throw new Error(`Step "${step.id}": ${step.type} steps are not available yet`);
+      return runRespond(step, scope);
+    case "call":
+      // Giving work to a colleague waits on its task: the engine does it.
+      throw new Error(`Step "${step.id}" (call) is run by the engine`);
   }
 }
 

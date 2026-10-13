@@ -1,10 +1,12 @@
-import { and, desc, eq, gte, inArray, max, sql } from "drizzle-orm";
+import { createHash, createHmac, randomBytes } from "node:crypto";
+import { and, desc, eq, gt, gte, inArray, max, sql } from "drizzle-orm";
 import {
   companyVariables,
   evaluateCondition,
   isRecord,
   LITERAL_STEP_KEYS,
   possessive,
+  renderTemplate,
   resolveTemplate,
   stringify,
   truncate,
@@ -12,7 +14,19 @@ import {
   AgentDefinition,
   type WorkflowStep,
 } from "@enterprise-brain/core";
-import { activityLog, agents, approvals, companies, departments, runEvents, runs, runSteps, users, type DatabaseHandle } from "@enterprise-brain/db";
+import {
+  activityLog,
+  agents,
+  approvals,
+  companies,
+  departments,
+  runCallbacks,
+  runEvents,
+  runs,
+  runSteps,
+  users,
+  type DatabaseHandle,
+} from "@enterprise-brain/db";
 import type { LlmUsage } from "@enterprise-brain/llm";
 import { describeAction, executeAction } from "./actions.ts";
 import { MailService } from "./mail.ts";
@@ -20,8 +34,10 @@ import type { ActivityService } from "./activity.ts";
 import type { PlatformEvents } from "./events.ts";
 import { employmentOf, type AgentRecord, type AgentService } from "./agents.ts";
 import type { CoachingNotes } from "./coaching-notes.ts";
+import { COMPANY_BRAIN_SLUG } from "./company-brain.ts";
 import type {
   ApprovalAction,
+  ChatPoster,
   ConversationScope,
   ExecutionScope,
   FrameState,
@@ -29,8 +45,10 @@ import type {
   RunContext,
   RunEventInput,
   RunEventRecord,
+  RunResponse,
   RunStatus,
   StepOutcome,
+  WaitFor,
 } from "./run-types.ts";
 import { executeStep, mergeUsage, usageOfError } from "./steps/index.ts";
 import { wakeText, type TaskPlan, type TaskRow, type TaskService, type TaskWait, type WakeReason } from "./tasks.ts";
@@ -51,6 +69,8 @@ export interface EngineDeps extends Omit<ToolDeps, "requestApproval" | "tasks" |
   events?: PlatformEvents;
   /** Where corrections are kept for the AI employee's next version. */
   coaching: CoachingNotes;
+  /** The key runs' callback addresses are made with (derived from the master key; a new one per process otherwise). */
+  callbackKey?: Buffer;
 }
 
 export interface StartRunOptions {
@@ -78,6 +98,8 @@ export interface StartRunOptions {
   conversation?: ConversationScope;
   /** Run again from a step: what the steps before it found, taken as done. */
   resume?: { steps: Record<string, unknown>; completed: string[] };
+  /** Work given by another AI employee's `call` step: how deep in such calls it is (1 for the first). */
+  callDepth?: number;
 }
 
 export interface Decision {
@@ -117,6 +139,12 @@ const MAX_LOOP_ITEMS = 1000;
 const STEP_DATA_BYTES = 64 * 1024;
 /** The longest a retry waits, however its wait doubles. */
 const MAX_RETRY_WAIT_SECONDS = 600;
+/** How deep AI employees may give each other work through `call` steps. */
+const MAX_CALL_DEPTH = 3;
+/** How long a `call` waits for the colleague's answer, and a callback wait for the call, unless the step says. */
+const DEFAULT_CALL_DAYS = 3;
+const DEFAULT_CALLBACK_DAYS = 7;
+const ENDED_TASK = new Set(["done", "failed", "stopped"]);
 
 /** A run while it executes: its row, state and scope, what it used so far, and whether a step ran yet in this pass. */
 interface RunEnv {
@@ -204,6 +232,9 @@ export class RunEngine {
   private readonly seqs = new Map<string, number>();
   /** Companies' time zones (for "this month"), briefly cached. */
   private readonly zones = new Map<string, { zone: string; at: number }>();
+  /** Where the app is reached from outside: callback addresses start with it (relative until configured). */
+  private publicUrl = "";
+  private readonly callbackKey: Buffer;
 
   constructor(private readonly deps: EngineDeps) {
     this.toolDeps = {
@@ -213,6 +244,19 @@ export class RunEngine {
       tasks: deps.tasks,
       askPerson: (request) => this.askPerson(request),
     };
+    this.callbackKey = deps.callbackKey ?? randomBytes(32);
+    // A task given by a colleague's `call` step ended: the colleague continues with the answer.
+    deps.events?.on("task.changed", (event) => (ENDED_TASK.has(event.status) ? this.answerCaller(event.taskId) : undefined));
+  }
+
+  /** The app's address as other systems reach it (set by the server). */
+  configure(options: { publicUrl?: string }): void {
+    if (options.publicUrl !== undefined) this.publicUrl = options.publicUrl.replace(/\/$/, "");
+  }
+
+  /** How chat.send steps write (set by the platform once its conversations exist). */
+  useChat(poster: ChatPoster): void {
+    this.toolDeps.chat = poster;
   }
 
   // -------------------------------------------------------------------------
@@ -254,6 +298,7 @@ export class RunEngine {
       ...(options.definition ? { override: AgentDefinition.parse(options.definition) as unknown as Record<string, unknown> } : {}),
       ...(options.recorded ? { recorded: options.recorded } : {}),
       ...(options.conversation ? { conversation: options.conversation } : {}),
+      ...(options.callDepth ? { callDepth: options.callDepth } : {}),
     };
     const [run] = await this.deps.handle.db
       .insert(runs)
@@ -519,7 +564,9 @@ export class RunEngine {
       employment,
       ...(task ? { task: { id: task.id, ref: task.ref } } : {}),
       context,
-      emit: (event) => this.emit(runId, event),
+      emit: async (event) => {
+        await this.emit(runId, event);
+      },
       onText: (delta) => this.textListeners.get(runId)?.forEach((fn) => fn(delta)),
       ...(state.recorded ? { recorded: state.recorded } : {}),
       ...(state.conversation ? { conversation: state.conversation } : {}),
@@ -529,6 +576,8 @@ export class RunEngine {
       : definition.workflow.length
         ? definition.workflow
         : [defaultAgentStep(definition)];
+    // A job that waits for another system's call gives it an address (its templates read it as run.callbackUrl).
+    if (needsCallback(workflow)) context.run.callbackUrl = await this.callbackUrlOf(run);
     const env: RunEnv = {
       run,
       state,
@@ -600,11 +649,14 @@ export class RunEngine {
         await this.markSkipped(env, step, key, frame, `${stepLabel(step)} left out: ${leavingOut}`);
         continue;
       }
-      let shouldRun: boolean;
-      try {
-        shouldRun = evaluateCondition(step.when, frame.context);
-      } catch (error) {
-        throw new StepFailedError(step.id, key, new Error(`Step "${step.id}" condition failed: ${errorMessage(error)}`));
+      // A step woken from its wait ends where the run picks up: its condition held when it started.
+      let shouldRun = true;
+      if (state.woken?.key !== key) {
+        try {
+          shouldRun = evaluateCondition(step.when, frame.context);
+        } catch (error) {
+          throw new StepFailedError(step.id, key, new Error(`Step "${step.id}" condition failed: ${errorMessage(error)}`));
+        }
       }
       if (!shouldRun) {
         await this.markSkipped(env, step, key, frame, `${stepLabel(step)} skipped (condition not met)`);
@@ -765,6 +817,7 @@ export class RunEngine {
   private async runLeaf(step: WorkflowStep, key: string, frame: SequenceFrame, env: RunEnv): Promise<StepEnd> {
     const { run, state } = env;
     const runId = run.id;
+    if (state.woken?.key === key) return this.finishWoken(env, step, key, frame);
     const scope: ExecutionScope = { ...env.scope, context: frame.context, stepKey: key };
     await this.persist(runId, { currentStep: key });
     await this.emit(runId, { type: "step.started", stepId: step.id, message: stepLabel(step), data: { type: step.type, ...(key !== step.id ? { key } : {}) } });
@@ -775,7 +828,7 @@ export class RunEngine {
     for (;;) {
       attempts[key] = (attempts[key] ?? 0) + 1;
       try {
-        outcome = await this.withTimeout(step, (signal) => executeStep(step, { ...scope, signal }, this.toolDeps));
+        outcome = await this.withTimeout(step, (signal) => this.executeLeaf(step, { ...scope, signal }, env));
         delete attempts[key];
         break;
       } catch (error) {
@@ -813,6 +866,125 @@ export class RunEngine {
     return this.leafOutcome(env, step, key, frame, outcome, started);
   }
 
+  /** A step's work: a colleague's call and a wait for another system are the engine's own; the rest are the steps'. */
+  private executeLeaf(step: WorkflowStep, scope: ExecutionScope, env: RunEnv): Promise<StepOutcome> {
+    if (step.type === "call") return this.callColleague(step, scope, env);
+    if (step.type === "wait" && step.for === "callback") return this.waitForCallback(step, scope, env);
+    return executeStep(step, scope, this.toolDeps);
+  }
+
+  /** A step that waited and was woken (a reply, its time, a call, a colleague's answer): it ends here, under its error policy. */
+  private async finishWoken(env: RunEnv, step: WorkflowStep, key: string, frame: SequenceFrame): Promise<StepEnd> {
+    const woken = env.state.woken!;
+    delete env.state.woken;
+    if (woken.error !== undefined) return this.leafFailed(env, step, key, frame, new Error(woken.error), undefined);
+    await this.completeStep(env, step, key, frame, woken.result ?? null, `${stepLabel(step)} — ${wokenText(woken.result)}`);
+    return "done";
+  }
+
+  /**
+   * A `call` step: the colleague AI employee gets the work as a task of its own, and this run waits for its
+   * answer (the colleague's task ending wakes it). A test run runs the colleague as a test run and takes its answer.
+   */
+  private async callColleague(step: Extract<WorkflowStep, { type: "call" }>, scope: ExecutionScope, env: RunEnv): Promise<StepOutcome> {
+    const { run, state } = env;
+    const depth = (state.callDepth ?? 0) + 1;
+    if (depth > MAX_CALL_DEPTH) throw new Error(`Step "${step.id}": AI employees give each other work at most ${MAX_CALL_DEPTH} deep`);
+    const colleague = await this.colleagueOf(run.companyId, step.colleague);
+    if (!colleague) throw new Error(`Step "${step.id}": there is no AI employee "${step.colleague}"`);
+    if (colleague.row.id === run.agentId) throw new Error(`Step "${step.id}": an AI employee can't give work to itself`);
+    if (colleague.definition.slug === COMPANY_BRAIN_SLUG) {
+      throw new Error(`Step "${step.id}": the company brain answers in Chat; give the work to an AI employee`);
+    }
+    const request = renderTemplate(step.request, scope.context).trim();
+    if (!request) throw new Error(`Step "${step.id}": the request is empty`);
+    const resolved = step.input ? resolveTemplate(step.input, scope.context) : {};
+    const input = isRecord(resolved) ? resolved : {};
+    const name = colleague.definition.name;
+    // A colleague with a procedure runs it on the values; one that works out each task gets the request in words.
+    const brief = colleague.definition.workflow.length
+      ? undefined
+      : [
+          `${env.agentName} gives you this work${scope.task ? ` (from its task ${scope.task.ref})` : ""}:`,
+          request,
+          ...(Object.keys(input).length ? [`What it gives you:\n${truncate(JSON.stringify(input, null, 1), 6000)}`] : []),
+          `When you are done, finish the task with your answer: it goes back to ${env.agentName}.`,
+        ].join("\n\n");
+    const options: StartRunOptions = {
+      trigger: "colleague",
+      triggerRef: run.taskId ?? run.id,
+      ...(brief ? { task: brief, request } : {}),
+      title: truncate(request.replace(/\s+/g, " "), 160),
+      requestedBy: env.agentName,
+      actor: `agent:${run.agentId}`,
+      callDepth: depth,
+    };
+    if (run.isTest) {
+      const answered = await this.start(run.companyId, colleague.row.id, input, { ...options, isTest: true, wait: true });
+      const output = answered.output ?? null;
+      return {
+        kind: "done",
+        result: {
+          done: answered.status === "succeeded",
+          status: answered.status,
+          answer: (output && answerText(output)) ?? (output ? outputText(output) : (answered.error ?? null)),
+          output,
+          colleague: name,
+          test: true,
+        },
+        message: `${name} answered in a test run`,
+      };
+    }
+    if (!scope.task) throw new Error(`Step "${step.id}": giving work to a colleague needs a task to wait in`);
+    const given = await this.start(run.companyId, colleague.row.id, input, { ...options, wait: false });
+    const task = given.taskId ? await this.deps.tasks.byId(given.taskId) : undefined;
+    if (!task) throw new Error(`Step "${step.id}": ${name} could not take the work`);
+    await this.deps.tasks.record(run.companyId, scope.task.id, {
+      type: "handed_over",
+      message: `Gave ${name} the work (${task.ref}): ${truncate(request, 200)}`,
+      actor: `agent:${run.agentId}`,
+      runId: run.id,
+      data: { taskId: task.id, ref: task.ref },
+    });
+    const days = step.days ?? DEFAULT_CALL_DAYS;
+    return {
+      kind: "wait",
+      title: `Waiting for ${possessive(name)} answer (${task.ref})`,
+      for: "colleague",
+      until: new Date(Date.now() + days * 86_400_000),
+      days,
+      taskId: task.id,
+    };
+  }
+
+  /** The colleague a `call` step names: its slug (or id), else its name. */
+  private async colleagueOf(companyId: string, ref: string): Promise<AgentRecord | undefined> {
+    const found = await this.deps.agents.find(companyId, ref.trim());
+    if (found) return found;
+    const wanted = ref.trim().toLowerCase();
+    return (await this.deps.agents.list(companyId)).find((a) => a.definition.name.toLowerCase() === wanted);
+  }
+
+  /**
+   * A wait for another system's call to the run's address: one that came already (before the run got here)
+   * is taken now; test runs do not wait (a replay takes what the original task got).
+   */
+  private async waitForCallback(step: Extract<WorkflowStep, { type: "wait" }>, scope: ExecutionScope, env: RunEnv): Promise<StepOutcome> {
+    const early = await this.callbackSince(env.run.id, env.state.callbackSeq ?? 0);
+    if (early) {
+      env.state.callbackSeq = early.seq;
+      return { kind: "done", result: { received: true, payload: early.payload }, message: "the other system had called already" };
+    }
+    if (!scope.task) {
+      const recorded = scope.recorded?.[scope.stepKey ?? step.id] ?? scope.recorded?.[step.id];
+      if (recorded !== undefined) return { kind: "done", result: recorded, message: "as in the original task (replay)" };
+      return { kind: "done", result: { received: false, skipped: true }, message: "not waiting outside a task (test run)" };
+    }
+    const days = step.days ?? DEFAULT_CALLBACK_DAYS;
+    const until = new Date(Date.now() + days * 86_400_000);
+    return { kind: "wait", title: `Waiting for a call from another system until ${until.toISOString().slice(0, 10)}`, for: "callback", until, days };
+  }
+
   /**
    * A step's work, stopped when it takes longer than its timeout: the step fails with that, and a step
    * that can stop early (the agent's tool loop) is told to. Work already sent to a system may still finish.
@@ -846,7 +1018,7 @@ export class RunEngine {
     frame: SequenceFrame,
     error: unknown,
     spent: LlmUsage | undefined,
-    started: number,
+    started?: number,
   ): Promise<StepEnd> {
     if (step.onError === "continue" || step.onError === "skip") {
       const how = step.onError === "skip" ? "leaving out the rest" : "continuing";
@@ -939,15 +1111,27 @@ export class RunEngine {
     }
 
     if (outcome.kind === "wait") {
-      // The task waits for a reply or a time; waking it completes this step with what happened.
-      state.pending = { stepId: step.id, stepKey: key, kind: "wait" };
+      // The task waits for a reply, a time, a call or a colleague; waking it ends this step with what happened.
+      state.pending = { stepId: step.id, stepKey: key, kind: "wait", for: outcome.for };
       await this.persist(runId, { status: "waiting", context: state as unknown as Record<string, unknown>, usage: (env.usage ?? {}) as Record<string, unknown> });
-      await this.closeStepRow(env, key, { status: "waiting", output: { for: outcome.for, until: outcome.until?.toISOString() ?? null }, started, open: true });
-      await this.emit(runId, { type: "task.waiting", stepId: step.id, message: outcome.title, data: { for: outcome.for, until: outcome.until?.toISOString() ?? null } });
+      const until = outcome.until?.toISOString() ?? null;
+      const waitingFor = { for: outcome.for, until, ...(outcome.taskId ? { taskId: outcome.taskId } : {}) };
+      await this.closeStepRow(env, key, { status: "waiting", output: waitingFor, started, open: true });
+      await this.emit(runId, { type: "task.waiting", stepId: step.id, message: outcome.title, data: { for: outcome.for, until } });
       if (run.taskId) {
-        const wait: TaskWait = { kind: outcome.for, since: new Date().toISOString(), days: outcome.days, runId, stepId: step.id, stepKey: key };
+        const wait: TaskWait = {
+          kind: outcome.for,
+          since: new Date().toISOString(),
+          days: outcome.days,
+          runId,
+          stepId: step.id,
+          stepKey: key,
+          ...(outcome.taskId ? { taskId: outcome.taskId } : {}),
+        };
         await this.deps.tasks.update(run.taskId, { status: "waiting", waitingFor: wait as unknown as Record<string, unknown>, nextCheckAt: outcome.until ?? null });
         await this.deps.tasks.record(companyId, run.taskId, { type: "waiting", message: outcome.title, actor: `agent:${run.agentId}`, runId });
+        // What it waits for may have come while it got ready to wait (a quick system, a quick colleague): take it once this pass ends.
+        if (outcome.for === "callback" || outcome.for === "colleague") this.afterExecution(runId, () => this.lookAgain(companyId, run.taskId!, outcome.for));
       }
       return "stopped";
     }
@@ -955,7 +1139,46 @@ export class RunEngine {
     env.usage = mergeUsage(env.usage, outcome.usage);
     const message = outcome.message ? `${stepLabel(step)} — ${outcome.message}` : stepLabel(step);
     await this.completeStep(env, step, key, frame, outcome.result, message, outcome.usage, "succeeded", started);
+    if (step.type === "respond") await this.responded(env, outcome.result);
     return "done";
+  }
+
+  /** A `respond` step ran: its answer is the one a waiting caller gets (the last one, when several run). */
+  private async responded(env: RunEnv, result: unknown): Promise<void> {
+    if (!isRecord(result)) return;
+    const response: RunResponse = {
+      status: typeof result.status === "number" ? result.status : 200,
+      headers: isRecord(result.headers) ? (result.headers as Record<string, string>) : {},
+      body: result.body ?? null,
+    };
+    env.state.response = response;
+    await this.persist(env.run.id, { context: env.state as unknown as Record<string, unknown> });
+    await this.emit(env.run.id, { type: "run.responded", message: `Answered the caller (${response.status})`, data: { status: response.status } });
+  }
+
+  /** Do something once the run's current execution ends (a wake-up for it would otherwise join that execution). */
+  private afterExecution(runId: string, work: () => Promise<unknown>): void {
+    const current = this.executing.get(runId);
+    const next = () => work().catch((error) => console.error(`[engine] after run ${runId}:`, error));
+    if (current) void current.then(next, next);
+    else void next();
+  }
+
+  /** A task that just started waiting for a call or a colleague: one that came meanwhile wakes it now. */
+  private async lookAgain(companyId: string, taskId: string, kind: WaitFor): Promise<void> {
+    const task = await this.deps.tasks.byId(taskId);
+    const wait = (task?.waitingFor ?? null) as TaskWait | null;
+    if (!task || task.status !== "waiting" || wait?.kind !== kind || !wait.runId) return;
+    if (kind === "colleague") {
+      const given = wait.taskId ? await this.deps.tasks.byId(wait.taskId) : undefined;
+      if (given && ENDED_TASK.has(given.status)) {
+        await this.wakeTask(companyId, task.id, { kind: "colleague", taskId: given.id, ref: given.ref, status: given.status });
+      }
+      return;
+    }
+    const run = await this.getRow(companyId, wait.runId);
+    const call = await this.callbackSince(run.id, normalizeState(run.context).callbackSeq ?? 0);
+    if (call) await this.wakeTask(companyId, task.id, { kind: "callback", payload: call.payload, seq: call.seq });
   }
 
   /** A step that did not run (its condition, or a failure before it): kept as skipped. */
@@ -1219,6 +1442,9 @@ export class RunEngine {
       const current = await this.deps.tasks.get(companyId, ref);
       if (current.status === "paused") throw new RunError(`Task ${current.ref} is paused`, 409);
       if (current.status === "working") throw new RunError(`Task ${current.ref} is working`, 409);
+      // A procedure waiting for another system or a colleague keeps waiting: the comment stays in the conversation.
+      const waiting = (current.waitingFor ?? null) as TaskWait | null;
+      if (current.status === "waiting" && waiting?.runId && (waiting.kind === "callback" || waiting.kind === "colleague")) return current;
     }
     const task = await this.deps.tasks.get(companyId, ref);
     const wait = (task.waitingFor ?? null) as (TaskWait & { pausedFrom?: string }) | null;
@@ -1226,13 +1452,8 @@ export class RunEngine {
     await this.deps.tasks.update(task.id, { status: "working", wakeups: task.wakeups + 1, waitingFor: null, nextCheckAt: null, closedAt: null });
     try {
       if (wait?.runId) {
-        const result =
-          reason.kind === "reply"
-            ? { replied: true, reply: reason.email }
-            : wait.kind === "reply"
-              ? { replied: false, timedOut: true }
-              : { waited: true };
-        await this.continueRun(companyId, wait.runId, wait.stepKey ?? wait.stepId, result, options.wait ?? false);
+        const woke = await this.wakeResult(reason, wait);
+        await this.continueRun(companyId, wait.runId, wait.stepKey ?? wait.stepId, woke.outcome, options.wait ?? false, woke.patch);
       } else {
         await this.start(companyId, task.agentId, task.input, {
           taskId: task.id,
@@ -1252,23 +1473,131 @@ export class RunEngine {
     return this.deps.tasks.get(companyId, task.id);
   }
 
-  /** Continue a run held at a wait step (with what happened) or at a step boundary (paused task); the step by its key. */
-  private async continueRun(companyId: string, runId: string, stepKey: string | undefined, result: unknown, wait: boolean) {
+  /** What a waiting step gets when its task wakes: the reply, the call, the colleague's answer, or that its time ran out. */
+  private async wakeResult(reason: WakeReason, wait: TaskWait): Promise<{ outcome: WakeOutcome; patch?: Partial<PersistedRunState> }> {
+    if (reason.kind === "reply") return { outcome: { result: { replied: true, reply: reason.email } } };
+    if (reason.kind === "callback") return { outcome: { result: { received: true, payload: reason.payload } }, patch: { callbackSeq: reason.seq } };
+    if (wait.kind === "colleague") {
+      // Woken by the colleague's task ending, or by the time running out (its end may have been missed: a restart).
+      const given = wait.taskId ? await this.deps.tasks.byId(wait.taskId) : undefined;
+      if (given && ENDED_TASK.has(given.status)) return { outcome: await this.colleagueAnswer(given) };
+      return { outcome: { result: { done: false, timedOut: true, status: given?.status ?? null, taskRef: given?.ref ?? null } } };
+    }
+    if (wait.kind === "callback" && wait.runId) {
+      const [run] = await this.deps.handle.db.select({ context: runs.context }).from(runs).where(eq(runs.id, wait.runId));
+      const call = run ? await this.callbackSince(wait.runId, normalizeState(run.context).callbackSeq ?? 0) : undefined;
+      if (call) return { outcome: { result: { received: true, payload: call.payload } }, patch: { callbackSeq: call.seq } };
+      return { outcome: { result: { received: false, timedOut: true } } };
+    }
+    if (wait.kind === "reply") return { outcome: { result: { replied: false, timedOut: true } } };
+    return { outcome: { result: { waited: true } } };
+  }
+
+  /** What a colleague's ended task gives the step that gave it the work: its answer, or why it could not finish. */
+  private async colleagueAnswer(given: TaskRow): Promise<WakeOutcome> {
+    const name = (await this.deps.agents.find(given.companyId, given.agentId))?.definition.name ?? "The colleague";
+    const last = (await this.deps.tasks.runsOf(given.id)).at(-1);
+    if (given.status === "failed") return { error: `${name} couldn't finish ${given.ref}: ${last?.error ?? "its task failed"}` };
+    if (given.status === "stopped") return { error: `${possessive(name)} task ${given.ref} was stopped` };
+    return {
+      result: {
+        done: true,
+        answer: given.answer ?? given.outcome ?? null,
+        outcome: given.outcome ?? null,
+        output: last?.output ?? null,
+        taskRef: given.ref,
+        colleague: name,
+      },
+    };
+  }
+
+  /** A task given by another AI employee's `call` step ended: the one that gave it continues with the answer. */
+  private async answerCaller(taskId: string): Promise<void> {
+    const given = await this.deps.tasks.byId(taskId);
+    if (!given || given.source !== "colleague" || !given.sourceRef) return;
+    const caller = await this.deps.tasks.byId(given.sourceRef);
+    const wait = (caller?.waitingFor ?? null) as TaskWait | null;
+    if (!caller || caller.status !== "waiting" || wait?.kind !== "colleague" || wait.taskId !== given.id) return;
+    await this.wakeTask(caller.companyId, caller.id, { kind: "colleague", taskId: given.id, ref: given.ref, status: given.status });
+  }
+
+  /**
+   * Another system called a run's callback address. The call is kept on the run (as an event), and a run
+   * waiting for it continues with what was sent; one that has not got to its wait yet takes it when it does.
+   */
+  async receiveCallback(token: string, payload: unknown): Promise<{ outcome: "continued" | "kept"; runId: string }> {
+    const [row] = await this.deps.handle.db.select().from(runCallbacks).where(eq(runCallbacks.tokenHash, hashToken(token)));
+    if (!row) throw new RunError("Nothing waits at this address", 404);
+    const run = await this.getRow(row.companyId, row.runId);
+    if (["succeeded", "failed", "cancelled"].includes(run.status)) throw new RunError(`This work is over (${run.status})`, 410);
+    await this.deps.handle.db
+      .update(runCallbacks)
+      .set({ calls: sql`${runCallbacks.calls} + 1`, lastCalledAt: new Date() })
+      .where(eq(runCallbacks.id, row.id));
+    const kept = boundedJson(payload);
+    const seq = await this.emit(run.id, {
+      type: "callback.received",
+      message: "Another system called back",
+      data: { payload: kept.value, truncated: kept.truncated },
+    });
+    const state = normalizeState(run.context);
+    const task = run.taskId ? await this.deps.tasks.byId(run.taskId) : undefined;
+    if (run.status === "waiting" && task?.status === "waiting" && state.pending?.kind === "wait" && state.pending.for === "callback") {
+      await this.wakeTask(run.companyId, task.id, { kind: "callback", payload: kept.value, seq });
+      return { outcome: "continued", runId: run.id };
+    }
+    return { outcome: "kept", runId: run.id };
+  }
+
+  /** The first call from another system the run has not taken yet (after the given event number). */
+  private async callbackSince(runId: string, seq: number): Promise<{ seq: number; payload: unknown } | undefined> {
+    const [row] = await this.deps.handle.db
+      .select({ seq: runEvents.seq, data: runEvents.data })
+      .from(runEvents)
+      .where(and(eq(runEvents.runId, runId), eq(runEvents.type, "callback.received"), gt(runEvents.seq, seq)))
+      .orderBy(runEvents.seq)
+      .limit(1);
+    return row ? { seq: row.seq, payload: (row.data as Record<string, unknown>).payload ?? null } : undefined;
+  }
+
+  /** The run's callback address: made from its id with the engine's key, kept as a hash to find the run by. */
+  private async callbackUrlOf(run: RunRow): Promise<string> {
+    const token = createHmac("sha256", this.callbackKey).update(`run-callback:${run.id}`).digest("base64url");
+    const tokenHash = hashToken(token);
+    await this.deps.handle.db
+      .insert(runCallbacks)
+      .values({ companyId: run.companyId, runId: run.id, tokenHash })
+      .onConflictDoUpdate({ target: runCallbacks.runId, set: { tokenHash } });
+    return `${this.publicUrl}/api/hooks/callback/${token}`;
+  }
+
+  /**
+   * Continue a run held at a wait step (with what happened, or why the step failed) or at a step boundary
+   * (a paused task). The woken step ends where the run picks up, so its error policy applies.
+   */
+  private async continueRun(
+    companyId: string,
+    runId: string,
+    stepKey: string | undefined,
+    outcome: WakeOutcome | undefined,
+    wait: boolean,
+    patch: Partial<PersistedRunState> = {},
+  ) {
     const run = await this.getRow(companyId, runId);
     if (run.status !== "waiting") return;
-    const state = normalizeState(run.context);
+    const state: PersistedRunState = { ...normalizeState(run.context), ...patch };
     const pending = state.pending;
-    if (stepKey && pending?.kind === "wait" && (pending.stepKey ?? pending.stepId) === stepKey) {
-      state.steps[pending.stepId] = result;
-      state.completed.push(stepKey);
+    if (stepKey && outcome && pending?.kind === "wait" && (pending.stepKey ?? pending.stepId) === stepKey) {
+      state.woken = { key: stepKey, ...(outcome.error !== undefined ? { error: outcome.error } : { result: outcome.result ?? null }) };
       state.pending = undefined;
-      const replied = isRecord(result) && result.replied === true;
-      const message =
-        isRecord(result) && result.received === true ? "The other system called back" : replied ? "A reply arrived" : "The wait is over";
-      await this.closeStepRowOf(runId, stepKey, { status: "succeeded", output: result });
-      await this.emit(runId, { type: "step.completed", stepId: pending.stepId, message, data: { preview: truncate(stringify(result), 600) } });
     }
-    await this.persist(runId, { status: "running", context: state as unknown as Record<string, unknown> });
+    // One wake-up continues the run (a call and its timeout may come at once): the one that moves it from waiting.
+    const [claimed] = await this.deps.handle.db
+      .update(runs)
+      .set({ status: "running", context: state as unknown as Record<string, unknown> })
+      .where(and(eq(runs.id, runId), eq(runs.status, "waiting")))
+      .returning({ id: runs.id });
+    if (!claimed) return;
     const execution = this.execute(runId);
     if (wait) await execution;
   }
@@ -1304,8 +1633,9 @@ export class RunEngine {
     await this.deps.tasks.record(companyId, task.id, { type: "resumed", message: `${by} resumed the task`, actor: by });
     const restored = Object.keys(wait).length ? (wait as unknown as Record<string, unknown>) : null;
     if (pausedFrom === "waiting") {
-      // Waits whose time passed meanwhile wake on the next check; one that got its reply, right away.
+      // Waits whose time passed meanwhile wake on the next check; one that got its reply, call or answer, right away.
       await this.deps.tasks.update(task.id, { status: "waiting", waitingFor: restored, ...(wait.replyMessageId ? { nextCheckAt: new Date() } : {}) });
+      if (wait.kind === "callback" || wait.kind === "colleague") await this.lookAgain(companyId, task.id, wait.kind);
     } else if (pausedFrom === "needs_person") {
       await this.deps.tasks.update(task.id, { status: "needs_person", waitingFor: restored });
       await this.afterDecisions(companyId, task.id);
@@ -1756,7 +2086,7 @@ export class RunEngine {
         } else if (decision.approved) {
           let used: LlmUsage | undefined;
           try {
-            const executed = await executeAction(this.deps, companyId, action, {
+            const executed = await executeAction(this.toolDeps, companyId, action, {
               onUsage: (spent) => {
                 used = mergeUsage(used, spent);
               },
@@ -1818,7 +2148,7 @@ export class RunEngine {
         used = mergeUsage(used, spent);
       };
       try {
-        const result = await executeAction(this.deps, companyId, action, {
+        const result = await executeAction(this.toolDeps, companyId, action, {
           onUsage: spend,
           actor: `agent:${approval.agentId}`,
           ...(approval.runId ? { runId: approval.runId } : {}),
@@ -1906,7 +2236,7 @@ export class RunEngine {
     return seq;
   }
 
-  private async emit(runId: string, event: RunEventInput): Promise<void> {
+  private async emit(runId: string, event: RunEventInput): Promise<number> {
     const seq = await this.nextSeq(runId);
     const createdAt = new Date();
     await this.deps.handle.db.insert(runEvents).values({
@@ -1922,6 +2252,7 @@ export class RunEngine {
     this.listeners.get(runId)?.forEach((fn) => fn(record));
     this.anyListeners.forEach((fn) => fn(record));
     if (["run.succeeded", "run.failed", "run.cancelled"].includes(event.type)) this.seqs.delete(runId);
+    return seq;
   }
 
   /** Resume runs that were executing when the process stopped. */
@@ -1930,6 +2261,30 @@ export class RunEngine {
     for (const run of interrupted) void this.execute(run.id);
     return interrupted.length;
   }
+}
+
+/** What a woken wait ends with: a result, or (a colleague's task failed) why the step fails. */
+type WakeOutcome = { result?: unknown; error?: string };
+
+function hashToken(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+/** Does the job wait for another system's call, or hand its callback address on? */
+function needsCallback(workflow: readonly WorkflowStep[]): boolean {
+  return [...walkSteps(workflow)].some((v) => v.step.type === "wait" && v.step.for === "callback") || JSON.stringify(workflow).includes("callbackUrl");
+}
+
+/** What a woken step's history line says it got. */
+function wokenText(result: unknown): string {
+  if (!isRecord(result)) return "the wait is over";
+  if (result.received === true) return "the other system called back";
+  if (result.replied === true) return "a reply arrived";
+  if (result.done === true && typeof result.colleague === "string") return `${result.colleague} answered`;
+  if (result.timedOut === true) {
+    return result.received === false ? "no call came in time" : result.replied === false ? "no reply came in time" : "no answer came in time";
+  }
+  return "the wait is over";
 }
 
 function normalizeState(value: unknown): PersistedRunState {
@@ -1941,6 +2296,10 @@ function normalizeState(value: unknown): PersistedRunState {
     frames: isRecord(record.frames) ? (record.frames as Record<string, FrameState>) : undefined,
     outputStepId: typeof record.outputStepId === "string" ? record.outputStepId : undefined,
     attempts: isRecord(record.attempts) ? (record.attempts as Record<string, number>) : undefined,
+    response: isRecord(record.response) ? (record.response as unknown as RunResponse) : undefined,
+    callDepth: typeof record.callDepth === "number" ? record.callDepth : undefined,
+    callbackSeq: typeof record.callbackSeq === "number" ? record.callbackSeq : undefined,
+    woken: isRecord(record.woken) && typeof record.woken.key === "string" ? (record.woken as PersistedRunState["woken"]) : undefined,
     warnings: Array.isArray(record.warnings) ? (record.warnings as string[]) : undefined,
     task: typeof record.task === "string" ? record.task : undefined,
     override: isRecord(record.override) ? record.override : undefined,
@@ -1979,6 +2338,8 @@ export function applyEdits(action: ApprovalAction, edits: Record<string, unknown
       const input = isRecord(edits.input) ? edits.input : edits;
       return { ...action, input: { ...action.input, ...input } };
     }
+    case "chat.send":
+      return { ...action, text: typeof edits.text === "string" && edits.text.trim() ? edits.text : action.text };
     case "decision":
       return action;
   }

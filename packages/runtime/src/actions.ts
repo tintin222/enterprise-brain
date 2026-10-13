@@ -1,10 +1,12 @@
 import type { ConnectorService, ExecuteOptions } from "./connectors.ts";
 import type { MailService } from "./mail.ts";
-import type { ApprovalAction } from "./run-types.ts";
+import type { ApprovalAction, ChatPoster } from "./run-types.ts";
+
+const VIA_NAMES: Record<string, string> = { teams: "Microsoft Teams", "google-chat": "Google Chat" };
 
 /** Executes an approved side-effecting action. */
 export async function executeAction(
-  deps: { connectors: ConnectorService; mail: MailService },
+  deps: { connectors: ConnectorService; mail: MailService; chat?: ChatPoster },
   companyId: string,
   action: ApprovalAction,
   options: ExecuteOptions = {},
@@ -31,6 +33,19 @@ export async function executeAction(
       });
       return { sent: true, messageId: sent.messageId, delivery: sent.delivery, to: action.to, subject: action.subject };
     }
+    case "chat.send": {
+      if (!deps.chat) throw new Error("Chat is not available here");
+      const posted = await deps.chat.post({
+        companyId,
+        agentId: action.agentId,
+        to: action.to,
+        via: action.via,
+        text: action.text,
+        taskId: action.taskId,
+        runId: action.runId,
+      });
+      return { sent: true, to: action.to, ...posted };
+    }
   }
 }
 
@@ -43,5 +58,7 @@ export function describeAction(action: ApprovalAction): string {
       return `${action.system ?? action.ref}: ${action.operationName ?? action.operation}\n\n${JSON.stringify(action.input, null, 2)}`;
     case "mail.send":
       return `To: ${action.to}\nSubject: ${action.subject}\n\n${action.body}`;
+    case "chat.send":
+      return `To: ${action.to}${action.via && action.via !== "chat" ? ` in ${VIA_NAMES[action.via] ?? action.via}` : ""}\n\n${action.text}`;
   }
 }

@@ -321,6 +321,15 @@ export type ApprovalAction =
       mailbox?: string;
       result?: unknown;
       error?: string;
+    }
+  | {
+      type: "chat.send";
+      /** A channel ("#finance"), a person's email, or "task". */
+      to: string;
+      via?: "chat" | "teams" | "google-chat";
+      text: string;
+      result?: unknown;
+      error?: string;
     };
 
 export type ApprovalStatus = "pending" | "approved" | "rejected" | "cancelled";
