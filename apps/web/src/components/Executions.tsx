@@ -86,7 +86,7 @@ function InsightStrip({ insights, days }: { insights: RunInsights; days: number 
           icon={CircleCheck}
           title="Finished"
           value={finishedShare === null ? "—" : `${finishedShare}%`}
-          detail={`${insights.succeeded} finished · ${insights.tasksFinished} tasks done, ${insights.finishedAlone} with no person`}
+          detail={`${insights.succeeded} finished · ${insights.tasksFinished} task${insights.tasksFinished === 1 ? "" : "s"} done, ${insights.finishedAlone} with no person`}
         />
         <Figure
           icon={CircleX}

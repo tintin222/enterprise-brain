@@ -51,7 +51,7 @@ export function HowItWorks({ detail }: { detail: AgentDetail }) {
       />
       <div className="p-4 sm:p-5">
         {asFlow || !steps.length ? (
-          <FlowView definition={detail.definition} selected={open} onSelect={steps.length ? setOpen : undefined} className="max-h-[42rem]" />
+          <FlowView definition={detail.definition} selected={open} onSelect={steps.length ? setOpen : undefined} />
         ) : (
           <WorkflowView steps={steps} />
         )}

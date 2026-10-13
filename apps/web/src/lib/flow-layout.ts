@@ -304,13 +304,16 @@ export function layoutFlow(
     .map((rule) => (rule === "mail.send" ? "sending email" : rule.startsWith("connector") ? "changes in systems" : rule))
     .filter((v, i, all) => all.indexOf(v) === i);
   const body = workflow.length ? measureSequence(workflow) : { width: m.W, height: m.H * (asks.length ? 2 : 1) + (asks.length ? m.GAP_Y : 0) };
-  const startsWidth = starts.length * m.W + (starts.length - 1) * m.GAP_X;
+  // What starts it: pills as wide as a step when they fit above the steps, else narrower ones.
+  const rowOf = (w: number) => starts.length * w + (starts.length - 1) * m.GAP_X;
+  const startW = rowOf(m.W) <= Math.max(body.width, m.W) ? m.W : Math.round(m.W * 0.8);
+  const startsWidth = rowOf(startW);
   const width = Math.max(body.width, startsWidth) + 2 * m.MARGIN;
 
   let startX = (width - startsWidth) / 2;
   const startAnchors = starts.map((title, i) => {
-    const anchor = addNode({ id: `start-${i}`, kind: "trigger", title, tone: "neutral", x: startX, y: m.MARGIN, width: m.W, height: m.H - 12 });
-    startX += m.W + m.GAP_X;
+    const anchor = addNode({ id: `start-${i}`, kind: "trigger", title, tone: "neutral", x: startX, y: m.MARGIN, width: startW, height: m.H - 12 });
+    startX += startW + m.GAP_X;
     return anchor;
   });
   let y = m.MARGIN + (m.H - 12) + m.GAP_Y;

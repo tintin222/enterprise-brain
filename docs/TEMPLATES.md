@@ -130,10 +130,41 @@ You are the CV Screener. …
 ### Workflow reference
 
 - Every value can be a template: `{{ path | filter }}`.
-- Paths start at `input`, `steps.<id>`, `agent`, `trigger` or `run`. `run.date` is the run's start date (`YYYY-MM-DD`) and `run.startedAt` its timestamp, for "today" in prompts and conditions.
-- Filters: `json`, `join`, `default`, `upper`, `lower`, `truncate`, `length`, `first`, `pluck`, `round`, `bullets`, `money` (`{{ total | money:currency }}` → "965,664.00 TRY"). A filter's argument is an expression too: a path or a quoted text.
+- Paths start at `input`, `steps.<id>`, `vars` (the company's variables, set in *Studio → Settings → Installation*), `agent`, `trigger` or `run`; inside an `each` also at `item` (or the loop's `as` name) and `index`. `run.date` is the run's start date (`YYYY-MM-DD`) and `run.startedAt` its timestamp, for "today" in prompts and conditions.
+- Filters: `json`, `join`, `default`, `upper`, `lower`, `truncate`, `length`, `first`, `last`, `pluck`, `round`, `bullets`, `date`, `money` (`{{ total | money:currency }}` → "965,664.00 TRY"), `trim`, `split`, `unique`, `sum`, `keys`, `number`. A filter's argument is an expression too: a path or a quoted text.
+- Functions: `now()`, `today()`, `addDays(date, n)`, `formatDate(date, 'DD.MM.YYYY')`, `diffDays(a, b)`, `replace`, `startsWith`, `endsWith`, `concat`, `sortBy(list, 'field', 'desc')`, `where(list, 'field', value)`, `coalesce`, `min`, `max`, `if(condition, yes, no)`; every filter can be called as a function with its value first (`round(steps.total.sum, 2)`).
 - `a || b` returns the first truthy value.
-- `when` is an expression, for example `steps.evaluate.score >= 70 && input.role != 'intern'`.
+- `when` is an expression, for example `steps.evaluate.score >= 70 && input.role != 'intern'`, with the same filters and functions.
+- Step ids are unique in the whole job, nested steps included. Every step may say what happens when it fails: `retry: {times, waitSeconds, backoff: fixed|double}`, `timeoutSeconds`, and `onError: fail` (the default), `continue` (its error becomes its result) or `skip` (the steps after it are left out). A job's `onFailure: {tell, giveTo, note}` names a person to tell instead of the manager and a colleague to give the failure to.
+- A `branch` runs the steps of its first case whose `when` holds, else its `else` steps; an `each` runs its steps for each item of `over`, and its result is `{ items, count, failed }`:
+
+  ```yaml
+  - id: route
+    type: branch
+    cases:
+      - when: "input.total > 10000"
+        steps:
+          - {id: approve_big, type: approval, title: "Order {{ input.order }} is over 10,000. Accept it?"}
+    else:
+      - {id: accepted, type: output, value: {accepted: true}}
+  - id: lines
+    type: each
+    over: "{{ input.lines }}"
+    as: line
+    collect: {sku: "{{ line.sku }}", amount: "{{ steps.price.amount }}"}
+    steps:
+      - id: price
+        type: code
+        code: "return { amount: ctx.values.qty * ctx.values.price };"
+        input: {qty: "{{ line.qty }}", price: "{{ line.price }}"}
+        retry: {times: 2, waitSeconds: 5, backoff: double}
+  - id: totals
+    type: transform
+    from: "{{ steps.lines.items }}"
+    ops:
+      - {op: aggregate, groupBy: [sku], values: {total: {fn: sum, field: amount}}}
+      - {op: sort, by: total, order: desc}
+  ```
 - An `approval` step takes a `title`, `details`, `assigneeRole` and a `reason`: why a person is asked, shown first wherever the question reaches them (the work queue, email, Teams and Google Chat). Give one when the step asks only in some cases, such as an exception:
 
   ```yaml

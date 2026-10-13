@@ -1,6 +1,6 @@
 import { clsx } from "clsx";
 import { CircleCheckBig, Flag, Play, Repeat, ShieldCheck, Sparkles } from "lucide-react";
-import { useId, useMemo } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { layoutFlow, type FlowEdge, type FlowNode, type FlowTone } from "../lib/flow-layout.ts";
 import { stepIcon } from "../lib/icons.tsx";
 import type { AgentDefinition, RunStep } from "../types.ts";
@@ -93,10 +93,25 @@ export function FlowView({
   className?: string;
 }) {
   const marker = useId().replace(/[^a-zA-Z0-9_-]/g, "");
-  const layout = useMemo(() => layoutFlow(definition, { compact, starts }), [definition, compact, starts]);
+  const box = useRef<HTMLDivElement>(null);
+  const [room, setRoom] = useState<number | null>(null);
+  useEffect(() => {
+    const element = box.current;
+    if (!element || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => setRoom(entry ? entry.contentRect.width : null));
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+  const startsKey = starts?.join("\n") ?? "";
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const startList = useMemo(() => starts, [startsKey]);
+  const full = useMemo(() => layoutFlow(definition, { starts: startList }), [definition, startList]);
+  // Smaller boxes when the full flow would not fit its place (a narrow column, a phone).
+  const small = Boolean(compact) || (room !== null && full.width > room);
+  const layout = useMemo(() => (small ? layoutFlow(definition, { compact: true, starts: startList }) : full), [small, full, definition, startList]);
   const status = useMemo(() => statusByStep(runSteps), [runSteps]);
   return (
-    <div className={clsx("overflow-auto", className)}>
+    <div ref={box} className={clsx("overflow-auto", className)}>
       <div className="relative mx-auto" style={{ width: layout.width, height: layout.height }}>
         <svg className="pointer-events-none absolute inset-0" width={layout.width} height={layout.height} aria-hidden="true">
           <defs>
@@ -161,6 +176,7 @@ export function FlowView({
               onClick={() => node.stepId && onSelect?.(node.stepId)}
               aria-pressed={selectable ? selected === node.stepId : undefined}
               aria-label={`${node.title}${node.subtitle ? `: ${node.subtitle}` : ""}${state ? ` (${STATUS_WORD[state]})` : ""}`}
+              title={node.subtitle ? `${node.title}\n${node.subtitle}` : node.title}
               className={clsx(
                 "absolute flex items-center gap-2 border text-left shadow-xs transition-shadow",
                 round ? "rounded-full px-3" : "rounded-xl px-3 py-2",
@@ -174,8 +190,8 @@ export function FlowView({
             >
               <NodeIcon node={node} />
               <span className="min-w-0 flex-1">
-                <span className={clsx("block truncate font-medium text-fg", compact ? "text-xs" : "text-[13px]")}>{node.title}</span>
-                {node.subtitle && !compact && <span className="block truncate text-[11px] text-muted">{node.subtitle}</span>}
+                <span className={clsx("block truncate font-medium text-fg", small ? "text-xs" : "text-[13px]")}>{node.title}</span>
+                {node.subtitle && <span className={clsx("block truncate text-muted", small ? "text-[10px]" : "text-[11px]")}>{node.subtitle}</span>}
               </span>
               {state && <span className={clsx("size-2 shrink-0 rounded-full", STATUS_DOT[state])} aria-hidden="true" />}
             </button>

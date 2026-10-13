@@ -350,7 +350,6 @@ export default function RunDetail() {
                     }}
                     starts={[runTriggerLabel(run.trigger)]}
                     runSteps={data.steps}
-                    className="max-h-[36rem]"
                   />
                 </div>
               ) : (
