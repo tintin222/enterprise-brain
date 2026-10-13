@@ -20,6 +20,7 @@ export type * from "./run-types.ts";
 export * from "./people.ts";
 export * from "./policy.ts";
 export * from "./employment.ts";
+export * from "./endpoints.ts";
 export * from "./executions.ts";
 export * from "./tasks.ts";
 export * from "./work.ts";

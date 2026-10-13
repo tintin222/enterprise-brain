@@ -34,6 +34,7 @@ import { studioRoutes } from "./routes/studio.ts";
 import { todoRoutes } from "./routes/todos.ts";
 import { tableRoutes } from "./routes/tables.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
+import { endpointRoutes } from "./routes/endpoints.ts";
 import { hookRoutes } from "./routes/hooks.ts";
 import { paperclipRoutes } from "./routes/paperclip.ts";
 import { peopleRoutes } from "./routes/people.ts";
@@ -157,6 +158,7 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   await notificationRoutes(app, ctx);
   await channelRoutes(app, ctx);
   await hookRoutes(app, ctx);
+  await endpointRoutes(app, ctx);
   await homeRoutes(app, ctx);
   await reportRoutes(app, ctx);
   await knowledgeRoutes(app, ctx);

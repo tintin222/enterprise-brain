@@ -127,6 +127,7 @@ const STATUS: Record<string, StatusMeta> = {
   stable: { tone: "green", label: "Stable" },
   preview: { tone: "blue", label: "Preview" },
   sandbox: { tone: "violet", label: "Demo data" },
+  deprecated: { tone: "neutral", label: "Replaced" },
   ready: { tone: "green", label: "Ready" },
   beta: { tone: "blue", label: "Beta" },
   concept: { tone: "neutral", label: "Concept" },

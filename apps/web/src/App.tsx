@@ -46,6 +46,7 @@ const Building = lazy(() => import("./pages/settings/Building.tsx"));
 const Paperclip = lazy(() => import("./pages/Paperclip.tsx"));
 const AnswerPage = lazy(() => import("./pages/AnswerPage.tsx"));
 const ActPage = lazy(() => import("./pages/ActPage.tsx"));
+const PublicFormPage = lazy(() => import("./pages/PublicFormPage.tsx"));
 const AgentApp = lazy(() => import("./pages/AgentApp.tsx"));
 const RunDetail = lazy(() => import("./pages/runs/RunDetail.tsx"));
 const Search = lazy(() => import("./pages/Search.tsx"));
@@ -122,6 +123,15 @@ const router = createBrowserRouter([
         element: (
           <Suspense fallback={<LoadingBlock className="min-h-screen" />}>
             <ActPage />
+          </Suspense>
+        ),
+      },
+      {
+        // Public: an AI employee's form, for anyone with its link (or the company's people, when it asks).
+        path: "/f/:token",
+        element: (
+          <Suspense fallback={<LoadingBlock className="min-h-screen" />}>
+            <PublicFormPage />
           </Suspense>
         ),
       },

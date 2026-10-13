@@ -731,7 +731,7 @@ export interface ConnectorManifest {
   operations: OperationManifest[];
   events?: { id: string; name: string; description: string }[];
   docsUrl?: string;
-  maturity: "stable" | "preview" | "sandbox";
+  maturity: "stable" | "preview" | "sandbox" | "deprecated";
   itRequirements: string[];
   /** Kept by the platform (the company's tables): nobody adds or changes it. */
   managed?: boolean;

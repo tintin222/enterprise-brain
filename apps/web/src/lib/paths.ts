@@ -51,6 +51,8 @@ export const paths = {
   performance: (query?: Query) => withQuery("/company/performance", query),
   aiScreen: (slug: string) => `/ai/${part(slug)}/app`,
   run: (id: string) => `/runs/${part(id)}`,
+  /** An AI employee's public form (no sign-in, unless the form asks). */
+  publicForm: (token: string) => `/f/${part(token)}`,
 
   // Studio
   brain: {

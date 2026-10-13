@@ -954,7 +954,7 @@ export class StudioService {
   private async callNote(companyId: string, slug: string): Promise<string> {
     const company = await this.platform.company(companyId);
     const base = (this.options.publicUrl ?? "").replace(/\/$/, "");
-    return `For IT: another system gives it work by calling POST ${base}/api/companies/${company?.slug ?? companyId}/agents/${slug}/runs with {"input": {…the item…}, "trigger": "webhook", "wait": false} and the machine key (EB_API_KEY) as a Bearer token.`;
+    return `For IT: another system gives it work by calling POST ${base}/api/hooks/${company?.slug ?? companyId}/${slug} with the item as JSON and the AI employee's secret in the X-Webhook-Secret header. Its managers make the secret on its page in the Studio (Duties), where its unguessable address is too, for systems that only take an address. The answer is 202 with the task's reference, or what it answers when its duty says the caller waits.`;
   }
 
   private async departmentFor(companyId: string, thread: ThreadRow, key: string | undefined) {

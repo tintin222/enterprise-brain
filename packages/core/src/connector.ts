@@ -121,7 +121,8 @@ export const ConnectorManifest = z.object({
     .default([]),
   docsUrl: z.string().optional(),
   /** stable = tested against the live API; preview = implemented from API docs, verify in your tenant; sandbox = built-in demo data. */
-  maturity: z.enum(["stable", "preview", "sandbox"]).default("preview"),
+  /** deprecated: replaced by something else (its description says what); kept for connections made before. */
+  maturity: z.enum(["stable", "preview", "sandbox", "deprecated"]).default("preview"),
   /** What the customer's IT typically needs to provide, used by the Agent Builder when drafting IT requests. */
   itRequirements: z.array(z.string()).default([]),
   /** The platform sets it up and keeps it in step (the company's tables): nobody adds or changes it. */

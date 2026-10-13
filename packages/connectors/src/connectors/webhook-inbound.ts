@@ -2,10 +2,9 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { defineConnector, defineManifest } from "../define.ts";
 
 /**
- * Describes an inbound trigger: web forms (e.g. job applications on the
- * careers page, quote requests) or other systems POST to a webhook URL issued
- * by the Enterprise Brain server, and each submission starts the bound agent.
- * The connector itself makes no outbound calls and has no operations.
+ * Replaced: each AI employee has its own webhook address (with its own secret or signature) and its own
+ * public form, on its page in the Studio (Duties). Kept so connections made before still show; its
+ * signing helpers are what those addresses check signatures with.
  */
 
 export const SUBMISSION_EVENT = {
@@ -20,9 +19,10 @@ const manifest = defineManifest({
   vendor: "Enterprise Brain",
   category: "web",
   description:
-    "Receives submissions from web forms (job applications from the careers page, contact and quote requests) and from other systems through an HTTPS webhook URL issued by Enterprise Brain. Each submission triggers the bound agent or workflow.",
+    "Replaced by each AI employee's own webhook address and public form: open the AI employee in the Studio, Duties, " +
+    "to give its address (with a secret or a signature) to another system, or the link of its form to people.",
   auth: "none",
-  maturity: "stable",
+  maturity: "deprecated",
   config: [
     {
       key: "shared_secret",

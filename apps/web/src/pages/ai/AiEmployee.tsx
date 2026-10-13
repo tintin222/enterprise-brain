@@ -38,6 +38,7 @@ import { Button, ButtonLink } from "../../components/Button.tsx";
 import { Card, CardHeader } from "../../components/Card.tsx";
 import { Dialog } from "../../components/Dialog.tsx";
 import { EmploymentPanel, MinutesPerTask, PROBATION } from "../../components/Employment.tsx";
+import { Entrances } from "../../components/Entrances.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
 import { Field } from "../../components/Form.tsx";
 import { Page } from "../../components/Layout.tsx";
@@ -433,6 +434,7 @@ function DutiesTab({ detail }: { detail: AgentDetail }) {
           ))}
         </ul>
       </Section>
+      <Entrances detail={detail} />
     </div>
   );
 }

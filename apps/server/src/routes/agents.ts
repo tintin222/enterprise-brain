@@ -6,7 +6,7 @@ import { actorOf, canHandleWork, canManageDepartment, canSeeDepartment, requireA
 import type { AppContext } from "../context.ts";
 import { HttpError, companyOf, readMultipart, sse } from "../http.ts";
 
-function inputFromMultipart(
+export function inputFromMultipart(
   definition: AgentDefinition,
   fields: Record<string, string>,
   files: { field: string; id: string }[],
