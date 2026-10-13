@@ -76,4 +76,5 @@ processes:
   - finance.expense-audit
   - finance.collections
   - finance.month-end-close
+  - finance.order-intake
 tags: [accounting, accounts-payable, receivables, controlling, finans, muhasebe]

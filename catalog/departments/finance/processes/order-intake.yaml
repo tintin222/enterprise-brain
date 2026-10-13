@@ -1,0 +1,62 @@
+id: finance.order-intake
+department: finance
+name: Order Intake
+summary: >-
+  Takes each order the web shop sends: big orders go to the finance manager first, every line is
+  priced, the web shop gets its answer at once, the finance team hears of it in Chat, and the
+  delivery date is followed up with the shop.
+description: >-
+  Orders arrive from the web shop's system (or its form) at any hour, and finance checks each one by
+  hand before it is confirmed. Order Intake follows a fixed procedure: orders above the company's
+  limit wait for the finance manager, each line is priced and the totals are worked out per product,
+  and the web shop is answered in the same call. Order Follow-up gives an order to Order Intake and
+  then waits for the shop to call back with the delivery date.
+trigger:
+  type: api
+  description: The web shop sends each new order to the AI employee's own address, or a customer uses its form.
+frequency: Continuous; peaks after campaigns
+steps:
+  - id: send
+    name: The web shop sends the order
+    actor: system:ecommerce
+  - id: intake
+    name: Check, price and answer the order
+    actor: agent:finance.order-intake
+    description: Big orders wait for the finance manager; every line is priced, totals per product, the shop is answered.
+    sla: 1 minute
+  - id: big-order
+    name: Approve big orders
+    actor: human:finance-manager
+    approval: true
+    description: Orders above the limit (10,000 unless the company's big_order variable says otherwise).
+  - id: follow-up
+    name: Follow the order up
+    actor: agent:finance.order-follow-up
+    description: Gives the order to Order Intake, then asks the shop for the delivery date and waits for its call.
+  - id: confirm
+    name: The shop confirms the delivery date
+    actor: system:ecommerce
+agents:
+  - finance.order-intake
+  - finance.order-follow-up
+kpis:
+  - id: answer-time
+    name: Order to answer
+    unit: seconds
+    target: "< 5"
+  - id: orders-alone
+    name: Orders handled without a person
+    unit: "%"
+    target: "> 90"
+integrations:
+  - category: ecommerce
+    purpose: The web shop sends orders and receives the answer; it calls back with the delivery date.
+    required: true
+  - category: messaging
+    purpose: The finance team hears of each order in Chat.
+    required: false
+useCases: [excel-automation]
+value:
+  hoursSavedPerMonth: 20
+  description: Every order is checked and answered within seconds, and only big orders take a person's time.
+maturity: ready

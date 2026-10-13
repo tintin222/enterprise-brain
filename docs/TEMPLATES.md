@@ -146,7 +146,7 @@ You are the CV Screener. …
         steps:
           - {id: approve_big, type: approval, title: "Order {{ input.order }} is over 10,000. Accept it?"}
     else:
-      - {id: accepted, type: output, value: {accepted: true}}
+      - {id: accepted, type: code, code: "return { accepted: true };"}
   - id: lines
     type: each
     over: "{{ input.lines }}"
