@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Lightbulb, LibraryBig, Sparkles, WandSparkles } from "lucide-react";
+import { ArrowRight, FolderKanban, Lightbulb, LibraryBig, Sparkles, WandSparkles } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { api } from "../../api.ts";
@@ -14,7 +14,7 @@ import { useViewer } from "../../lib/auth.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { LANGUAGES } from "../../lib/labels.ts";
 import { paths } from "../../lib/paths.ts";
-import { keys } from "../../lib/queries.ts";
+import { keys, useProject } from "../../lib/queries.ts";
 import { readJson, writeJson } from "../../lib/storage.ts";
 import { useToast } from "../../lib/toast.tsx";
 import type { AgentTemplate, SessionView } from "../../types.ts";
@@ -92,6 +92,9 @@ export default function BuilderNew() {
   const queryClient = useQueryClient();
   const [params] = useSearchParams();
   const templateId = params.get("template");
+  // Started from a project's page: the interview designs for that project.
+  const projectId = params.get("project") ?? undefined;
+  const project = useProject(projectId);
 
   const [description, setDescription] = useState("");
   const [formDescription, setFormDescription] = useState("");
@@ -130,6 +133,7 @@ export default function BuilderNew() {
         department,
         language,
         roundSize: Number(roundSize),
+        projectId: projectId ?? null,
       }),
     onSuccess: (view) => {
       queryClient.setQueryData(keys.session(company, view.session.id), view);
@@ -169,6 +173,15 @@ export default function BuilderNew() {
           The analyst will adapt it to your process instead of starting from scratch.{" "}
           <Link to={paths.readyMade(undefined, { tab: "agents" })} className="font-medium underline">
             Browse other templates
+          </Link>
+        </Callout>
+      )}
+
+      {project.data && (
+        <Callout tone="brand" icon={FolderKanban} className="mb-6" title={`For the project “${project.data.name}”`}>
+          The interview and the AI employee it designs belong to the project; its development package carries them.{" "}
+          <Link to={paths.project(project.data.slug, "designs")} className="font-medium underline">
+            Back to the project
           </Link>
         </Callout>
       )}

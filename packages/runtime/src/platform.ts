@@ -30,6 +30,7 @@ import { ActionLinks } from "./links.ts";
 import { MailService } from "./mail.ts";
 import { EmailChannel, NotificationService } from "./notifications.ts";
 import { PeopleService } from "./people.ts";
+import { ProjectService } from "./projects.ts";
 import { QueueService } from "./queue.ts";
 import { SecretBox } from "./secrets.ts";
 import { AppService } from "./apps.ts";
@@ -40,6 +41,7 @@ import { ReviewService } from "./reviews.ts";
 import { TableService } from "./tables.ts";
 import { TeamsTransport } from "./teams.ts";
 import { TaskService } from "./tasks.ts";
+import { TodoService } from "./todos.ts";
 import { TriggerService } from "./triggers.ts";
 import { WatcherService } from "./watchers.ts";
 import { WorkService } from "./work.ts";
@@ -126,6 +128,10 @@ export class Platform {
   readonly brainSources: BrainSources;
   /** The company's tables in the brain, read from its databases through their connections. */
   readonly brainCatalog: BrainCatalog;
+  /** People's own to-dos: from their mail, from projects, from the Studio, or written by hand. */
+  readonly todos: TodoService;
+  /** Projects: client work and the AI employees designed for it, with what they use and the development package. */
+  readonly projects: ProjectService;
 
   constructor(options: PlatformOptions) {
     this.handle = options.db;
@@ -244,6 +250,21 @@ export class Platform {
       llm: this.llm,
       knowledge: this.knowledge,
       brain: this.brain,
+    });
+    this.todos = new TodoService(this.handle);
+    this.projects = new ProjectService({
+      handle: this.handle,
+      brain: this.brain,
+      conversations: this.conversations,
+      activity: this.activity,
+      todos: this.todos,
+      agents: this.agents,
+      tables: this.tables,
+      apps: this.apps,
+      calculations: this.calculations,
+      knowledge: this.knowledge,
+      files: this.files,
+      connectors: this.connectors,
     });
     this.notifications.watchConversations(this.conversations);
     // A task's brief carries the comments people wrote in its conversation; its history shows there too.

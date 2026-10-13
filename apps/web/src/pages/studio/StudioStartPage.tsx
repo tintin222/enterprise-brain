@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { ArrowRight, WandSparkles } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { api } from "../../api.ts";
 import { Button } from "../../components/Button.tsx";
 import { PageHeader } from "../../components/Card.tsx";
@@ -10,7 +10,7 @@ import { ErrorState } from "../../components/Spinner.tsx";
 import { useViewer } from "../../lib/auth.tsx";
 import { useCompany } from "../../lib/company.tsx";
 import { paths } from "../../lib/paths.ts";
-import { useDepartments } from "../../lib/queries.ts";
+import { useDepartments, useProject } from "../../lib/queries.ts";
 import { useDocumentTitle } from "../../lib/title.ts";
 import type { StudioThreadView } from "../../types.ts";
 
@@ -20,12 +20,16 @@ export function StudioStart() {
   const navigate = useNavigate();
   const viewer = useViewer();
   const departments = useDepartments();
+  const [params] = useSearchParams();
+  // Started from a project's page: the conversation designs for that project.
+  const projectId = params.get("project") ?? undefined;
+  const project = useProject(projectId);
   const [text, setText] = useState("");
   const hiresFor = (departments.data ?? []).filter((d) => !viewer || viewer.isAdmin || viewer.departments.some((m) => m.id === d.id && m.role === "manager"));
   const [department, setDepartment] = useState("");
   const chosen = department || (hiresFor.length === 1 ? hiresFor[0]!.id : "");
   const start = useMutation({
-    mutationFn: () => api.post<StudioThreadView>(path("/studio/threads"), { text: text.trim(), departmentId: chosen || null }),
+    mutationFn: () => api.post<StudioThreadView>(path("/studio/threads"), { text: text.trim(), departmentId: chosen || null, projectId: projectId ?? null }),
     onSuccess: (view) => navigate(paths.studioConversation(view.id)),
   });
   const submit = (e: FormEvent) => {
@@ -46,6 +50,15 @@ export function StudioStart() {
           </p>
         </div>
       </div>
+      {project.data && (
+        <p className="mt-3 rounded-lg bg-subtle/60 px-3 py-2 text-sm text-muted">
+          For the project{" "}
+          <Link to={paths.project(project.data.slug)} className="font-medium text-fg hover:underline">
+            {project.data.name}
+          </Link>
+          : the Studio starts knowing what the project uses, adds what it finds to it, and leaves you tasks for what only you can do.
+        </p>
+      )}
       <textarea
         value={text}
         onChange={(e) => setText(e.target.value)}

@@ -14,6 +14,8 @@ const StartBody = z.object({
   department: z.string().optional(),
   language: z.string().optional(),
   roundSize: z.number().int().min(1).max(10).optional(),
+  /** The project the interview designs for, when started from one. */
+  projectId: z.string().uuid().nullish(),
 });
 
 const ReplyBody = z.object({
@@ -32,7 +34,7 @@ const ReplyBody = z.object({
 });
 
 /** A Studio interview is its hiring manager's: they, the managers of its department and admins see it. */
-function mayOpen(viewer: Viewer, session: { requesterEmail: string | null; department: string | null }): boolean {
+export function mayOpenInterview(viewer: Viewer, session: { requesterEmail: string | null; department: string | null }): boolean {
   if (viewer.isAdmin) return true;
   if (viewer.email && session.requesterEmail?.toLowerCase() === viewer.email.toLowerCase()) return true;
   return viewer.departments.some((d) => d.role === "manager" && d.key === session.department);
@@ -46,14 +48,14 @@ export async function builderRoutes(app: FastifyInstance, ctx: AppContext) {
     const viewer = requireAnyManager(request);
     const { id } = request.params as { id: string };
     const session = await builder.find(companyId, id);
-    if (!mayOpen(viewer, session)) throw new HttpError(404, `Builder session ${id} not found`);
+    if (!mayOpenInterview(viewer, session)) throw new HttpError(404, `Builder session ${id} not found`);
     return id;
   };
 
   app.get("/api/companies/:company/builder/sessions", async (request) => {
     const company = await companyOf(platform, request);
     const viewer = requireAnyManager(request);
-    const sessions = (await builder.list(company.id)).filter((s) => mayOpen(viewer, s));
+    const sessions = (await builder.list(company.id)).filter((s) => mayOpenInterview(viewer, s));
     return sessions.map((s) => ({
       id: s.id,
       title: s.title,
@@ -148,7 +150,7 @@ export async function builderRoutes(app: FastifyInstance, ctx: AppContext) {
   const requestFor = async (request: FastifyRequest, companyId: string) => {
     const viewer = requireAnyManager(request);
     const { id } = request.params as { id: string };
-    if (!mayOpen(viewer, await builder.sessionOfRequest(companyId, id))) throw new HttpError(404, `Request ${id} not found`);
+    if (!mayOpenInterview(viewer, await builder.sessionOfRequest(companyId, id))) throw new HttpError(404, `Request ${id} not found`);
     return id;
   };
 

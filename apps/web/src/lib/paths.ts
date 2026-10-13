@@ -62,7 +62,9 @@ export const paths = {
   },
   aiEmployees: () => `${STUDIO}/ai`,
   readyMade: (id?: string, query?: Query) => withQuery(id ? `${STUDIO}/ready-made/${part(id)}` : `${STUDIO}/ready-made`, query),
-  studioConversation: (id: string) => `${STUDIO}/conversations/${part(id)}`,
+  studioConversation: (id: string, query?: Query) => withQuery(`${STUDIO}/conversations/${part(id)}`, query),
+  projects: (query?: Query) => withQuery(`${STUDIO}/projects`, query),
+  project: (slug: string, tab?: string) => withQuery(`${STUDIO}/projects/${part(slug)}`, { tab }),
   interview: (id: string, query?: Query) => withQuery(`${STUDIO}/interviews/${part(id)}`, query),
   settings: (section?: string, query?: Query) => withQuery(section ? `${STUDIO}/settings/${part(section)}` : `${STUDIO}/settings`, query),
 

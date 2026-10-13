@@ -19,6 +19,13 @@ import type {
   Mailbox,
   PerformanceReport,
   Person,
+  ProjectAsset,
+  ProjectDesigns,
+  ProjectStatus,
+  ProjectSummary,
+  ProjectView,
+  Todo,
+  TodoStatus,
   AppDetail,
   AppView,
   CalculationDetail,
@@ -39,6 +46,7 @@ import type {
   TaskRow,
   WorkEntry,
 } from "../types.ts";
+import { useViewer } from "./auth.tsx";
 import { useCompany } from "./company.tsx";
 
 /** Query keys: company-scoped keys start with the company slug so switching companies never mixes data. */
@@ -72,6 +80,9 @@ export const keys = {
   building: (company: string) => [company, "building"] as const,
   reviews: (company: string) => [company, "reviews"] as const,
   studio: (company: string) => [company, "studio"] as const,
+  projects: (company: string) => [company, "projects"] as const,
+  project: (company: string, ref: string) => [company, "projects", ref] as const,
+  todos: (company: string) => [company, "todos"] as const,
 };
 
 export function useCatalog() {
@@ -464,4 +475,62 @@ export function useConversationFor(kind: ForKind | undefined, about: string | un
 export function useChatBadge(): number {
   const { data } = useConversations({ scope: "mine", unread: true, limit: 200 });
   return (data ?? []).filter((c) => c.mentionsMe > 0 || ["dm", "ai_employee", "thread"].includes(c.conversation.kind)).length;
+}
+
+// ---------------------------------------------------------------------------
+// Projects and to-dos
+
+/** The projects; `holding` ("thing:<id>") keeps those with that asset. */
+export function useProjects(options: { status?: ProjectStatus | "open" | "all"; holding?: string; enabled?: boolean } = {}) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.projects(company), "list", { status: options.status ?? "all", holding: options.holding ?? null }],
+    queryFn: () => api.get<ProjectSummary[]>(path(`/projects${qs({ status: options.status, holding: options.holding })}`)),
+    enabled: options.enabled ?? true,
+  });
+}
+
+export function useProject(ref: string | undefined) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: keys.project(company, ref ?? ""),
+    queryFn: () => api.get<ProjectView>(path(`/projects/${encodeURIComponent(ref ?? "")}`)),
+    enabled: Boolean(ref),
+  });
+}
+
+export function useProjectAssets(id: string | undefined) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.project(company, id ?? ""), "assets"],
+    queryFn: () => api.get<{ assets: ProjectAsset[]; hidden: number }>(path(`/projects/${encodeURIComponent(id ?? "")}/assets`)),
+    enabled: Boolean(id),
+  });
+}
+
+export function useProjectDesigns(id: string | undefined) {
+  const { company, path } = useCompany();
+  return useQuery({
+    queryKey: [...keys.project(company, id ?? ""), "designs"],
+    queryFn: () => api.get<ProjectDesigns>(path(`/projects/${encodeURIComponent(id ?? "")}/designs`)),
+    enabled: Boolean(id),
+  });
+}
+
+/** The signed-in person's to-dos (nobody's in open mode or for a machine: the query stays off). */
+export function useTodos(status: TodoStatus | "all" = "open", options: { projectId?: string; enabled?: boolean } = {}) {
+  const { company, path } = useCompany();
+  const viewer = useViewer();
+  return useQuery({
+    queryKey: [...keys.todos(company), { status, project: options.projectId ?? null }],
+    queryFn: () => api.get<Todo[]>(path(`/todos${qs({ status, project: options.projectId })}`)),
+    enabled: (options.enabled ?? true) && viewer?.kind === "session",
+    refetchInterval: 60_000,
+  });
+}
+
+/** How many to-dos wait for the person (the Work badge). */
+export function useTodoCount(): number {
+  const { data } = useTodos("open");
+  return data?.length ?? 0;
 }

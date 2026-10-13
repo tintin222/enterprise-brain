@@ -1,4 +1,4 @@
-import { CircleCheck, History, ListChecks, UserCheck } from "lucide-react";
+import { CircleCheck, History, ListChecks, SquareCheckBig, UserCheck } from "lucide-react";
 import { useSearchParams } from "react-router";
 import { Card, PageHeader } from "../../components/Card.tsx";
 import { EmptyState } from "../../components/EmptyState.tsx";
@@ -6,11 +6,12 @@ import { Page } from "../../components/Layout.tsx";
 import { ErrorState, LoadingBlock, Skeleton } from "../../components/Spinner.tsx";
 import { Segmented, Tabs } from "../../components/Tabs.tsx";
 import { TaskTable } from "../../components/TaskList.tsx";
+import { TodoList } from "../../components/TodoList.tsx";
 import { WorkItemCard } from "../../components/WorkItemCard.tsx";
-import { useAgents, useDepartments, useTasks, useWork } from "../../lib/queries.ts";
+import { useAgents, useDepartments, useTasks, useTodoCount, useWork } from "../../lib/queries.ts";
 import type { WorkEntry } from "../../types.ts";
 
-type View = "queue" | "tasks" | "handled";
+type View = "queue" | "todos" | "tasks" | "handled";
 type Scope = "mine" | "all";
 
 const STATUS_FILTERS = [
@@ -91,6 +92,7 @@ export default function Work() {
   const mine = useWork("mine", "open");
   const handled = useWork(scope, "closed");
   const tasks = useTasks({ status: status === "all" ? undefined : status, agent: agent || undefined, limit: 300 });
+  const myTasks = useTodoCount();
   const agents = useAgents();
   const departments = useDepartments();
   const visibleDepartments = (departments.data ?? []).filter((d) => d.visible !== false);
@@ -105,6 +107,7 @@ export default function Work() {
         onChange={(v) => update({ view: v === "queue" ? null : v })}
         tabs={[
           { id: "queue", label: "Needs a person", icon: UserCheck, count: mine.data?.length || undefined, alert: Boolean(mine.data?.length) },
+          { id: "todos", label: "My tasks", icon: SquareCheckBig, count: myTasks || undefined, alert: Boolean(myTasks) },
           { id: "tasks", label: "Tasks", icon: ListChecks },
           { id: "handled", label: "Handled", icon: History },
         ]}
@@ -128,6 +131,15 @@ export default function Work() {
             <Queue entries={handled.data ?? []} loading={handled.isLoading} error={handled.error} retry={() => void handled.refetch()} scope={scope} handled />
           )}
         </>
+      )}
+
+      {view === "todos" && (
+        <div className="max-w-3xl">
+          <p className="mb-4 text-sm text-muted">
+            What you must do yourself: tasks made from your mail, what the Studio needs from you for a project, and what you write down. Yours alone.
+          </p>
+          <TodoList />
+        </div>
       )}
 
       {view === "tasks" && (

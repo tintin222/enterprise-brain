@@ -162,6 +162,13 @@
       "when": 1791544127859,
       "tag": "0022_chat_channels",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791888389244,
+      "tag": "0023_projects_todos_mail_accounts",
+      "breakpoints": true
     }
   ]
 }

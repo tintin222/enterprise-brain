@@ -24,6 +24,8 @@ const AiEmployee = lazy(() => import("./pages/ai/AiEmployee.tsx"));
 const StudioHome = lazy(() => import("./pages/studio/StudioHome.tsx"));
 const StudioStartPage = lazy(() => import("./pages/studio/StudioStartPage.tsx"));
 const StudioAiEmployees = lazy(() => import("./pages/studio/AiEmployees.tsx"));
+const Projects = lazy(() => import("./pages/projects/Projects.tsx"));
+const ProjectPage = lazy(() => import("./pages/projects/ProjectPage.tsx"));
 const BuilderNew = lazy(() => import("./pages/builder/BuilderNew.tsx"));
 const BuilderSession = lazy(() => import("./pages/builder/BuilderSession.tsx"));
 const StudioThread = lazy(() => import("./pages/studio/StudioThread.tsx"));
@@ -161,6 +163,8 @@ const router = createBrowserRouter([
             path: "studio",
             children: [
               { index: true, element: <StudioHome /> },
+              { path: "projects", element: <Projects /> },
+              { path: "projects/:slug", element: <ProjectPage /> },
               { path: "ai", element: <StudioAiEmployees /> },
               { path: "ai/:slug", element: <AiEmployee /> },
               {

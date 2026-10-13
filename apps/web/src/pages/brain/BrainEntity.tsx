@@ -1,8 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bot, DatabaseZap, Link2, Lightbulb, MessageCircleQuestion, NotebookPen, Pencil, Plus, Share2, Trash2, X } from "lucide-react";
+import { Bot, DatabaseZap, FolderPlus, Link2, Lightbulb, MessageCircleQuestion, NotebookPen, Pencil, Plus, Share2, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api, qs } from "../../api.ts";
+import { AddToProjectDialog } from "../../components/AddToProjectDialog.tsx";
 import { Badge } from "../../components/Badge.tsx";
 import { Button, ButtonLink } from "../../components/Button.tsx";
 import { Card, CardBody, CardHeader } from "../../components/Card.tsx";
@@ -240,6 +241,7 @@ export default function BrainEntityPage() {
   const [editing, setEditing] = useState(false);
   const [linking, setLinking] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [addingToProject, setAddingToProject] = useState(false);
   const [reading, setReading] = useState(false);
   useDocumentTitle(entity.data?.name ?? "Company brain");
 
@@ -354,6 +356,9 @@ export default function BrainEntityPage() {
           <ButtonLink to={paths.thingChat(thing.id, { teach: 1 })} icon={Lightbulb} size="sm">
             Tell the brain
           </ButtonLink>
+          <Button icon={FolderPlus} size="sm" onClick={() => setAddingToProject(true)} title="Into a project's assets and its development package">
+            Add to a project
+          </Button>
           {mayEdit && isDatabase && (
             <Button icon={DatabaseZap} size="sm" onClick={() => setReading(true)}>
               Read tables
@@ -509,6 +514,7 @@ export default function BrainEntityPage() {
           </>
         }
       />
+      <AddToProjectDialog asset={{ kind: "thing", ref: thing.id, name: thing.name }} open={addingToProject} onClose={() => setAddingToProject(false)} />
     </Page>
   );
 }

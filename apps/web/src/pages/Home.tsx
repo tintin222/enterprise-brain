@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { clsx } from "clsx";
-import { ArrowRight, Bot, CalendarClock, CircleCheck, Inbox, UserPlus } from "lucide-react";
+import { ArrowRight, Bot, CalendarClock, CircleCheck, Inbox, SquareCheckBig, UserPlus } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { api } from "../api.ts";
@@ -14,9 +14,9 @@ import { NeedBox } from "../components/NeedBox.tsx";
 import { ErrorState, Skeleton } from "../components/Spinner.tsx";
 import { WorkItemCard } from "../components/WorkItemCard.tsx";
 import { useCompany } from "../lib/company.tsx";
-import { plural, timeAgo } from "../lib/format.ts";
+import { formatDate, plural, timeAgo } from "../lib/format.ts";
 import { paths } from "../lib/paths.ts";
-import { keys, useHome, useRecurring, useWork } from "../lib/queries.ts";
+import { keys, useHome, useRecurring, useTodos, useWork } from "../lib/queries.ts";
 import { useDocumentTitle } from "../lib/title.ts";
 import { useToast } from "../lib/toast.tsx";
 import type { HomeData, RecurringWork } from "../types.ts";
@@ -77,6 +77,44 @@ function NeedsYou() {
         ))}
       </div>
     </section>
+  );
+}
+
+/** The person's own to-dos: from their mail, their projects and the Studio. */
+function MyTasks() {
+  const todos = useTodos("open");
+  const list = todos.data ?? [];
+  if (!todos.data || list.length === 0) return null;
+  return (
+    <Card>
+      <CardHeader
+        title={`My tasks (${list.length})`}
+        icon={SquareCheckBig}
+        actions={
+          <ButtonLink to={paths.work(undefined, { view: "todos" })} size="xs" variant="ghost" iconRight={ArrowRight}>
+            All
+          </ButtonLink>
+        }
+      />
+      <ul className="divide-y divide-line">
+        {list.slice(0, SHOWN).map((todo) => (
+          <li key={todo.id} className="px-5 py-2.5">
+            <Link to={paths.work(undefined, { view: "todos" })} className="block text-sm text-fg hover:underline">
+              {todo.title}
+            </Link>
+            <p className="truncate text-xs text-muted">
+              {[
+                todo.source === "mail" ? "From your mail" : todo.source === "studio" ? "From the Studio" : null,
+                todo.project?.name,
+                todo.dueAt ? `due ${formatDate(todo.dueAt)}` : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </Card>
   );
 }
 
@@ -202,7 +240,7 @@ export default function Home() {
   useDocumentTitle("Home");
   const home = useHome();
   const data = home.data;
-  const waiting = useWork("mine").data?.length ?? 0;
+  const waiting = (useWork("mine").data?.length ?? 0) + (useTodos("open").data?.length ?? 0);
   return (
     <Page>
       <div className="mb-6">
@@ -225,6 +263,7 @@ export default function Home() {
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] xl:grid-cols-[minmax(0,1fr)_26rem]">
         <NeedsYou />
         <div className="space-y-6">
+          <MyTasks />
           <DecisionsForYou />
           {data ? <AiEmployeesToday home={data} /> : home.isLoading && <Skeleton className="h-56" />}
           <Regularly />

@@ -6,6 +6,7 @@ import {
   Brain,
   Building,
   Building2,
+  FolderKanban,
   House,
   LayoutGrid,
   LibraryBig,
@@ -30,7 +31,7 @@ import { useCompany } from "../lib/company.tsx";
 import { paths, STUDIO, usePortal, type Portal } from "../lib/paths.ts";
 import { initials } from "../lib/format.ts";
 import { isTyping, useStoredFlag } from "../lib/preferences.ts";
-import { useChatBadge, useWork } from "../lib/queries.ts";
+import { useChatBadge, useTodoCount, useWork } from "../lib/queries.ts";
 import { useTheme } from "../lib/theme.ts";
 import { NotificationsDialog } from "./NotificationSettings.tsx";
 import { Wordmark } from "./Logo.tsx";
@@ -77,6 +78,12 @@ const PLACES: Record<Portal, Place[]> = {
       also: [`${STUDIO}/conversations`, `${STUDIO}/interviews`],
       hint: "Build what your departments need: the Studio agent, a guided interview, or one box for anything",
     },
+    {
+      to: `${STUDIO}/projects`,
+      label: "Projects",
+      icon: FolderKanban,
+      hint: "Client work and the AI employees you design for it: what it uses from the brain, its designs, your tasks, the development package",
+    },
     { to: `${STUDIO}/ai`, label: "AI employees", icon: Bot, hint: "How each AI employee is set up: its job, duties, access, rules, coaching and versions" },
     {
       to: `${STUDIO}/brain`,
@@ -96,10 +103,11 @@ const PLACES: Record<Portal, Place[]> = {
   ],
 };
 
-/** Things waiting for the viewer (approvals, questions, checks): the Work badge and the bell. */
+/** Things waiting for the viewer (approvals, questions, checks, and their own to-dos): the Work badge and the bell. */
 function useNeedsYou(): number {
   const { data } = useWork("mine");
-  return data?.length ?? 0;
+  const todos = useTodoCount();
+  return (data?.length ?? 0) + todos;
 }
 
 /** The main menu; `folded` shows only the icons (wide screens), with each name on hover. */

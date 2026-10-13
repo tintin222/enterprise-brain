@@ -109,6 +109,20 @@ export function canShapeBrain(viewer: Viewer): boolean {
   return viewer.isAdmin || viewer.departments.some((d) => d.role === "manager");
 }
 
+/** Who changes a project (its details, assets and designs): its owner, admins, and the managers of any department. */
+export function canEditProject(viewer: Viewer, project: { ownerUserId: string | null }): boolean {
+  if (viewer.isAdmin) return true;
+  if (project.ownerUserId && viewer.userId === project.ownerUserId) return true;
+  return viewer.departments.some((d) => d.role === "manager");
+}
+
+/** The signed-in person behind a request: to-dos and a person's own mail need one (the API key and open mode have none). */
+export function requirePerson(request: FastifyRequest, what = "have your own tasks"): Viewer & { userId: string } {
+  const viewer = viewerOf(request);
+  if (viewer.kind !== "session" || !viewer.userId) throw new HttpError(409, `Sign in to ${what}`);
+  return viewer as Viewer & { userId: string };
+}
+
 /** How the viewer appears in the audit log and on decisions. */
 export function actorOf(viewer: Viewer | undefined): string {
   if (!viewer) return "system";

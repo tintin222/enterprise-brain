@@ -86,6 +86,8 @@ export interface StartSessionInput {
   department?: string;
   language?: string;
   roundSize?: number;
+  /** The project it designs for, when started inside one. */
+  projectId?: string | null;
 }
 
 export interface StructuredAnswer {
@@ -182,6 +184,7 @@ export class BuilderService {
         language,
         tree: tree as unknown as Record<string, unknown>,
         settings: settings as unknown as Record<string, unknown>,
+        projectId: input.projectId ?? null,
       })
       .returning();
     await this.message(session!.id, "user", input.description + (input.formDescription ? `\n\n**Form:** ${input.formDescription}` : ""));

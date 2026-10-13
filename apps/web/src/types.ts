@@ -2438,3 +2438,93 @@ export interface BrainLearnApplied {
   skipped: string[];
   ids: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Projects and to-dos
+
+export type ProjectStatus = "planned" | "active" | "on_hold" | "done" | "cancelled";
+export type ProjectAssetKind = "thing" | "table" | "app" | "calculation" | "document" | "file" | "connection" | "agent";
+
+export interface ProjectSummary {
+  id: string;
+  slug: string;
+  name: string;
+  summary: string;
+  status: ProjectStatus;
+  client: string | null;
+  ownerUserId: string | null;
+  thingId: string | null;
+  conversationId: string | null;
+  lastExportedAt: string | null;
+  exports: number;
+  counts: { assets: number; designs: number; openTodos: number };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectView extends ProjectSummary {
+  owner: { id: string; name: string } | null;
+  channel: { id: string; name: string | null; status: string } | null;
+  canEdit: boolean;
+}
+
+/** Something a project uses, as its page shows it. */
+export interface ProjectAsset {
+  id: string;
+  kind: ProjectAssetKind;
+  /** The thing's, document's, file's, connection's or AI employee's id; a table's, app's or calculation's key. */
+  ref: string;
+  note: string;
+  addedBy: { kind: string; id: string; name: string };
+  createdAt: string;
+  name: string;
+  detail: string;
+  exists: boolean;
+  departmentId: string | null;
+  shared: boolean;
+}
+
+export interface ProjectDesigns {
+  threads: {
+    id: string;
+    title: string;
+    status: string;
+    ownerId: string | null;
+    owner: string;
+    builtAt: string | null;
+    updatedAt: string;
+    agentIds: string[];
+    canOpen: boolean;
+  }[];
+  interviews: {
+    id: string;
+    title: string;
+    status: string;
+    requesterEmail: string | null;
+    department: string | null;
+    agentId: string | null;
+    updatedAt: string;
+    canOpen: boolean;
+  }[];
+  agents: { id: string; slug: string; name: string; status: string; departmentId: string | null; from: "studio" | "interview" | "attached" }[];
+}
+
+export type TodoStatus = "open" | "done" | "dismissed";
+/** manual: written by hand · mail: from the person's mail · studio: the Studio agent asked for it · project: added on a project's page */
+export type TodoSource = "manual" | "mail" | "studio" | "project";
+
+export interface Todo {
+  id: string;
+  title: string;
+  details: string;
+  dueAt: string | null;
+  status: TodoStatus;
+  source: TodoSource;
+  sourceRef: string | null;
+  /** Where to go for it: the mail in Gmail, the Studio conversation. */
+  link: string | null;
+  data: Record<string, unknown>;
+  project: { id: string; slug: string; name: string } | null;
+  createdAt: string;
+  doneAt: string | null;
+}

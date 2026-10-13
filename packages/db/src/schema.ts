@@ -609,10 +609,12 @@ export const builderSessions = pgTable(
     summary: text("summary"),
     agentId: uuid("agent_id").references(() => agents.id, { onDelete: "set null" }),
     settings: jsonb("settings").$type<Record<string, unknown>>().notNull().default({}),
+    /** The project it designs for, when started inside one. */
+    projectId: uuid("project_id").references((): AnyPgColumn => projects.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("builder_sessions_company").on(t.companyId, t.updatedAt)],
+  (t) => [index("builder_sessions_company").on(t.companyId, t.updatedAt), index("builder_sessions_project").on(t.projectId)],
 );
 
 export const builderMessages = pgTable(
@@ -1193,10 +1195,12 @@ export const studioThreads = pgTable(
     error: text("error"),
     /** When the person put the solution to work. */
     builtAt: timestamp("built_at", { withTimezone: true }),
+    /** The project it designs for, when started inside one. */
+    projectId: uuid("project_id").references((): AnyPgColumn => projects.id, { onDelete: "set null" }),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },
-  (t) => [index("studio_threads_company").on(t.companyId, t.updatedAt)],
+  (t) => [index("studio_threads_company").on(t.companyId, t.updatedAt), index("studio_threads_project").on(t.projectId)],
 );
 
 export const studioEvents = pgTable(
@@ -1323,4 +1327,123 @@ export const brainSources = pgTable(
     updatedAt: updatedAt(),
   },
   (t) => [uniqueIndex("brain_sources_company_key").on(t.companyId, t.key)],
+);
+
+// ---------------------------------------------------------------------------
+// Projects, to-dos and a person's own mail
+
+/**
+ * A project: client work and the AI employees designed for it. This is the app's side (slug, owner,
+ * channel, assets, exports); what the company knows about it is its thing of kind `project` in the brain.
+ */
+export const projects = pgTable(
+  "projects",
+  {
+    id: id(),
+    companyId: companyId(),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    summary: text("summary").notNull().default(""),
+    /** planned · active · on_hold · done · cancelled */
+    status: text("status").notNull().default("active"),
+    client: text("client"),
+    ownerUserId: uuid("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Its thing in the company brain. */
+    thingId: uuid("thing_id").references(() => brainEntities.id, { onDelete: "set null" }),
+    /** Its private channel. */
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    /** { lastExportedAt?, exports?: [{ at, by, files }] } */
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("projects_company_slug").on(t.companyId, t.slug), index("projects_company_updated").on(t.companyId, t.updatedAt)],
+);
+
+/** What a project uses: things of the brain, tables, apps, calculations, documents, files, connections, AI employees. */
+export const projectAssets = pgTable(
+  "project_assets",
+  {
+    id: id(),
+    companyId: companyId(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** thing · table · app · calculation · document · file · connection · agent */
+    kind: text("kind").notNull(),
+    /** The thing's, document's, file's, connection's or AI employee's id; a table's, app's or calculation's key. */
+    ref: text("ref").notNull(),
+    note: text("note").notNull().default(""),
+    addedBy: jsonb("added_by").$type<StoredActor>().notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("project_assets_unique").on(t.projectId, t.kind, t.ref), index("project_assets_ref").on(t.companyId, t.kind, t.ref)],
+);
+
+/** A person's to-do: from their mail, from a project, from the Studio, or written by hand. Theirs alone. */
+export const todos = pgTable(
+  "todos",
+  {
+    id: id(),
+    companyId: companyId(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+    title: text("title").notNull(),
+    details: text("details").notNull().default(""),
+    dueAt: timestamp("due_at", { withTimezone: true }),
+    /** open · done · dismissed */
+    status: text("status").notNull().default("open"),
+    /** manual · mail · studio · project */
+    source: text("source").notNull().default("manual"),
+    /** What it came from (a mail's id; a Studio thread and title), so the same thing never makes two. */
+    sourceRef: text("source_ref"),
+    /** Where to go for it: the mail in Gmail, the Studio conversation. */
+    link: text("link"),
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    createdBy: jsonb("created_by").$type<StoredActor>().notNull(),
+    createdAt: createdAt(),
+    doneAt: timestamp("done_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("todos_user_status").on(t.companyId, t.userId, t.status, t.createdAt),
+    uniqueIndex("todos_source_ref")
+      .on(t.userId, t.source, t.sourceRef)
+      .where(sql`${t.sourceRef} is not null`),
+  ],
+);
+
+/**
+ * A person's own mailbox (Gmail), read for their to-dos only: not a company connection, never in the
+ * shared mail pipeline, never read by the brain.
+ */
+export const mailAccounts = pgTable(
+  "mail_accounts",
+  {
+    id: id(),
+    companyId: companyId(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** gmail */
+    provider: text("provider").notNull().default("gmail"),
+    address: text("address").notNull(),
+    /** The refresh token, sealed with the master key. */
+    secretsCiphertext: text("secrets_ciphertext").notNull(),
+    scope: text("scope").notNull().default(""),
+    /** Where the last check left off (the connector's cursor). */
+    cursor: text("cursor"),
+    tasksEnabled: boolean("tasks_enabled").notNull().default(true),
+    /** ok · error */
+    status: text("status").notNull().default("ok"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }),
+    lastCount: integer("last_count").notNull().default(0),
+    lastError: text("last_error"),
+    /** { quietSenders: string[], checked: number, made: number } */
+    data: jsonb("data").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("mail_accounts_user_provider").on(t.userId, t.provider)],
 );

@@ -11,11 +11,13 @@ import {
   CoachingError,
   ConversationError,
   PeopleError,
+  ProjectError,
   RecurringWorkError,
   ReviewError,
   RunError,
   TableError,
   TaskError,
+  TodoError,
   WorkError,
   type CompanyRow,
   type Platform,
@@ -47,7 +49,9 @@ export function statusFor(error: unknown): number {
     error instanceof CalculationError ||
     error instanceof RecurringWorkError ||
     error instanceof ReviewError ||
-    error instanceof ConversationError
+    error instanceof ConversationError ||
+    error instanceof ProjectError ||
+    error instanceof TodoError
   )
     return error.status;
   if (error instanceof RecordValueError) return 400;

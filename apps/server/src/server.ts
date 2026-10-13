@@ -28,7 +28,9 @@ import { appRoutes } from "./routes/apps.ts";
 import { calculationRoutes } from "./routes/calculations.ts";
 import { needRoutes } from "./routes/needs.ts";
 import { buildingRoutes } from "./routes/building.ts";
+import { projectRoutes } from "./routes/projects.ts";
 import { studioRoutes } from "./routes/studio.ts";
+import { todoRoutes } from "./routes/todos.ts";
 import { tableRoutes } from "./routes/tables.ts";
 import { notificationRoutes } from "./routes/notifications.ts";
 import { paperclipRoutes } from "./routes/paperclip.ts";
@@ -155,6 +157,8 @@ export async function buildServer(ctx: AppContext, options: { logger?: boolean }
   await conversationRoutes(app, ctx);
   await builderRoutes(app, ctx);
   await studioRoutes(app, ctx);
+  await projectRoutes(app, ctx);
+  await todoRoutes(app, ctx);
   await brainRoutes(app, ctx);
   await paperclipRoutes(app, ctx);
   await mcpRoutes(app, ctx);

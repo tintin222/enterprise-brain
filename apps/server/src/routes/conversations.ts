@@ -184,8 +184,12 @@ export async function conversationRoutes(app: FastifyInstance, ctx: AppContext) 
 
   /** The page a conversation is about: its task, its AI employee, its thing in the brain; a thread's channel or direct message. */
   const aboutOf = async (companyId: string, conversation: ConversationRow): Promise<{ href: string; label: string } | null> => {
-    if (!conversation.aboutId) return null;
     try {
+      if (conversation.kind === "channel") {
+        const project = await platform.projects.byConversation(companyId, conversation.id);
+        return project ? { href: `/studio/projects/${encodeURIComponent(project.slug)}`, label: project.name } : null;
+      }
+      if (!conversation.aboutId) return null;
       switch (conversation.kind) {
         case "thread": {
           const parent = conversation.parentId ? await platform.conversations.find(companyId, conversation.parentId) : undefined;
