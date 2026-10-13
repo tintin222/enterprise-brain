@@ -279,12 +279,13 @@ export const LeafStep = z.discriminatedUnion("type", [
     ...StepBase,
     type: z.literal("code"),
     /**
-     * JavaScript, as the body of `function run(ctx)`: `ctx` holds input, steps, vars, item and index (and the
-     * step's own `input`), and what it returns is the step's result. It runs in a sandbox: no network, files
-     * or timers, five seconds at most.
+     * JavaScript, as the body of `function run(ctx)`: `ctx` holds the run's input, the steps' results, vars,
+     * agent, run, the loop's item and index, and the step's own values; what it returns is the step's
+     * result. It runs in a sandbox: no network, files or timers, five seconds unless timeoutSeconds says
+     * otherwise (30 at most).
      */
     code: z.string().min(1),
-    /** Values the code gets as ctx.input, as templates. */
+    /** Values the code gets as ctx.values (templates): the fields it needs when the steps' results are large. */
     input: z.record(z.string(), z.unknown()).optional(),
   }),
   z.object({

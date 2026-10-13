@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { AgentDefinition, isRecord, stringify, truncate, type FieldSpec, type WorkflowStep } from "@enterprise-brain/core";
+import { AgentDefinition, isRecord, stringify, truncate, walkSteps, type FieldSpec, type WorkflowStep } from "@enterprise-brain/core";
 import { coachingProposals } from "@enterprise-brain/db";
 import type { LlmClient } from "@enterprise-brain/llm";
 import { CoachingError, type AgentRecord, type CoachingNoteRow, type Platform, type RunRow, type TaskRow } from "@enterprise-brain/runtime";
@@ -801,8 +801,15 @@ export class StudioCoach {
     if (!original) return { ...item, status: "failed", error: "It has no run to replay" };
     const originalDefinition = await this.platform.agents.definitionAt(original.agentId, original.agentVersion).catch(() => undefined);
     const state = stateOf(original);
-    const recordedTypes = new Map([...(originalDefinition?.workflow ?? []), ...definition.workflow].map((step) => [step.id, step.type]));
-    const recorded = Object.fromEntries(Object.entries(state.steps).filter(([stepId]) => RECORDED_TYPES.has(recordedTypes.get(stepId)!)));
+    const recordedTypes = new Map([...walkSteps(originalDefinition?.workflow ?? []), ...walkSteps(definition.workflow)].map((v) => [v.step.id, v.step.type]));
+    const recorded: Record<string, unknown> = Object.fromEntries(
+      Object.entries(state.steps).filter(([stepId]) => RECORDED_TYPES.has(recordedTypes.get(stepId)!)),
+    );
+    // Inside loops each round had its own reply, decision or write: reused by where the step was (its key).
+    for (const row of await this.platform.engine.stepsOf(companyId, original.id)) {
+      if (row.key === row.stepId || row.status !== "succeeded" || row.outputTruncated) continue;
+      if (RECORDED_TYPES.has(row.type as WorkflowStep["type"])) recorded[row.key] = row.output;
+    }
     const run = await this.platform.engine.start(companyId, original.agentId, original.input, {
       trigger: original.trigger,
       triggerRef: original.triggerRef,

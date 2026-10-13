@@ -140,9 +140,19 @@ export function usageOfError(error: unknown): LlmUsage | undefined {
   return usage && typeof usage === "object" && "costUsd" in usage ? (usage as LlmUsage) : undefined;
 }
 
+/**
+ * Replays: what the original task's step found, by where the step is (its key: each round of a loop had
+ * its own); a step at the top also by its id, for runs from before keys were kept.
+ */
+export function recordedFor(scope: ExecutionScope, stepId: string): unknown {
+  const key = scope.stepKey ?? stepId;
+  if (scope.recorded && key in scope.recorded) return scope.recorded[key];
+  return key === stepId ? scope.recorded?.[stepId] : undefined;
+}
+
 /** Replays: what a step's call returned in the original task (without its own dry-run marks), or nothing. */
 function replayed(scope: ExecutionScope, stepId: string): Record<string, unknown> {
-  const recorded = scope.recorded?.[stepId];
+  const recorded = recordedFor(scope, stepId);
   if (!isRecord(recorded)) return {};
   const { dryRun: _dryRun, wouldExecute: _wouldExecute, ...rest } = recorded;
   return rest;
@@ -278,7 +288,7 @@ export function runWait(step: Step<"wait">, scope: ExecutionScope): StepOutcome 
   if (step.for === "time" && !until) throw new Error(`Step "${step.id}": a time wait needs days or a date in until`);
   if (!scope.task) {
     // A replay reuses what the original task found (its reply); otherwise the time is taken as passed.
-    const recorded = scope.recorded?.[step.id];
+    const recorded = recordedFor(scope, step.id);
     if (recorded !== undefined) return { kind: "done", result: recorded, message: "As in the original task (replay)" };
     return {
       kind: "done",

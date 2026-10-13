@@ -13,6 +13,7 @@ import {
   runOutput,
   runWait,
 } from "./io-steps.ts";
+import { runCode, runTransform } from "./control-steps.ts";
 import { runLlmClassify, runLlmEvaluate, runLlmExtract, runLlmGenerate } from "./llm-steps.ts";
 
 export async function executeStep(step: WorkflowStep, scope: ExecutionScope, deps: ToolDeps): Promise<StepOutcome> {
@@ -50,7 +51,9 @@ export async function executeStep(step: WorkflowStep, scope: ExecutionScope, dep
       // Steps that hold steps are run by the engine, which runs what they hold.
       throw new Error(`Step "${step.id}" (${step.type}) holds other steps and is run by the engine`);
     case "transform":
+      return runTransform(step, scope);
     case "code":
+      return runCode(step, scope);
     case "call":
     case "chat.send":
     case "respond":

@@ -53,16 +53,24 @@ async function engine(memoryBytes: number): Promise<QuickJSWASMModule> {
 
 /** The program run in the sandbox: the input as JSON text, the code as a function body, the result as JSON text. */
 function program(code: string, input: CalculationInput): string {
+  return wrap(code, JSON.stringify({ tables: input.tables, params: input.params ?? {} }), "calculate(tables, params)", "__input.tables, __input.params");
+}
+
+/** The code as the body of a function given the input (as JSON text); its value and what it logged come back as JSON text. */
+function wrap(code: string, inputJson: string, signature: string, args: string): string {
   return `"use strict";
 const __logs = [];
 const __say = (...values) => { if (__logs.length < 100) __logs.push(values.map((v) => (typeof v === "string" ? v : JSON.stringify(v))).join(" ").slice(0, 500)); };
 const console = { log: __say, info: __say, warn: __say, error: __say };
-const __input = JSON.parse(${JSON.stringify(JSON.stringify({ tables: input.tables, params: input.params ?? {} }))});
-const __value = (function calculate(tables, params) {
+const __input = JSON.parse(${JSON.stringify(inputJson)});
+const __value = (function ${signature} {
 ${code}
-})(__input.tables, __input.params);
+})(${args});
 JSON.stringify({ value: __value === undefined ? null : __value, logs: __logs });`;
 }
+
+/** The most a script is given, as JSON: larger data goes in by its fields, not whole. */
+export const SCRIPT_INPUT_BYTES = 2 * 1024 * 1024;
 
 /** The line of the rule's code an error is on (the code starts on the program's 7th line). */
 function where(stack: unknown): string {
@@ -75,6 +83,29 @@ function where(stack: unknown): string {
  * array of objects), a number, a text or an object; the result comes back as data.
  */
 export async function runCalculation(code: string, input: CalculationInput, limits: SandboxLimits = {}): Promise<SandboxResult> {
+  return runProgram(program(code, input), "calculation.js", limits, "a calculation");
+}
+
+/**
+ * Run a job's code step: `code` is the body of `function run(ctx)` and returns any value; `ctx` is plain
+ * data (the run's input, earlier steps' results, the company's variables, the loop's item). Same engine
+ * and limits as calculations.
+ */
+export async function runScript(code: string, ctx: Record<string, unknown>, limits: SandboxLimits = {}): Promise<SandboxResult> {
+  const json = JSON.stringify(ctx);
+  if (json.length > SCRIPT_INPUT_BYTES) {
+    return {
+      ok: false,
+      kind: "output",
+      error: `The data given to the code is larger than ${SCRIPT_INPUT_BYTES / (1024 * 1024)} MB: give it the fields it needs as the step's values`,
+      logs: [],
+      durationMs: 0,
+    };
+  }
+  return runProgram(wrap(code, json, "run(ctx)", "__input"), "step.js", limits, "a step's code");
+}
+
+async function runProgram(source: string, fileName: string, limits: SandboxLimits, what: string): Promise<SandboxResult> {
   const started = Date.now();
   const QuickJS = await engine(limits.memoryBytes ?? 64 * 1024 * 1024);
   const runtime = QuickJS.newRuntime();
@@ -84,7 +115,7 @@ export async function runCalculation(code: string, input: CalculationInput, limi
   const context = runtime.newContext();
   const took = () => Date.now() - started;
   try {
-    const evaluated = context.evalCode(program(code, input), "calculation.js");
+    const evaluated = context.evalCode(source, fileName);
     if (evaluated.error) {
       const error = context.dump(evaluated.error) as { name?: string; message?: string; stack?: string } | string;
       evaluated.error.dispose();
@@ -92,7 +123,7 @@ export async function runCalculation(code: string, input: CalculationInput, limi
       if (/interrupted/i.test(message))
         return { ok: false, kind: "timeout", error: `It took longer than ${Math.round(timeoutMs / 1000)} seconds`, logs: [], durationMs: took() };
       if (/out of memory/i.test(message))
-        return { ok: false, kind: "memory", error: "It needed more memory than a calculation may use", logs: [], durationMs: took() };
+        return { ok: false, kind: "memory", error: `It needed more memory than ${what} may use`, logs: [], durationMs: took() };
       return { ok: false, kind: "error", error: `${message}${typeof error === "string" ? "" : where(error?.stack)}`, logs: [], durationMs: took() };
     }
     const text = context.getString(evaluated.value);
